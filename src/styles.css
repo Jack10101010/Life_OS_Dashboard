@@ -1,0 +1,103 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color: #f5f5f2;
+  background: #080808;
+  --app-bg: #080808;
+  --app-bg-image: none;
+  --card-bg: #121212;
+  --card-border: #2a2a2a;
+  --button-border: #2f2f2f;
+  --button-primary-bg: #f3f1f0;
+  --button-primary-hover-bg: #ffffff;
+  --button-primary-text: #121212;
+  --button-ghost-bg: #1b1b1b;
+  --button-ghost-hover-bg: #262626;
+  --button-soft-bg: #242424;
+  --button-soft-hover-bg: #303030;
+  --panel-hue-strength: 1;
+  --panel-hue-glow: rgba(56, 115, 255, 0.14);
+  --panel-hue-line: rgba(56, 115, 255, 0.12);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+:root[data-theme='cyberpunk'] {
+  color: #f4f7ff;
+  background: #04050c;
+  --app-bg: #04050c;
+  --app-bg-image:
+    radial-gradient(circle at top left, rgba(0, 245, 255, 0.08), transparent 26%),
+    radial-gradient(circle at top right, rgba(255, 0, 128, 0.08), transparent 28%),
+    linear-gradient(180deg, #06070f 0%, #04050c 100%);
+  --card-bg: #0b0f1a;
+  --card-border: #243052;
+  --button-border: #2a3a68;
+  --button-primary-bg: #19f0ff;
+  --button-primary-hover-bg: #52f5ff;
+  --button-primary-text: #081019;
+  --button-ghost-bg: #0d1324;
+  --button-ghost-hover-bg: #151f39;
+  --button-soft-bg: #13192d;
+  --button-soft-hover-bg: #1b2542;
+}
+
+:root[data-panel-hue='blue'] {
+  --panel-hue-glow: rgba(56, 115, 255, calc(0.14 * var(--panel-hue-strength)));
+  --panel-hue-line: rgba(56, 115, 255, calc(0.12 * var(--panel-hue-strength)));
+}
+
+:root[data-panel-hue='purple'] {
+  --panel-hue-glow: rgba(173, 86, 255, calc(0.14 * var(--panel-hue-strength)));
+  --panel-hue-line: rgba(173, 86, 255, calc(0.12 * var(--panel-hue-strength)));
+}
+
+:root[data-panel-hue='green'] {
+  --panel-hue-glow: rgba(34, 211, 118, calc(0.14 * var(--panel-hue-strength)));
+  --panel-hue-line: rgba(34, 211, 118, calc(0.12 * var(--panel-hue-strength)));
+}
+
+:root[data-panel-hue='amber'] {
+  --panel-hue-glow: rgba(245, 158, 11, calc(0.14 * var(--panel-hue-strength)));
+  --panel-hue-line: rgba(245, 158, 11, calc(0.12 * var(--panel-hue-strength)));
+}
+
+:root[data-panel-hue='none'] {
+  --panel-hue-glow: rgba(0, 0, 0, 0);
+  --panel-hue-line: rgba(255, 255, 255, 0);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #314158 transparent;
+}
+
+body {
+  min-width: 1180px;
+  background: var(--app-bg);
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.app-grid {
+  background-color: var(--app-bg);
+  background-image: var(--app-bg-image);
+}
+
+.heat-cell {
+  transition:
+    transform 160ms ease,
+    background-color 160ms ease,
+    border-color 160ms ease,
+    opacity 160ms ease;
+}
+
+.heat-cell:hover {
+  transform: translateY(-2px);
+}
