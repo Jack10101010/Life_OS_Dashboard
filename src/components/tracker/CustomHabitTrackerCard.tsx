@@ -3,7 +3,16 @@ import { useState } from 'react'
 import { HabitTracker, HabitTrackerCalendarRange, HabitTrackerPeriodView, HeatmapLayout } from '../../types'
 import { getConsecutiveDateStreak } from '../../lib/streaks'
 import { Card } from '../ui/Card'
+import {
+  HeatmapActionButton,
+  HeatmapBadge,
+  HeatmapIconButton,
+  HeatmapMenuButton,
+  HeatmapPeriodControl,
+} from './HeatmapControls'
+import { HeatmapTile } from './HeatmapTile'
 import { HabitTrackerTooltip } from './HabitTrackerTooltip'
+import { HeatmapWeekRow } from './HeatmapWeekRow'
 import { GITHUB_DAY_LABELS, MONTH_LABELS, getContributionColumns, getContributionMonthSpans, getMonthMatrix } from './heatmapUtils'
 import { useHeatmapHover } from './useHeatmapHover'
 
@@ -224,46 +233,13 @@ function TrackerCellButton({
       className={`relative z-10 block text-left ${disabled ? 'cursor-not-allowed' : 'cursor-pointer'} ${className}`}
       {...hoverProps}
     >
-      <div
-        className={`heat-cell h-full w-full rounded-[4px] border ${
-          active ? 'border-white shadow-[0_0_0_1px_rgba(255,255,255,0.22)]' : 'border-white/[0.04]'
-        } ${dimmed && !disabled ? 'opacity-55' : ''}`}
-        style={{
-          backgroundColor: hovered ? '#595959' : disabled ? '#0E0E0E' : cell.completed ? getTrackerColor(color, colorIntensity) : '#262626',
-          borderColor: disabled ? 'rgba(255,255,255,0.03)' : undefined,
-        }}
+      <HeatmapTile
+        backgroundColor={hovered ? '#595959' : disabled ? '#0E0E0E' : cell.completed ? getTrackerColor(color, colorIntensity) : '#262626'}
+        active={active}
+        disabled={disabled}
+        dimmed={dimmed}
+        className="h-full w-full"
       />
-    </motion.button>
-  )
-}
-
-function LogTodayButton({
-  compact,
-  onClick,
-}: {
-  compact: boolean
-  onClick: () => void
-}) {
-  return (
-    <motion.button
-      type="button"
-      onClick={onClick}
-      whileHover={{ y: -1 }}
-      className={`group relative overflow-hidden border border-[rgba(255,255,255,0.08)] bg-[#181818] text-white shadow-[0_0_0_1px_var(--panel-hue-line),0_0_18px_var(--panel-hue-glow)] transition hover:bg-[#202020] ${
-        compact ? 'h-10 w-10 rounded-[14px]' : 'h-14 rounded-2xl px-5'
-      }`}
-      aria-label="Log today"
-    >
-      {compact ? (
-        <span className="flex h-full w-full items-center justify-center text-xl font-semibold leading-none">+</span>
-      ) : (
-        <span className="flex items-center gap-2">
-          <span className="text-2xl font-semibold leading-none">+</span>
-          <span className="translate-y-[1px] text-sm font-semibold tracking-[0.02em] text-[#EAEAEA] transition group-hover:text-white">
-            Log
-          </span>
-        </span>
-      )}
     </motion.button>
   )
 }
@@ -449,16 +425,8 @@ export function CustomHabitTrackerCard({
     )
   }
 
-  const renderMonthView = () => (
-    <div className="space-y-4">
-      <div className="grid grid-cols-7 gap-3 px-1">
-        {weekdayLabels.map((label) => (
-          <div key={label} className="text-center text-[11px] uppercase tracking-[0.16em] text-[#A0A0A0]">
-            {label.slice(0, 1)}
-          </div>
-        ))}
-      </div>
-      <div className={`grid gap-3 ${tracker.weekendVisibility === 'hide' ? 'grid-cols-5' : 'grid-cols-7'}`}>
+const renderMonthView = () => (
+    <HeatmapWeekRow labels={weekdayLabels} columns={tracker.weekendVisibility === 'hide' ? 5 : 7}>
         {monthCells
           .filter((cell) => !hideWeekends || !isWeekendIso(cell.date))
           .map((cell) => (
@@ -484,20 +452,11 @@ export function CustomHabitTrackerCard({
             </p>
           </div>
         ))}
-      </div>
-    </div>
+    </HeatmapWeekRow>
   )
 
   const renderWeekView = () => (
-    <div className="space-y-4">
-      <div className="grid grid-cols-7 gap-3 px-1">
-        {weekdayLabels.map((label) => (
-          <div key={label} className="text-center text-[11px] uppercase tracking-[0.16em] text-[#A0A0A0]">
-            {label.slice(0, 1)}
-          </div>
-        ))}
-      </div>
-      <div className={`grid gap-3 ${tracker.weekendVisibility === 'hide' ? 'grid-cols-5' : 'grid-cols-7'}`}>
+    <HeatmapWeekRow labels={weekdayLabels} columns={tracker.weekendVisibility === 'hide' ? 5 : 7}>
         {weekCells
           .filter((cell) => !hideWeekends || !isWeekendIso(cell.date))
           .map((cell) => (
@@ -518,8 +477,7 @@ export function CustomHabitTrackerCard({
             </p>
           </div>
         ))}
-      </div>
-    </div>
+    </HeatmapWeekRow>
   )
 
   return (
@@ -547,43 +505,23 @@ export function CustomHabitTrackerCard({
         </div>
         <div className={`flex items-center ${compactMode ? 'gap-1' : 'gap-2'}`}>
           {periodView !== 'year' ? (
-            <div className={`flex items-center ${compactMode ? 'gap-0.5 rounded-[14px] px-1 py-1' : 'gap-2 rounded-2xl px-2 py-2'} border border-[#2F2F2F] bg-[#171717] text-sm text-[#D1D1D1]`}>
-              <button
-                type="button"
-                onClick={() => onShiftPeriod(shiftFocusDate(periodView, focusDate, 'prev'))}
-                className={`${compactMode ? 'rounded-lg px-1.5 py-1 text-xs' : 'rounded-xl px-2 py-1'} text-[#9A9A9A] transition hover:bg-[#222] hover:text-white`}
-              >
-                ‹
-              </button>
-              <span className={`${compactMode ? 'min-w-[92px] text-[12px]' : 'min-w-[120px]'} text-center font-medium`}>{periodLabel}</span>
-              <button
-                type="button"
-                onClick={() => onShiftPeriod(shiftFocusDate(periodView, focusDate, 'next'))}
-                className={`${compactMode ? 'rounded-lg px-1.5 py-1 text-xs' : 'rounded-xl px-2 py-1'} text-[#9A9A9A] transition hover:bg-[#222] hover:text-white`}
-              >
-                ›
-              </button>
-            </div>
+            <HeatmapPeriodControl
+              label={periodLabel}
+              onPrev={() => onShiftPeriod(shiftFocusDate(periodView, focusDate, 'prev'))}
+              onNext={() => onShiftPeriod(shiftFocusDate(periodView, focusDate, 'next'))}
+              compact={compactMode}
+            />
           ) : (
-            <div className={`${compactMode ? 'rounded-[16px] px-3 py-2 text-[13px]' : 'rounded-2xl px-4 py-2 text-sm'} border border-[#2F2F2F] bg-[#171717] text-white`}>
-              {periodLabel}
-            </div>
+            <HeatmapBadge compact={compactMode}>{periodLabel}</HeatmapBadge>
           )}
           {periodView === 'year' && layout === 'calendar' ? (
             <div className="relative">
-              <button
-                type="button"
-                onClick={() => setViewMenuOpen((value) => !value)}
-                className="rounded-[16px] border border-[#2F2F2F] bg-[#171717] px-3 py-2 text-[13px] text-white outline-none transition hover:bg-[#202020]"
-                aria-label="View range"
-              >
-                View
-              </button>
+              <HeatmapMenuButton label="View" onClick={() => setViewMenuOpen((value) => !value)} />
               {viewMenuOpen ? (
                 <div className="absolute right-0 top-[calc(100%+8px)] z-30 min-w-[210px] rounded-2xl border border-[#2F2F2F] bg-[#171717] p-1.5 shadow-[0_16px_40px_rgba(0,0,0,0.35)]">
                   {([
                     ['full-year', 'Full tile view'],
-                    ['first-entry', 'From first day recorded'],
+                    ['first-entry', 'From first entry'],
                     ['current-date', 'From today'],
                   ] as Array<[HabitTrackerCalendarRange, string]>).map(([value, label]) => (
                     <button
@@ -605,21 +543,13 @@ export function CustomHabitTrackerCard({
               ) : null}
             </div>
           ) : null}
-          <button
-            onClick={onToggleCollapse}
-            className={`${compactMode ? 'h-9 w-9 rounded-[14px] text-sm' : 'rounded-2xl px-3 py-2 text-sm'} border border-[#2F2F2F] bg-[#171717] text-[#B0B0B0] transition hover:bg-[#222] hover:text-white`}
-            aria-label={collapsed ? 'Expand tracker' : 'Collapse tracker'}
-          >
+          <HeatmapIconButton onClick={onToggleCollapse} ariaLabel={collapsed ? 'Expand tracker' : 'Collapse tracker'} compact={compactMode}>
             <span className={`inline-block transition-transform ${collapsed ? 'rotate-180' : ''}`}>⌃</span>
-          </button>
-          <button
-            onClick={onOpenSettings}
-            className={`${compactMode ? 'h-9 w-9 rounded-[14px] text-[18px]' : 'rounded-2xl px-3 py-2 text-[18px]'} border border-[#2F2F2F] bg-[#171717] text-[#B0B0B0] transition hover:bg-[#222] hover:text-white`}
-            aria-label="Tracker settings"
-          >
+          </HeatmapIconButton>
+          <HeatmapIconButton onClick={onOpenSettings} ariaLabel="Tracker settings" compact={compactMode}>
             ⚙
-          </button>
-          {!compactMode ? <LogTodayButton compact={false} onClick={() => onSelectDate(new Date().toISOString().slice(0, 10))} /> : null}
+          </HeatmapIconButton>
+          {!compactMode ? <HeatmapActionButton label="Log" compact={false} onClick={() => onSelectDate(new Date().toISOString().slice(0, 10))} /> : null}
         </div>
       </div>
 
@@ -658,7 +588,7 @@ export function CustomHabitTrackerCard({
           </p>
         </div>
         {compactMode ? (
-          <LogTodayButton compact onClick={() => onSelectDate(new Date().toISOString().slice(0, 10))} />
+          <HeatmapActionButton label="Log" compact onClick={() => onSelectDate(new Date().toISOString().slice(0, 10))} />
         ) : (
           <p className="flex items-center gap-2">
             <span className="h-3 w-3 rounded-full" style={{ backgroundColor: trackerColor }} /> {tracker.title}

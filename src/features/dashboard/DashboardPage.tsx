@@ -4,7 +4,8 @@ import { Card } from '../../components/ui/Card'
 import { StatPill } from '../../components/ui/StatPill'
 import { TagPill } from '../../components/ui/TagPill'
 import { WeekHeatmap } from '../../components/tracker/WeekHeatmap'
-import { DashboardBlockLayoutItem, DayEntry, Tag, WeekEntry } from '../../types'
+import { DayEntry, Tag, WeekEntry } from '../../types'
+import { useDashboardState } from '../../hooks/useDashboardState'
 
 export function DashboardPage({
   weeks,
@@ -24,8 +25,6 @@ export function DashboardPage({
   tags: Tag[]
   alcoholFreeStreak: number
   momentumScore: number
-  layout?: DashboardBlockLayoutItem[]
-  onLayoutChange?: React.Dispatch<React.SetStateAction<DashboardBlockLayoutItem[]>>
   onExportState: () => void
   onOpenWeek: (week: WeekEntry) => void
   onGoToTrackerWeek: (week: WeekEntry) => void
@@ -33,48 +32,10 @@ export function DashboardPage({
   onOpenTracker: () => void
   onOpenDay: (day: DayEntry) => void
 }) {
-  const currentWeek = weeks[weeks.length - 1]
-  const recentDays = days.slice(-14)
-  const todayDate = new Date().toISOString().slice(0, 10)
-  const todayEntry = days.find((day) => day.date === todayDate) ?? days[days.length - 1]
-  const moodTrend = recentDays.map((day) => ({
-    name: new Date(day.date).toLocaleDateString('en-IE', { day: 'numeric', month: 'short' }),
-    am: day.isLogged ? day.morningMood : null,
-    pm: day.isLogged ? day.eveningMood : null,
-  }))
-
-  const loggedDays = days.filter((day) => day.isLogged)
-  const topHabits = [
-    {
-      label: 'Training',
-      value: loggedDays.length === 0 ? '0%' : `${Math.round((loggedDays.filter((day) => day.completedHabitIds.includes('training')).length / loggedDays.length) * 100)}%`,
-    },
-    {
-      label: 'Walk',
-      value: loggedDays.length === 0 ? '0%' : `${Math.round((loggedDays.filter((day) => day.completedHabitIds.includes('walk')).length / loggedDays.length) * 100)}%`,
-    },
-    {
-      label: 'Journal',
-      value: loggedDays.length === 0 ? '0%' : `${Math.round((loggedDays.filter((day) => day.completedHabitIds.includes('journal')).length / loggedDays.length) * 100)}%`,
-    },
-    {
-      label: 'Sleep',
-      value: loggedDays.length === 0 ? '0%' : `${Math.round((loggedDays.filter((day) => day.tags.includes('tag-clear')).length / loggedDays.length) * 100)}%`,
-    },
-  ]
-
-  const journalHighlights = days
-    .filter((day) => day.isLogged && (day.notes || day.moodNote))
-    .slice()
-    .reverse()
-    .slice(0, 3)
-  const recentWins = weeks.slice(-3).filter((week) => week.bigWin)
-
-  const todayStatus = [
-    todayEntry?.isLogged ? 'Logged' : 'Not logged yet',
-    `Habits ${todayEntry?.habitsCompleted ?? 0}/${todayEntry?.habitsTotal ?? 0}`,
-    todayEntry?.drank ? 'Alcohol logged' : 'No alcohol logged',
-  ]
+  const { currentWeek, todayEntry, moodTrend, topHabits, journalHighlights, recentWins, todayStatus } = useDashboardState({
+    days,
+    weeks,
+  })
 
   return (
     <div className="space-y-5">
@@ -241,7 +202,7 @@ export function DashboardPage({
                     month: 'short',
                   })}
                 </p>
-                <p className="mt-2 line-clamp-3 text-sm text-mist">{day.notes || day.moodNote}</p>
+                <p className="mt-2 line-clamp-3 text-sm text-mist">{day.journal || day.moodNote}</p>
               </button>
             ))}
             {journalHighlights.length === 0 ? <p className="text-sm text-mist">No journal highlights yet.</p> : null}

@@ -2,10 +2,10 @@ import { useMemo, useState } from 'react'
 import { getDailyScore, getWeeklyScore } from '../lib/scoring'
 import { getConsecutiveDateStreak } from '../lib/streaks'
 import { PersistedAppState } from '../lib/persistence'
-import { ColorMode, DayEntry, HeatmapLayout, TrackerFilters, TrackerViewMode } from '../types'
+import { ColorMode, DayEntry, HabitTrackerCalendarRange, HeatmapLayout, TrackerFilters, TrackerViewMode } from '../types'
 
 export function useTrackerState(initialState: PersistedAppState, currentYear: number) {
-  const [dataByYear, setDataByYear] = useState(initialState.dataByYear)
+  const [dataByYear, setDataByYear] = useState(() => normalizeTrackerData(initialState.dataByYear))
   const [habits] = useState(initialState.habits)
   const [tags] = useState(initialState.tags)
   const [viewMode, setViewMode] = useState<TrackerViewMode>(initialState.viewMode)
@@ -16,6 +16,11 @@ export function useTrackerState(initialState: PersistedAppState, currentYear: nu
   const [selectedWeekId, setSelectedWeekId] = useState<string | null>(initialState.selectedWeekId)
   const [selectedDayId, setSelectedDayId] = useState<string | null>(initialState.selectedDayId)
   const [openDrawer, setOpenDrawer] = useState<'day' | 'week' | null>(initialState.openDrawer)
+  const [moodHeatmapFocusDate, setMoodHeatmapFocusDate] = useState(initialState.moodHeatmapFocusDate)
+  const [moodHeatmapCalendarRange, setMoodHeatmapCalendarRange] = useState<HabitTrackerCalendarRange>(
+    initialState.moodHeatmapCalendarRange,
+  )
+  const [moodHighlightCurrentWeek, setMoodHighlightCurrentWeek] = useState(initialState.moodHighlightCurrentWeek)
 
   const dataset = dataByYear[filters.year as keyof typeof dataByYear]
 
@@ -40,7 +45,7 @@ export function useTrackerState(initialState: PersistedAppState, currentYear: nu
               ).toFixed(1),
             )
       const tags = Array.from(new Set(loggedDays.flatMap((day) => day.tags))).slice(0, 4)
-      const reflection = loggedDays.find((day) => day.notes)?.notes ?? ''
+      const reflection = loggedDays.find((day) => day.journal)?.journal ?? ''
       const whatWentWell = loggedDays.find((day) => day.bigWin)?.bigWin ?? ''
       const whatSlipped = loggedDays.some((day) => day.drank)
         ? 'A drink was logged during this week.'
@@ -107,7 +112,7 @@ export function useTrackerState(initialState: PersistedAppState, currentYear: nu
   }, [computedWeeks])
 
   const hydrate = (next: PersistedAppState) => {
-    setDataByYear(next.dataByYear)
+    setDataByYear(normalizeTrackerData(next.dataByYear))
     setViewMode(next.viewMode)
     setColorMode(next.colorMode)
     setHeatmapLayout(next.heatmapLayout)
@@ -116,6 +121,9 @@ export function useTrackerState(initialState: PersistedAppState, currentYear: nu
     setSelectedWeekId(next.selectedWeekId)
     setSelectedDayId(next.selectedDayId)
     setOpenDrawer(next.openDrawer)
+    setMoodHeatmapFocusDate(next.moodHeatmapFocusDate)
+    setMoodHeatmapCalendarRange(next.moodHeatmapCalendarRange)
+    setMoodHighlightCurrentWeek(next.moodHighlightCurrentWeek)
   }
 
   const updateDay = (dayId: string, updater: (day: DayEntry) => DayEntry) => {
@@ -137,7 +145,7 @@ export function useTrackerState(initialState: PersistedAppState, currentYear: nu
                   drank: updated.drank,
                 })
               : 0
-            return { ...updated, score }
+            return { ...updated, score, updatedAt: new Date().toISOString() }
           }),
         },
       }
@@ -182,6 +190,33 @@ export function useTrackerState(initialState: PersistedAppState, currentYear: nu
     openSpecificDay(todayYear, todayDay.id, todayDay.linkedWeek)
   }
 
+  const deleteDayEntry = (dayId: string) => {
+    const existingDay = dataset.days.find((day) => day.id === dayId)
+    if (!existingDay || !hasDayEntryData(existingDay)) return false
+
+    setDataByYear((current) => {
+      const yearData = current[filters.year as keyof typeof current]
+      return {
+        ...current,
+        [filters.year]: {
+          ...yearData,
+          days: yearData.days.map((day) => (day.id === dayId ? resetDayEntry(day) : day)),
+        },
+      }
+    })
+
+    if (selectedDayId === dayId) {
+      const currentIndex = dataset.days.findIndex((day) => day.id === dayId)
+      const previousDay = currentIndex > 0 ? dataset.days[currentIndex - 1] : null
+      if (previousDay) {
+        setSelectedDayId(previousDay.id)
+        setSelectedWeekId(previousDay.linkedWeek)
+      }
+    }
+
+    return true
+  }
+
   return {
     dataByYear,
     setDataByYear,
@@ -203,6 +238,12 @@ export function useTrackerState(initialState: PersistedAppState, currentYear: nu
     setSelectedDayId,
     openDrawer,
     setOpenDrawer,
+    moodHeatmapFocusDate,
+    setMoodHeatmapFocusDate,
+    moodHeatmapCalendarRange,
+    setMoodHeatmapCalendarRange,
+    moodHighlightCurrentWeek,
+    setMoodHighlightCurrentWeek,
     dataset,
     computedWeeks,
     filteredDays,
@@ -217,6 +258,95 @@ export function useTrackerState(initialState: PersistedAppState, currentYear: nu
     handleNavigateDay,
     openSpecificDay,
     openToday,
+    deleteDayEntry,
     hydrate,
+  }
+}
+
+function normalizeTrackerData(dataByYear: PersistedAppState['dataByYear']) {
+  return Object.fromEntries(
+    Object.entries(dataByYear).map(([year, dataset]) => [
+      year,
+      {
+        ...dataset,
+        days: dataset.days.map((day) => normalizeDayEntry(day)),
+      },
+    ]),
+  ) as PersistedAppState['dataByYear']
+}
+
+function normalizeDayEntry(day: DayEntry): DayEntry {
+  if (!day.isLogged) {
+    return {
+      ...day,
+      mood: null,
+      motivation: null,
+      clarity: null,
+      energy: null,
+      sleepQuality: null,
+    }
+  }
+
+  return {
+    ...day,
+    mood: normalizeCheckInValue(day.mood),
+    motivation: normalizeCheckInValue(day.motivation),
+    clarity: normalizeCheckInValue(day.clarity),
+    energy: normalizeCheckInValue(day.energy),
+    sleepQuality: normalizeCheckInValue(day.sleepQuality),
+  }
+}
+
+function normalizeCheckInValue(value: number | null) {
+  if (value == null) return null
+  return Math.min(10, Math.max(1, Math.round(value)))
+}
+
+function hasDayEntryData(day: DayEntry) {
+  return (
+    day.isLogged ||
+    day.cellColor !== 'blank' ||
+    day.mood !== null ||
+    day.motivation !== null ||
+    day.clarity !== null ||
+    day.energy !== null ||
+    day.sleepQuality !== null ||
+    day.moodNote.trim().length > 0 ||
+    day.completedHabitIds.length > 0 ||
+    day.habitsCompleted > 0 ||
+    day.drank ||
+    day.bigWin.trim().length > 0 ||
+    day.journal.trim().length > 0 ||
+    day.tasks.length > 0 ||
+    day.reminders.length > 0 ||
+    day.dailyActions.length > 0 ||
+    day.tags.length > 0
+  )
+}
+
+function resetDayEntry(day: DayEntry): DayEntry {
+  return {
+    ...day,
+    isLogged: false,
+    cellColor: 'blank',
+    mood: null,
+    motivation: null,
+    clarity: null,
+    energy: null,
+    sleepQuality: null,
+    morningMood: 3,
+    eveningMood: 3,
+    moodNote: '',
+    habitsCompleted: 0,
+    completedHabitIds: [],
+    drank: false,
+    bigWin: '',
+    journal: '',
+    tasks: [],
+    reminders: [],
+    dailyActions: [],
+    tags: [],
+    score: 0,
+    updatedAt: null,
   }
 }

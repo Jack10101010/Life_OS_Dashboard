@@ -7,6 +7,7 @@ export function DetailDrawer({
   subtitle,
   onClose,
   size = 'md',
+  headerActions,
   children,
 }: {
   open: boolean
@@ -14,6 +15,7 @@ export function DetailDrawer({
   subtitle: string
   onClose: () => void
   size?: 'md' | 'lg'
+  headerActions?: ReactNode
   children: ReactNode
 }) {
   const widthClassName = size === 'lg' ? 'w-[min(1080px,92vw)]' : 'w-[min(760px,88vw)]'
@@ -42,12 +44,15 @@ export function DetailDrawer({
                   <p className="text-xs uppercase tracking-[0.22em] text-[#8B8B8B]">{subtitle}</p>
                   <h3 className="mt-2 text-2xl font-semibold text-white">{title}</h3>
                 </div>
-                <button
-                  onClick={onClose}
-                  className="rounded-full border border-[#333] bg-[#191919] px-3 py-1.5 text-sm text-[#B0B0B0] transition hover:bg-[#222] hover:text-white"
-                >
-                  Close
-                </button>
+                <div className="flex items-center gap-2">
+                  {headerActions}
+                  <button
+                    onClick={onClose}
+                    className="rounded-full border border-[#333] bg-[#191919] px-3 py-1.5 text-sm text-[#B0B0B0] transition hover:bg-[#222] hover:text-white"
+                  >
+                    Close
+                  </button>
+                </div>
               </div>
             </div>
             <div className="max-h-[calc(86vh-92px)] overflow-y-auto bg-[#0D0D0D] px-6 py-5">{children}</div>

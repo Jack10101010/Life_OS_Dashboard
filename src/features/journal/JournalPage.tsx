@@ -10,7 +10,7 @@ export function JournalPage({
   onOpenDay: (day: DayEntry) => void
 }) {
   const logged = entries
-    .filter((day) => day.isLogged && (day.notes || day.moodNote || day.bigWin))
+    .filter((day) => day.isLogged && (day.journal || day.moodNote || day.bigWin))
     .sort((a, b) => b.date.localeCompare(a.date))
 
   return (
@@ -42,7 +42,7 @@ export function JournalPage({
               </div>
               <Button onClick={() => onOpenDay(day)}>Open</Button>
             </div>
-            {day.notes ? <p className="text-sm leading-6 text-[#C8C8C8]">{day.notes}</p> : null}
+            {day.journal ? <p className="text-sm leading-6 text-[#C8C8C8]">{day.journal}</p> : null}
           </Card>
         ))
       )}

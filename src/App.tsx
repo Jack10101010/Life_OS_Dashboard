@@ -3,7 +3,6 @@ import { motion } from 'framer-motion'
 import { Sidebar } from './components/layout/Sidebar'
 import { TopBar } from './components/layout/TopBar'
 import { DayDrawer } from './components/tracker/DayDrawer'
-import { CustomHabitTrackerCard } from './components/tracker/CustomHabitTrackerCard'
 import { HabitTrackerEntryModal } from './components/tracker/HabitTrackerEntryModal'
 import { HabitTrackerSettingsModal } from './components/tracker/HabitTrackerSettingsModal'
 import { DevNotesCard } from './components/ui/DevNotesCard'
@@ -18,8 +17,8 @@ import { DashboardPage } from './features/dashboard/DashboardPage'
 import { JournalPage } from './features/journal/JournalPage'
 import { PlaceholderPage } from './features/placeholder/PlaceholderPage'
 import { SettingsPage } from './features/settings/SettingsPage'
-import { TrackerPage } from './features/tracker/TrackerPage'
-import { HabitTrackerPeriodView, PageId } from './types'
+import { TrackerWorkspace } from './features/tracker/TrackerWorkspace'
+import { PageId } from './types'
 
 const currentYear = 2026
 const availableYears = [2025, 2026]
@@ -27,7 +26,6 @@ export default function App() {
   const persisted = useMemo(() => loadPersistedAppState(currentYear), [])
   const appShell = useAppShellState(persisted)
   const settingsState = useSettingsState(persisted.settings)
-  const dashboardState = useDashboardState(persisted.dashboardLayout)
   const trackerState = useTrackerState(persisted, currentYear)
   const habitTrackerState = useHabitTrackerState(persisted)
 
@@ -45,7 +43,6 @@ export default function App() {
     setPageDevNotes,
     hydrate: hydrateAppShell,
   } = appShell
-  const { dashboardLayout, setDashboardLayout, hydrate: hydrateDashboard } = dashboardState
   const {
     dataByYear,
     habits,
@@ -66,6 +63,12 @@ export default function App() {
     setSelectedDayId,
     openDrawer,
     setOpenDrawer,
+    moodHeatmapFocusDate,
+    setMoodHeatmapFocusDate,
+    moodHeatmapCalendarRange,
+    setMoodHeatmapCalendarRange,
+    moodHighlightCurrentWeek,
+    setMoodHighlightCurrentWeek,
     dataset,
     computedWeeks,
     filteredDays,
@@ -80,6 +83,7 @@ export default function App() {
     handleNavigateDay,
     openSpecificDay,
     openToday,
+    deleteDayEntry,
     hydrate: hydrateTracker,
   } = trackerState
   const {
@@ -132,10 +136,12 @@ export default function App() {
       sidebarOrder,
       sidebarLabels,
       pageDevNotes,
-      dashboardLayout,
       habitTrackerPeriodView,
       habitTrackerFocusDate,
       habitTrackerCalendarRangeByTracker,
+      moodHeatmapFocusDate,
+      moodHeatmapCalendarRange,
+      moodHighlightCurrentWeek,
     })
   }, [
     dataByYear,
@@ -160,10 +166,12 @@ export default function App() {
     sidebarOrder,
     sidebarLabels,
     pageDevNotes,
-    dashboardLayout,
     habitTrackerPeriodView,
     habitTrackerFocusDate,
     habitTrackerCalendarRangeByTracker,
+    moodHeatmapFocusDate,
+    moodHeatmapCalendarRange,
+    moodHighlightCurrentWeek,
   ])
 
   const buildPersistedSnapshot = () => ({
@@ -189,10 +197,12 @@ export default function App() {
     sidebarOrder,
     sidebarLabels,
     pageDevNotes,
-    dashboardLayout,
     habitTrackerPeriodView,
     habitTrackerFocusDate,
     habitTrackerCalendarRangeByTracker,
+    moodHeatmapFocusDate,
+    moodHeatmapCalendarRange,
+    moodHighlightCurrentWeek,
   })
 
   const handleExportState = () => {
@@ -211,7 +221,6 @@ export default function App() {
       const imported = importPersistedAppState(raw, currentYear)
       hydrateAppShell(imported)
       hydrateSettings(imported.settings)
-      hydrateDashboard(imported.dashboardLayout)
       hydrateTracker(imported)
       hydrateHabitTrackers(imported)
       window.alert('Backup restored successfully.')
@@ -252,117 +261,74 @@ export default function App() {
 
     if (page === 'tracker') {
       return (
-        <>
-          <TrackerPage
-            viewMode={viewMode}
-            onViewModeChange={setViewMode}
-            colorMode={colorMode}
-            onColorModeChange={setColorMode}
-            layout={heatmapLayout}
-            onLayoutChange={setHeatmapLayout}
-            year={filters.year}
-            years={availableYears}
-            filters={filters}
-            showFilters={showFilters}
-            onToggleFilters={() => setShowFilters((value) => !value)}
-            onFiltersChange={setFilters}
-            weeks={filteredWeeks}
-            days={filteredDays}
-            habits={habits}
-            tags={tags}
-            selectedWeek={selectedWeek}
-            selectedWeekDays={selectedWeekDays}
-            selectedDay={selectedDay}
-            moodCollapsed={moodCollapsed}
-            onToggleMoodCollapsed={() => setMoodCollapsed((value) => !value)}
-            onCreateTracker={createTracker}
-            onSelectWeek={(week) => {
+        <TrackerWorkspace
+          trackerPage={{
+            viewMode,
+            onViewModeChange: setViewMode,
+            colorMode,
+            onColorModeChange: setColorMode,
+            year: filters.year,
+            years: availableYears,
+            filters,
+            showFilters,
+            onToggleFilters: () => setShowFilters((value) => !value),
+            onFiltersChange: setFilters,
+            weeks: filteredWeeks,
+            days: filteredDays,
+            habits,
+            tags,
+            selectedWeek,
+            selectedWeekDays,
+            selectedDay,
+            moodHeatmapFocusDate,
+            onMoodHeatmapFocusDateChange: setMoodHeatmapFocusDate,
+            moodHeatmapCalendarRange,
+            onMoodHeatmapCalendarRangeChange: setMoodHeatmapCalendarRange,
+            moodHighlightCurrentWeek,
+            onMoodHighlightCurrentWeekChange: setMoodHighlightCurrentWeek,
+            onLogToday: () => openToday(false, setPage),
+            onSelectWeek: (week) => {
               setSelectedWeekId(week.id)
               setOpenDrawer('week')
-            }}
-            onSelectDay={(day) => {
+            },
+            onPreviewWeek: (week) => {
+              setSelectedWeekId(week.id)
+            },
+            onSelectDay: (day) => {
               setSelectedDayId(day.id)
               setOpenDrawer('day')
-            }}
-          />
-
-          <div className="mt-5 space-y-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs uppercase tracking-[0.22em] text-[#8F8F8F]">Custom trackers</p>
-                <h3 className="mt-2 text-2xl font-semibold text-white">Habit heatmaps</h3>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-1 rounded-2xl border border-[#2C2C2C] bg-[#181818] p-1">
-                  {(['year', 'month', 'week'] as HabitTrackerPeriodView[]).map((item) => (
-                    <button
-                      key={item}
-                      type="button"
-                      onClick={() => setHabitTrackerPeriodView(item)}
-                      className={`rounded-2xl px-4 py-2 text-sm font-medium transition ${
-                        habitTrackerPeriodView === item ? 'bg-[#343434] text-white' : 'text-[#A3A3A3] hover:text-white'
-                      }`}
-                    >
-                      {item === 'year' ? 'Year' : item === 'month' ? 'Month' : 'Week'}
-                    </button>
-                  ))}
-                </div>
-                <button
-                  onClick={createTracker}
-                  className="rounded-2xl border border-[#2F2F2F] bg-[#181818] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#232323]"
-                >
-                  Create habit
-                </button>
-              </div>
-            </div>
-            {habitTrackers.length === 0 ? (
-              <div>
-                <div className="rounded-3xl border border-[#252525] bg-[#111111] p-6 text-sm text-[#A0A0A0]">
-                  No custom heatmaps yet. Create one for habits like Running, Meditation, Sleep, or Reading.
-                </div>
-              </div>
-            ) : null}
-            <div
-              className={`${
-                habitTrackerPeriodView === 'year'
-                  ? 'space-y-5'
-                  : 'grid gap-5 md:grid-cols-2 xl:grid-cols-3'
-              }`}
-            >
-              {habitTrackers.map((tracker) => (
-                <CustomHabitTrackerCard
-                  key={tracker.id}
-                  tracker={tracker}
-                  year={filters.year}
-                  layout={heatmapLayout}
-                  periodView={habitTrackerPeriodView}
-                  focusDate={habitTrackerFocusDate}
-                  calendarRange={habitTrackerCalendarRangeByTracker[tracker.id] ?? 'full-year'}
-                  selectedDate={habitEntryDraft?.trackerId === tracker.id ? habitEntryDraft.date : undefined}
-                  collapsed={collapsedTrackers[tracker.id] ?? false}
-                  onToggleCollapse={() =>
-                    setCollapsedTrackers((current) => ({ ...current, [tracker.id]: !current[tracker.id] }))
-                  }
-                  onShiftPeriod={setHabitTrackerFocusDate}
-                  onCalendarRangeChange={(next) =>
-                    setHabitTrackerCalendarRangeByTracker((current) => ({ ...current, [tracker.id]: next }))
-                  }
-                  onSelectDate={(date) => {
-                    const entry = tracker.entries[date]
-                    setHabitTrackerFocusDate(date)
-                    setHabitEntryDraft({
-                      trackerId: tracker.id,
-                      date,
-                      completed: entry?.completed ?? false,
-                      note: entry?.note ?? '',
-                    })
-                  }}
-                  onOpenSettings={() => setEditingTracker(tracker)}
-                />
-              ))}
-            </div>
-          </div>
-        </>
+            },
+          }}
+          customTrackers={{
+            tags,
+            heatmapLayout,
+            year: filters.year,
+            habitTrackers,
+            habitTrackerPeriodView,
+            habitTrackerFocusDate,
+            habitTrackerCalendarRangeByTracker,
+            habitEntryDraft,
+            collapsedTrackers,
+            onCreateTracker: createTracker,
+            onPeriodViewChange: setHabitTrackerPeriodView,
+            onToggleCollapse: (trackerId) =>
+              setCollapsedTrackers((current) => ({ ...current, [trackerId]: !current[trackerId] })),
+            onShiftPeriod: setHabitTrackerFocusDate,
+            onCalendarRangeChange: (trackerId, next) =>
+              setHabitTrackerCalendarRangeByTracker((current) => ({ ...current, [trackerId]: next })),
+            onSelectDate: (tracker, date) => {
+              const entry = tracker.entries[date]
+              setHabitTrackerFocusDate(date)
+              setHabitEntryDraft({
+                trackerId: tracker.id,
+                date,
+                completed: entry?.completed ?? false,
+                note: entry?.note ?? '',
+              })
+            },
+            onOpenSettings: setEditingTracker,
+          }}
+        />
       )
     }
 
@@ -473,7 +439,7 @@ export default function App() {
           <TopBar page={page} onOpenToday={() => openToday(false, setPage)} />
           <main className="px-8 py-6">
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.28 }}>
-              {page !== 'dashboard' ? (
+              {page !== 'dashboard' && page !== 'tracker' ? (
                 <DevNotesCard
                   page={page}
                   value={pageDevNotes[page] ?? ''}
@@ -513,6 +479,7 @@ export default function App() {
         onSelectTag={handleSelectTag}
         onNavigateDay={handleNavigateDay}
         onUpdateDay={updateDay}
+        onDeleteDay={deleteDayEntry}
       />
 
       <HabitTrackerSettingsModal

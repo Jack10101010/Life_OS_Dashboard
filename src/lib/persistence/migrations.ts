@@ -1,19 +1,6 @@
 import { createMockData, defaultSettings, starterHabits, starterTags } from '../../data/mockData'
 import { getDefaultSidebarLabels, getDefaultSidebarOrder } from '../sidebar'
-import {
-  ColorMode,
-  DashboardBlockLayoutItem,
-  Habit,
-  HabitTracker,
-  HabitTrackerCalendarRange,
-  HabitTrackerPeriodView,
-  HeatmapLayout,
-  PageId,
-  SettingsState,
-  Tag,
-  TrackerFilters,
-  TrackerViewMode,
-} from '../../types'
+import { ColorMode, Habit, HabitTracker, HabitTrackerCalendarRange, HabitTrackerPeriodView, HeatmapLayout, PageId, SettingsState, Tag, TrackerFilters, TrackerViewMode } from '../../types'
 
 export interface PersistedAppState {
   dataByYear: Record<number, ReturnType<typeof createMockData>>
@@ -38,10 +25,12 @@ export interface PersistedAppState {
   sidebarOrder: PageId[]
   sidebarLabels: Record<PageId, string>
   pageDevNotes: Record<PageId, string>
-  dashboardLayout: DashboardBlockLayoutItem[]
   habitTrackerPeriodView: HabitTrackerPeriodView
   habitTrackerFocusDate: string
   habitTrackerCalendarRangeByTracker: Record<string, HabitTrackerCalendarRange>
+  moodHeatmapFocusDate: string
+  moodHeatmapCalendarRange: HabitTrackerCalendarRange
+  moodHighlightCurrentWeek: boolean
 }
 
 export function getDefaultPersistedAppState(currentYear: number): PersistedAppState {
@@ -89,17 +78,12 @@ export function getDefaultPersistedAppState(currentYear: number): PersistedAppSt
       'trade-log': '',
       settings: '',
     },
-    dashboardLayout: [
-      { id: 'week-overview', order: 0, colSpan: 8, rowSpan: 4 },
-      { id: 'mood-trend', order: 1, colSpan: 6, rowSpan: 4 },
-      { id: 'habit-consistency', order: 2, colSpan: 6, rowSpan: 3 },
-      { id: 'momentum', order: 3, colSpan: 4, rowSpan: 3 },
-      { id: 'recent-wins', order: 4, colSpan: 4, rowSpan: 4 },
-      { id: 'alcohol-status', order: 5, colSpan: 4, rowSpan: 3 },
-    ],
     habitTrackerPeriodView: 'year',
     habitTrackerFocusDate: `${currentYear}-03-17`,
     habitTrackerCalendarRangeByTracker: {},
+    moodHeatmapFocusDate: `${currentYear}-03-17`,
+    moodHeatmapCalendarRange: 'full-year',
+    moodHighlightCurrentWeek: true,
   }
 }
 
@@ -114,9 +98,16 @@ export function normalizePersistedAppState(parsed: Partial<PersistedAppState>, c
               ...dataset,
               days: dataset.days.map((day) => ({
                 ...day,
+                mood: day.isLogged ? day.mood ?? null : null,
+                motivation: day.isLogged ? day.motivation ?? null : null,
+                clarity: day.isLogged ? day.clarity ?? null : null,
+                energy: day.isLogged ? day.energy ?? null : null,
+                sleepQuality: day.isLogged ? day.sleepQuality ?? null : null,
+                journal: day.journal ?? (day as { notes?: string }).notes ?? '',
                 tasks: day.tasks ?? [],
                 reminders: day.reminders ?? [],
                 dailyActions: day.dailyActions ?? [],
+                updatedAt: day.updatedAt ?? null,
               })),
             },
           ]),
@@ -161,12 +152,17 @@ export function normalizePersistedAppState(parsed: Partial<PersistedAppState>, c
       parsed.pageDevNotes && typeof parsed.pageDevNotes === 'object'
         ? { ...defaults.pageDevNotes, ...parsed.pageDevNotes }
         : defaults.pageDevNotes,
-    dashboardLayout: Array.isArray(parsed.dashboardLayout)
-      ? parsed.dashboardLayout.map((item) => ({
-          ...item,
-          colSpan: Math.max(3, Math.min(item.colSpan ?? 4, 12)),
-          rowSpan: Math.max(2, Math.min(item.rowSpan ?? 3, 6)),
-        }))
-      : defaults.dashboardLayout,
+    moodHeatmapFocusDate:
+      typeof parsed.moodHeatmapFocusDate === 'string' ? parsed.moodHeatmapFocusDate : defaults.moodHeatmapFocusDate,
+    moodHeatmapCalendarRange:
+      parsed.moodHeatmapCalendarRange === 'first-entry' ||
+      parsed.moodHeatmapCalendarRange === 'current-date' ||
+      parsed.moodHeatmapCalendarRange === 'full-year'
+        ? parsed.moodHeatmapCalendarRange
+        : defaults.moodHeatmapCalendarRange,
+    moodHighlightCurrentWeek:
+      typeof parsed.moodHighlightCurrentWeek === 'boolean'
+        ? parsed.moodHighlightCurrentWeek
+        : defaults.moodHighlightCurrentWeek,
   }
 }

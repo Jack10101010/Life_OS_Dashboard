@@ -1,31 +1,45 @@
 import { getDayColor } from '../../lib/color'
 import { ColorMode, DayEntry } from '../../types'
+import { HeatmapTile } from './HeatmapTile'
 
 export function DayHeatmapCell({
   day,
   mode,
   active = false,
+  currentWeek = false,
+  hoverOutline = false,
   sizeClassName = 'aspect-square min-h-[12px] w-full min-w-[12px]',
 }: {
   day: DayEntry | null
   mode: ColorMode
   active?: boolean
+  currentWeek?: boolean
+  hoverOutline?: boolean
   sizeClassName?: string
 }) {
   if (!day) {
-    return <div className={`${sizeClassName} rounded-[3px] border border-white/5 bg-white/[0.02] opacity-35`} />
+    return (
+      <HeatmapTile
+        backgroundColor="rgba(255,255,255,0.02)"
+        currentWeek={currentWeek}
+        hoverOutline={hoverOutline}
+        className={`${sizeClassName} opacity-35`}
+        roundedClassName="rounded-[3px]"
+      />
+    )
   }
 
   return (
     <div className="relative">
-      <div
-        className={`heat-cell relative ${sizeClassName} rounded-[4px] border ${
-        active ? 'border-white shadow-[0_0_0_1px_rgba(255,255,255,0.25),0_0_14px_rgba(255,255,255,0.08)]' : 'border-white/[0.04]'
-        }`}
-        style={{ backgroundColor: getDayColor(day, mode) }}
+      <HeatmapTile
+        backgroundColor={getDayColor(day, mode)}
+        active={active}
+        currentWeek={currentWeek}
+        hoverOutline={hoverOutline}
+        className={sizeClassName}
       >
         {day.bigWin ? <span className="absolute -right-px -top-px h-[4px] w-[4px] rounded-full bg-sand" /> : null}
-      </div>
+      </HeatmapTile>
     </div>
   )
 }

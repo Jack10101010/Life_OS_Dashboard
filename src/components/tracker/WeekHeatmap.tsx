@@ -1,6 +1,7 @@
 import { getWeekColor } from '../../lib/color'
 import { WeekEntry, ColorMode } from '../../types'
 import { HeatmapGrid } from './HeatmapGrid'
+import { HeatmapTile } from './HeatmapTile'
 
 export function WeekHeatmap({
   weeks,
@@ -34,11 +35,11 @@ export function WeekHeatmap({
       renderCell={(week) => {
         const active = selectedWeekId === week.id
         return (
-          <div
-            className={`heat-cell relative ${cellSize} rounded-[3px] border ${
-              active ? 'border-white/60 shadow-[0_0_0_1px_rgba(255,255,255,0.16)]' : 'border-white/10'
-            }`}
-            style={{ backgroundColor: getWeekColor(week, mode) }}
+          <HeatmapTile
+            backgroundColor={getWeekColor(week, mode)}
+            active={active}
+            roundedClassName="rounded-[3px]"
+            className={`relative ${cellSize}`}
           >
             <div className="pointer-events-none absolute inset-0">
               <div className="absolute bottom-[1px] right-[1px] flex items-center gap-px">
@@ -46,7 +47,7 @@ export function WeekHeatmap({
                 {week.drankThisWeek ? <span className={`${markerSize} rounded-full bg-rose`} /> : null}
               </div>
             </div>
-          </div>
+          </HeatmapTile>
         )
       }}
     />
