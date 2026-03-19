@@ -1,16 +1,21 @@
 import { useState } from 'react'
+import { normalizeHabitTracker, syncHabitTrackerAchievements } from '../lib/habitTrackerGoals'
 import { PersistedAppState } from '../lib/persistence'
-import { HabitTracker, HabitTrackerCalendarRange, HabitTrackerPeriodView } from '../types'
+import { HabitTracker, HabitTrackerCalendarRange, HabitTrackerEntryDraft, HabitTrackerPeriodView } from '../types'
 
 function createEmptyHabitTracker(): HabitTracker {
   return {
     id: `tracker-${Date.now()}`,
     title: 'New habit tracker',
     description: '',
+    habitType: 'checkbox',
     color: '#17C964',
     colorIntensity: 100,
+    showAlcoholMarkers: false,
     weekendVisibility: 'show',
     clampDescription: true,
+    goal: null,
+    achievements: [],
     entries: {},
   }
 }
@@ -18,7 +23,8 @@ function createEmptyHabitTracker(): HabitTracker {
 export function useHabitTrackerState(initialState: PersistedAppState) {
   const [habitTrackers, setHabitTrackers] = useState<HabitTracker[]>(initialState.habitTrackers)
   const [editingTracker, setEditingTracker] = useState<HabitTracker | null>(initialState.editingTracker)
-  const [habitEntryDraft, setHabitEntryDraft] = useState(initialState.habitEntryDraft)
+  const [goalEditingTracker, setGoalEditingTracker] = useState<HabitTracker | null>(null)
+  const [habitEntryDraft, setHabitEntryDraft] = useState<HabitTrackerEntryDraft | null>(initialState.habitEntryDraft)
   const [moodCollapsed, setMoodCollapsed] = useState(initialState.moodCollapsed)
   const [collapsedTrackers, setCollapsedTrackers] = useState<Record<string, boolean>>(initialState.collapsedTrackers)
   const [habitTrackerPeriodView, setHabitTrackerPeriodView] = useState<HabitTrackerPeriodView>(initialState.habitTrackerPeriodView)
@@ -28,8 +34,9 @@ export function useHabitTrackerState(initialState: PersistedAppState) {
   )
 
   const hydrate = (next: PersistedAppState) => {
-    setHabitTrackers(next.habitTrackers)
-    setEditingTracker(next.editingTracker)
+    setHabitTrackers(next.habitTrackers.map(normalizeHabitTracker))
+    setEditingTracker(next.editingTracker ? normalizeHabitTracker(next.editingTracker) : null)
+    setGoalEditingTracker(null)
     setHabitEntryDraft(next.habitEntryDraft)
     setMoodCollapsed(next.moodCollapsed)
     setCollapsedTrackers(next.collapsedTrackers)
@@ -79,9 +86,10 @@ export function useHabitTrackerState(initialState: PersistedAppState) {
   }
 
   const saveTracker = (tracker: HabitTracker) => {
+    const syncedTracker = syncHabitTrackerAchievements(normalizeHabitTracker(tracker))
     setHabitTrackers((current) => {
-      const exists = current.some((item) => item.id === tracker.id)
-      return exists ? current.map((item) => (item.id === tracker.id ? tracker : item)) : [...current, tracker]
+      const exists = current.some((item) => item.id === syncedTracker.id)
+      return exists ? current.map((item) => (item.id === syncedTracker.id ? syncedTracker : item)) : [...current, syncedTracker]
     })
   }
 
@@ -91,20 +99,34 @@ export function useHabitTrackerState(initialState: PersistedAppState) {
       current.map((tracker) =>
         tracker.id !== habitEntryDraft.trackerId
           ? tracker
-          : {
+          : syncHabitTrackerAchievements({
               ...tracker,
               entries: {
                 ...tracker.entries,
                 [habitEntryDraft.date]: {
                   date: habitEntryDraft.date,
                   completed: habitEntryDraft.completed,
+                  value: habitEntryDraft.value,
                   note: habitEntryDraft.note,
                 },
               },
-            },
+            }),
       ),
     )
     setHabitEntryDraft(null)
+  }
+
+  const clearTrackerAchievements = (trackerId: string) => {
+    setHabitTrackers((current) =>
+      current.map((tracker) =>
+        tracker.id !== trackerId
+          ? tracker
+          : {
+              ...tracker,
+              achievements: [],
+            },
+      ),
+    )
   }
 
   return {
@@ -112,6 +134,8 @@ export function useHabitTrackerState(initialState: PersistedAppState) {
     setHabitTrackers,
     editingTracker,
     setEditingTracker,
+    goalEditingTracker,
+    setGoalEditingTracker,
     habitEntryDraft,
     setHabitEntryDraft,
     moodCollapsed,
@@ -130,6 +154,7 @@ export function useHabitTrackerState(initialState: PersistedAppState) {
     moveTrackerDown,
     saveTracker,
     saveHabitEntry,
+    clearTrackerAchievements,
     hydrate,
   }
 }

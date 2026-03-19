@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
-import { DayEntry, Habit, ManualCellColor, Tag, WeekEntry } from '../../types'
+import { useEffect, useMemo, useState } from 'react'
+import { DayEntry, Habit, HabitTracker, ManualCellColor, Tag, WeekEntry } from '../../types'
+import { getAchievementDetailLabel } from '../../lib/habitTrackerGoals'
 import { DayColorSelector } from './DayColorSelector'
 import { DetailDrawer } from '../layout/DetailDrawer'
 import { Button } from '../ui/Button'
@@ -11,6 +12,7 @@ export function DayDrawer({
   week,
   habits,
   tags,
+  habitTrackers,
   open,
   onClose,
   onSelectTag,
@@ -22,6 +24,7 @@ export function DayDrawer({
   week: WeekEntry | null
   habits: Habit[]
   tags: Tag[]
+  habitTrackers: HabitTracker[]
   open: boolean
   onClose: () => void
   onSelectTag: (tagId: string) => void
@@ -42,6 +45,17 @@ export function DayDrawer({
   const activeHabits = habits.filter((habit) => habit.active)
   const completionPercent = Math.round((day.habitsCompleted / Math.max(day.habitsTotal, 1)) * 100)
   const canDelete = hasEntryData(day)
+  const completedGoals = useMemo(
+    () =>
+      habitTrackers
+        .flatMap((tracker) =>
+          (tracker.achievements ?? [])
+            .filter((achievement) => achievement.completedDate === day.date)
+            .map((achievement) => ({ tracker, achievement })),
+        )
+        .sort((left, right) => left.achievement.completedDate.localeCompare(right.achievement.completedDate)),
+    [day.date, habitTrackers],
+  )
 
   return (
     <>
@@ -318,6 +332,34 @@ export function DayDrawer({
           </div>
         </Card>
 
+        {completedGoals.length ? (
+          <Card className="space-y-3 bg-[#121212] p-4">
+            <SectionHeader title="Goal completed" />
+            <div className="space-y-3">
+              {completedGoals.map(({ tracker, achievement }) => (
+                <div key={achievement.id} className="rounded-[22px] border border-[#2A2A2A] bg-[#171717] px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[15px] text-[#F3C56B]">🏆</span>
+                    <p className="text-sm font-semibold text-white">{tracker.title}</p>
+                  </div>
+                  <div className="mt-2 grid gap-1.5 text-[12px] text-[#BEBEBE]">
+                    <p>{getAchievementDetailLabel(achievement)}</p>
+                    <p>
+                      Started: <span className="text-white">{formatAchievementDate(achievement.startedDate)}</span>
+                    </p>
+                    <p>
+                      Completed: <span className="text-white">{formatAchievementDate(achievement.completedDate)}</span>
+                    </p>
+                    <p>
+                      Duration: <span className="text-white">{getAchievementDurationLabel(achievement.durationDays)}</span>
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        ) : null}
+
         <div className="grid gap-3 xl:grid-cols-[1.15fr_0.85fr]">
           <Card className="space-y-3 bg-[#121212] p-4">
             <SectionHeader
@@ -344,22 +386,43 @@ export function DayDrawer({
               <div className="space-y-4">
                 <div>
                   <p className="text-[11px] uppercase tracking-[0.22em] text-mist/70">Alcohol</p>
-                  <button
-                    onClick={() =>
-                      onUpdateDay(day.id, (current) => ({
-                        ...current,
-                        isLogged: true,
-                        drank: !current.drank,
-                      }))
-                    }
-                    className={`mt-3 w-full rounded-2xl px-4 py-2.5 text-sm font-semibold transition ${
-                      day.drank
-                        ? 'bg-rose/18 text-rose hover:bg-rose/24'
-                        : 'bg-glow/18 text-glow hover:bg-glow/24'
-                    }`}
-                  >
-                    {day.drank ? 'Drank today' : 'Alcohol-free today'}
-                  </button>
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onUpdateDay(day.id, (current) => ({
+                          ...current,
+                          isLogged: true,
+                          drank: true,
+                        }))
+                      }
+                      className={`flex-1 rounded-2xl px-4 py-2.5 text-sm font-semibold transition ${
+                        day.drank
+                          ? 'bg-rose/18 text-rose hover:bg-rose/24'
+                          : 'bg-[#1A1A1A] text-[#B0B0B0] hover:bg-[#202020] hover:text-white'
+                      }`}
+                    >
+                      Yes
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onUpdateDay(day.id, (current) => ({
+                          ...current,
+                          isLogged: true,
+                          drank: false,
+                        }))
+                      }
+                      className={`flex-1 rounded-2xl px-4 py-2.5 text-sm font-semibold transition ${
+                        !day.drank
+                          ? 'bg-glow/18 text-glow hover:bg-glow/24'
+                          : 'bg-[#1A1A1A] text-[#B0B0B0] hover:bg-[#202020] hover:text-white'
+                      }`}
+                    >
+                      No
+                    </button>
+                  </div>
+                  <p className="mt-2 text-xs text-mist/55">Alcohol consumed: {day.drank ? 'Yes' : 'No'}</p>
                 </div>
                 <div>
                   <p className="text-[11px] uppercase tracking-[0.22em] text-mist/70">Big win</p>
@@ -453,6 +516,19 @@ function hasEntryData(day: DayEntry) {
     day.dailyActions.length > 0 ||
     day.tags.length > 0
   )
+}
+
+function formatAchievementDate(date: string) {
+  return new Date(`${date}T00:00:00Z`).toLocaleDateString('en-IE', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  })
+}
+
+function getAchievementDurationLabel(durationDays: number) {
+  return durationDays === 1 ? '1 day' : `${durationDays} days`
 }
 
 function SectionHeader({ title, description }: { title: string; description?: string }) {

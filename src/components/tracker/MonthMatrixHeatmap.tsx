@@ -8,22 +8,27 @@ import { useHeatmapHover } from './useHeatmapHover'
 
 export function MonthMatrixHeatmap({
   days,
+  visibleDayIds,
   mode,
   year,
   selectedDayId,
   onSelectDay,
   calendarRange = 'full-year',
   highlightCurrentWeek = true,
+  showAlcoholMarker = false,
 }: {
   days: DayEntry[]
+  visibleDayIds?: string[]
   mode: ColorMode
   year: number
   selectedDayId?: string
   onSelectDay: (day: DayEntry) => void
   calendarRange?: HabitTrackerCalendarRange
   highlightCurrentWeek?: boolean
+  showAlcoholMarker?: boolean
 }) {
   const rows = getMonthMatrix(days, year)
+  const visibleDayIdSet = new Set(visibleDayIds ?? days.map((day) => day.id))
   const { containerRef, hovered, bindHover } = useHeatmapHover<DayEntry>()
   const { startMonth, startDay } = getCalendarRangeStart(days, year, calendarRange)
   const currentMonthIndex = getCurrentMonthIndex(year)
@@ -79,6 +84,7 @@ export function MonthMatrixHeatmap({
                   />
                 ) : null}
                 {row.cells.map((day, index) => {
+                  const visibleDay = day && visibleDayIdSet.has(day.id) ? day : null
                   const cellDate = day?.date ?? getIsoDateForCell(year, row.monthIndex, index + 1)
 
                   return (
@@ -87,19 +93,21 @@ export function MonthMatrixHeatmap({
                     className="relative z-10"
                     style={{ gridColumn: `${index + 1}` }}
                   >
-                    {day ? (
+                    {visibleDay ? (
                       <motion.button
                         whileHover={{ scale: 1.08, filter: 'brightness(1.08)' }}
-                        onClick={() => onSelectDay(day)}
+                        onClick={() => onSelectDay(visibleDay)}
                         type="button"
                         className="group relative block h-full w-full cursor-pointer text-left transition"
-                        {...bindHover(day)}
+                        {...bindHover(visibleDay)}
                       >
                         <DayHeatmapCell
-                          day={day}
+                          day={visibleDay}
                           mode={mode}
-                          active={selectedDayId === day.id}
+                          active={selectedDayId === visibleDay.id}
                           hoverOutline
+                          showAlcoholMarker={showAlcoholMarker}
+                          temporalEmptyShade
                           sizeClassName="aspect-square min-h-[14px] w-full min-w-[14px]"
                         />
                       </motion.button>
@@ -108,6 +116,8 @@ export function MonthMatrixHeatmap({
                         day={null}
                         mode={mode}
                         hoverOutline
+                        temporalEmptyShade
+                        emptyDate={cellDate}
                         sizeClassName="aspect-square min-h-[14px] w-full min-w-[14px]"
                       />
                     )}

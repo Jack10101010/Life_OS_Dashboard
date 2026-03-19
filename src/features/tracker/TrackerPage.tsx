@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import {
   ColorMode,
   DayEntry,
@@ -24,9 +24,9 @@ import {
 } from '../../components/tracker/HeatmapControls'
 import { HeatmapTooltip } from '../../components/tracker/HeatmapTooltip'
 import { HeatmapWeekRow } from '../../components/tracker/HeatmapWeekRow'
-import { WeekHeatmap } from '../../components/tracker/WeekHeatmap'
 import { WeekSummaryStrip } from '../../components/tracker/WeekSummaryStrip'
 import { useHeatmapHover } from '../../components/tracker/useHeatmapHover'
+import { usePopoverGroup } from '../../components/tracker/usePopoverGroup'
 
 const WEEKDAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const MOOD_MONTH_TILE_CLASS = 'h-[36px] w-[36px] rounded-[12px]'
@@ -48,6 +48,7 @@ export function TrackerPage({
   onFiltersChange,
   weeks,
   days,
+  allDays,
   habits,
   tags,
   selectedWeek,
@@ -76,6 +77,7 @@ export function TrackerPage({
   onFiltersChange: (filters: TrackerFilters) => void
   weeks: WeekEntry[]
   days: DayEntry[]
+  allDays: DayEntry[]
   habits: Habit[]
   tags: Tag[]
   selectedWeek: WeekEntry | null
@@ -92,13 +94,13 @@ export function TrackerPage({
   onPreviewWeek: (week: WeekEntry) => void
   onSelectDay: (day: DayEntry) => void
 }) {
-  const [viewMenuOpen, setViewMenuOpen] = useState(false)
-  const [settingsMenuOpen, setSettingsMenuOpen] = useState(false)
+  const { containerRef: controlsRef, isOpen, toggleMenu, closeMenu } = usePopoverGroup<'view' | 'settings'>()
   const moodSummary = getRecentMoodSummary(days)
   const currentWeekSummary = useMemo(() => getCurrentWeekSummary(weeks, days), [weeks, days])
   const moodPeriodLabel = getMoodPeriodLabel(viewMode, moodHeatmapFocusDate, year)
-  const moodMonthDays = useMemo(() => getMoodMonthViewDays(days, moodHeatmapFocusDate), [days, moodHeatmapFocusDate])
-  const moodWeekDays = useMemo(() => getMoodWeekViewDays(days, moodHeatmapFocusDate), [days, moodHeatmapFocusDate])
+  const visibleDayIdSet = useMemo(() => new Set(days.map((day) => day.id)), [days])
+  const moodMonthDays = useMemo(() => getMoodMonthViewDays(allDays, moodHeatmapFocusDate), [allDays, moodHeatmapFocusDate])
+  const moodWeekDays = useMemo(() => getMoodWeekViewDays(allDays, moodHeatmapFocusDate), [allDays, moodHeatmapFocusDate])
   const selectedWeekIndex = selectedWeek ? weeks.findIndex((week) => week.id === selectedWeek.id) : -1
   const previousWeek = selectedWeekIndex > 0 ? weeks[selectedWeekIndex - 1] : null
   const nextWeekCandidate = selectedWeekIndex >= 0 ? weeks[selectedWeekIndex + 1] ?? null : null
@@ -116,7 +118,7 @@ export function TrackerPage({
             <h3 className="text-2xl font-semibold text-white">Mood Tracker & Daily Journal</h3>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div ref={controlsRef} className="flex flex-wrap items-center gap-2">
             <HeatmapSegmentedControl
               items={[
                 ['year', 'Year'],
@@ -139,8 +141,8 @@ export function TrackerPage({
 
             {viewMode === 'year' ? (
               <div className="relative">
-                <HeatmapMenuButton label="View" onClick={() => setViewMenuOpen((value) => !value)} />
-                {viewMenuOpen ? (
+                <HeatmapMenuButton label="View" onClick={() => toggleMenu('view')} />
+                {isOpen('view') ? (
                   <div className="absolute right-0 top-[calc(100%+8px)] z-30 min-w-[210px] rounded-2xl border border-[#2F2F2F] bg-[#171717] p-1.5 shadow-[0_16px_40px_rgba(0,0,0,0.35)]">
                     {([
                       ['full-year', 'Full tile view'],
@@ -152,7 +154,7 @@ export function TrackerPage({
                         type="button"
                         onClick={() => {
                           onMoodHeatmapCalendarRangeChange(value)
-                          setViewMenuOpen(false)
+                          closeMenu()
                         }}
                         className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-[13px] transition ${
                           moodHeatmapCalendarRange === value
@@ -172,10 +174,10 @@ export function TrackerPage({
             ) : null}
 
             <div className="relative">
-              <HeatmapIconButton onClick={() => setSettingsMenuOpen((value) => !value)} ariaLabel="Mood heatmap settings" compact={false}>
+              <HeatmapIconButton onClick={() => toggleMenu('settings')} ariaLabel="Mood heatmap settings" compact={false}>
                 ⚙
               </HeatmapIconButton>
-              {settingsMenuOpen ? (
+              {isOpen('settings') ? (
                 <div className="absolute right-0 top-[calc(100%+8px)] z-30 min-w-[236px] rounded-2xl border border-[#2F2F2F] bg-[#171717] p-3 shadow-[0_16px_40px_rgba(0,0,0,0.35)]">
                   <div className="space-y-3">
                     <div>
@@ -217,6 +219,17 @@ export function TrackerPage({
                         ))}
                       </div>
                     </div>
+                    <div className="border-t border-white/[0.06] pt-3">
+                      <label className="inline-flex cursor-pointer items-center gap-2 text-[13px] text-mist/80 transition hover:text-white">
+                        <input
+                          type="checkbox"
+                          checked={moodHighlightCurrentWeek}
+                          onChange={() => onMoodHighlightCurrentWeekChange(!moodHighlightCurrentWeek)}
+                          className="h-3.5 w-3.5 rounded border border-white/10 bg-transparent accent-[#78A7FF]"
+                        />
+                        <span>Highlight current week</span>
+                      </label>
+                    </div>
                   </div>
                 </div>
               ) : null}
@@ -233,25 +246,26 @@ export function TrackerPage({
             average={currentWeekSummary.average}
             low={currentWeekSummary.low}
             days={currentWeekSummary.days}
-            highlightCurrentWeek={moodHighlightCurrentWeek}
-            onToggleHighlightCurrentWeek={() => onMoodHighlightCurrentWeekChange(!moodHighlightCurrentWeek)}
             onOpenWeek={() => onSelectWeek(currentWeekSummary.week)}
           />
         ) : null}
 
         {viewMode === 'year' ? (
           <DayHeatmap
-            days={days}
+            days={allDays}
+            visibleDayIds={days.map((day) => day.id)}
             mode={colorMode}
             year={year}
             selectedDayId={selectedDay?.id}
             onSelectDay={onSelectDay}
             calendarRange={moodHeatmapCalendarRange}
             highlightCurrentWeek={moodHighlightCurrentWeek}
+            showAlcoholMarker
           />
         ) : viewMode === 'days' ? (
           <MoodMonthView
             days={moodMonthDays}
+            visibleDayIdSet={visibleDayIdSet}
             mode={colorMode}
             selectedDayId={selectedDay?.id}
             highlightCurrentWeek={moodHighlightCurrentWeek}
@@ -260,6 +274,7 @@ export function TrackerPage({
         ) : (
           <MoodWeekView
             days={moodWeekDays}
+            visibleDayIdSet={visibleDayIdSet}
             mode={colorMode}
             selectedDayId={selectedDay?.id}
             highlightCurrentWeek={moodHighlightCurrentWeek}
@@ -301,12 +316,14 @@ export function TrackerPage({
 
 function MoodMonthView({
   days,
+  visibleDayIdSet,
   mode,
   selectedDayId,
   highlightCurrentWeek,
   onSelectDay,
 }: {
   days: Array<{ day: DayEntry | null; dayNumber: number; inCurrentMonth: boolean; isoDate: string }>
+  visibleDayIdSet: Set<string>
   mode: ColorMode
   selectedDayId?: string
   highlightCurrentWeek: boolean
@@ -342,7 +359,7 @@ function MoodMonthView({
                 ) : null}
                 {row.map((cell, index) => (
                   <div key={`${cell.day?.id ?? 'empty'}-${rowIndex}-${index}`} className="relative z-10">
-                    {cell.day ? (
+                    {cell.day && visibleDayIdSet.has(cell.day.id) ? (
                       <button
                         type="button"
                         onClick={() => onSelectDay(cell.day!)}
@@ -354,6 +371,8 @@ function MoodMonthView({
                           mode={mode}
                           active={selectedDayId === cell.day.id}
                           hoverOutline
+                          showAlcoholMarker
+                          temporalEmptyShade
                           sizeClassName={MOOD_MONTH_TILE_CLASS}
                         />
                       </button>
@@ -362,6 +381,8 @@ function MoodMonthView({
                         day={null}
                         mode={mode}
                         hoverOutline
+                        temporalEmptyShade
+                        emptyDate={cell.isoDate}
                         sizeClassName={MOOD_MONTH_TILE_CLASS}
                       />
                     )}
@@ -386,12 +407,14 @@ function MoodMonthView({
 
 function MoodWeekView({
   days,
+  visibleDayIdSet,
   mode,
   selectedDayId,
   highlightCurrentWeek,
   onSelectDay,
 }: {
   days: Array<{ day: DayEntry | null; dayNumber: number; isoDate: string }>
+  visibleDayIdSet: Set<string>
   mode: ColorMode
   selectedDayId?: string
   highlightCurrentWeek: boolean
@@ -417,7 +440,7 @@ function MoodWeekView({
           ) : null}
           {days.map((cell, index) => (
             <div key={`${cell.day?.id ?? 'empty'}-${index}`} className="relative z-10">
-              {cell.day ? (
+              {cell.day && visibleDayIdSet.has(cell.day.id) ? (
                 <button
                   type="button"
                   onClick={() => onSelectDay(cell.day!)}
@@ -429,6 +452,8 @@ function MoodWeekView({
                     mode={mode}
                     active={selectedDayId === cell.day.id}
                     hoverOutline
+                    showAlcoholMarker
+                    temporalEmptyShade
                     sizeClassName={MOOD_WEEK_TILE_CLASS}
                   />
                 </button>
@@ -437,6 +462,8 @@ function MoodWeekView({
                   day={null}
                   mode={mode}
                   hoverOutline
+                  temporalEmptyShade
+                  emptyDate={cell.isoDate}
                   sizeClassName={MOOD_WEEK_TILE_CLASS}
                 />
               )}
@@ -459,8 +486,6 @@ function CurrentWeekStrip({
   average,
   low,
   days,
-  highlightCurrentWeek,
-  onToggleHighlightCurrentWeek,
   onOpenWeek,
 }: {
   rangeLabel: string
@@ -468,8 +493,6 @@ function CurrentWeekStrip({
   average: number
   low: number
   days: Array<{ label: string; state: 'past' | 'today' | 'future' }>
-  highlightCurrentWeek: boolean
-  onToggleHighlightCurrentWeek: () => void
   onOpenWeek: () => void
 }) {
   return (
@@ -521,18 +544,6 @@ function CurrentWeekStrip({
             />
           </div>
         ))}
-      </div>
-
-      <div className="mt-3 flex justify-end">
-        <label className="inline-flex cursor-pointer items-center gap-2 text-xs text-mist/65 transition hover:text-mist">
-          <input
-            type="checkbox"
-            checked={highlightCurrentWeek}
-            onChange={onToggleHighlightCurrentWeek}
-            className="h-3.5 w-3.5 rounded border border-white/10 bg-transparent accent-[#78A7FF]"
-          />
-          <span>Highlight current week</span>
-        </label>
       </div>
     </div>
   )

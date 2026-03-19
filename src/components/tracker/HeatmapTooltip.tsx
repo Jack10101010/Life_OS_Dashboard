@@ -71,7 +71,7 @@ export function HeatmapTooltip({
             </span>
           ))}
           <span className="rounded-full border border-white/6 bg-white/[0.04] px-2 py-1 text-[11px] text-[#C9C9C9]">
-            {day.drank ? 'Alcohol logged' : 'Alcohol-free'}
+            Alcohol consumed: {day.drank ? 'Yes' : 'No'}
           </span>
         </div>
       ) : null}

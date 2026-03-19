@@ -4,16 +4,17 @@ import { Sidebar } from './components/layout/Sidebar'
 import { TopBar } from './components/layout/TopBar'
 import { DayDrawer } from './components/tracker/DayDrawer'
 import { HabitTrackerEntryModal } from './components/tracker/HabitTrackerEntryModal'
+import { HabitTrackerGoalModal } from './components/tracker/HabitTrackerGoalModal'
 import { HabitTrackerSettingsModal } from './components/tracker/HabitTrackerSettingsModal'
 import { DevNotesCard } from './components/ui/DevNotesCard'
 import { WeekDrawer } from './components/tracker/WeekDrawer'
 import { exportPersistedAppState, importPersistedAppState, loadPersistedAppState, savePersistedAppState } from './lib/persistence'
 import { useAppShellState } from './hooks/useAppShellState'
-import { useDashboardState } from './hooks/useDashboardState'
 import { useHabitTrackerState } from './hooks/useHabitTrackerState'
 import { useSettingsState } from './hooks/useSettingsState'
 import { useTrackerState } from './hooks/useTrackerState'
 import { DashboardPage } from './features/dashboard/DashboardPage'
+import { GoalsPage } from './features/goals/GoalsPage'
 import { JournalPage } from './features/journal/JournalPage'
 import { PlaceholderPage } from './features/placeholder/PlaceholderPage'
 import { SettingsPage } from './features/settings/SettingsPage'
@@ -52,7 +53,6 @@ export default function App() {
     colorMode,
     setColorMode,
     heatmapLayout,
-    setHeatmapLayout,
     showFilters,
     setShowFilters,
     filters,
@@ -88,13 +88,13 @@ export default function App() {
   } = trackerState
   const {
     habitTrackers,
-    setHabitTrackers,
     editingTracker,
     setEditingTracker,
+    goalEditingTracker,
+    setGoalEditingTracker,
     habitEntryDraft,
     setHabitEntryDraft,
     moodCollapsed,
-    setMoodCollapsed,
     collapsedTrackers,
     setCollapsedTrackers,
     habitTrackerPeriodView,
@@ -105,6 +105,7 @@ export default function App() {
     setHabitTrackerCalendarRangeByTracker,
     createTracker,
     deleteTracker,
+    clearTrackerAchievements,
     moveTrackerUp,
     moveTrackerDown,
     saveTracker,
@@ -275,6 +276,7 @@ export default function App() {
             onFiltersChange: setFilters,
             weeks: filteredWeeks,
             days: filteredDays,
+            allDays: dataset.days,
             habits,
             tags,
             selectedWeek,
@@ -299,13 +301,14 @@ export default function App() {
               setOpenDrawer('day')
             },
           }}
-          customTrackers={{
-            tags,
-            heatmapLayout,
-            year: filters.year,
-            habitTrackers,
-            habitTrackerPeriodView,
-            habitTrackerFocusDate,
+              customTrackers={{
+                tags,
+                heatmapLayout,
+                year: filters.year,
+                habitTrackers,
+                alcoholConsumedDates: dataset.days.filter((day) => day.drank).map((day) => day.date),
+                habitTrackerPeriodView,
+                habitTrackerFocusDate,
             habitTrackerCalendarRangeByTracker,
             habitEntryDraft,
             collapsedTrackers,
@@ -323,10 +326,12 @@ export default function App() {
                 trackerId: tracker.id,
                 date,
                 completed: entry?.completed ?? false,
+                value: entry?.value ?? null,
                 note: entry?.note ?? '',
               })
             },
             onOpenSettings: setEditingTracker,
+            onOpenGoalSetup: setGoalEditingTracker,
           }}
         />
       )
@@ -368,15 +373,14 @@ export default function App() {
       )
     }
 
+    if (page === 'goals') {
+      return <GoalsPage habitTrackers={habitTrackers} year={filters.year} />
+    }
+
     const placeholderMap: Record<
-      Exclude<PageId, 'dashboard' | 'tracker' | 'settings' | 'journal-recordings' | 'gratitude'>,
+      Exclude<PageId, 'dashboard' | 'tracker' | 'settings' | 'journal-recordings' | 'gratitude' | 'goals'>,
       { title: string; description: string; highlights: string[] }
     > = {
-      goals: {
-        title: 'Goals',
-        description: 'This module is reserved for structured goals, horizons, and progress tracking once the core tracker data is persisted.',
-        highlights: ['Quarterly goals and milestones', 'Goal-to-habit linking', 'Review cadence and drift detection'],
-      },
       tasks: {
         title: 'Tasks',
         description: 'Task capture and execution will eventually connect daily action with the mood and habit layer without crowding this first release.',
@@ -405,7 +409,7 @@ export default function App() {
     }
 
     const placeholder = placeholderMap[
-      page as Exclude<PageId, 'dashboard' | 'tracker' | 'settings' | 'journal-recordings' | 'gratitude'>
+      page as Exclude<PageId, 'dashboard' | 'tracker' | 'settings' | 'journal-recordings' | 'gratitude' | 'goals'>
     ]
     return <PlaceholderPage {...placeholder} />
   }
@@ -475,6 +479,7 @@ export default function App() {
         week={selectedWeek}
         habits={habits}
         tags={tags}
+        habitTrackers={habitTrackers}
         onClose={() => setOpenDrawer(null)}
         onSelectTag={handleSelectTag}
         onNavigateDay={handleNavigateDay}
@@ -486,8 +491,12 @@ export default function App() {
         tracker={editingTracker}
         open={Boolean(editingTracker)}
         onClose={() => setEditingTracker(null)}
+        onOpenGoal={(tracker) => setGoalEditingTracker(tracker)}
         onDelete={(trackerId) => {
           deleteTracker(trackerId)
+        }}
+        onClearAchievements={(trackerId) => {
+          clearTrackerAchievements(trackerId)
         }}
         onMoveUp={moveTrackerUp}
         onMoveDown={moveTrackerDown}
@@ -501,14 +510,30 @@ export default function App() {
         onSave={saveTracker}
       />
 
+      <HabitTrackerGoalModal
+        tracker={goalEditingTracker}
+        open={Boolean(goalEditingTracker)}
+        onClose={() => setGoalEditingTracker(null)}
+        onSave={saveTracker}
+      />
+
       <HabitTrackerEntryModal
         open={Boolean(habitEntryDraft)}
         onClose={() => setHabitEntryDraft(null)}
         trackerTitle={habitTrackers.find((tracker) => tracker.id === habitEntryDraft?.trackerId)?.title ?? 'Habit tracker'}
         trackerColor={habitTrackers.find((tracker) => tracker.id === habitEntryDraft?.trackerId)?.color ?? '#17C964'}
+        trackerType={habitTrackers.find((tracker) => tracker.id === habitEntryDraft?.trackerId)?.habitType ?? 'checkbox'}
         date={habitEntryDraft?.date ?? new Date().toISOString().slice(0, 10)}
+        hasGoal={Boolean(habitTrackers.find((tracker) => tracker.id === habitEntryDraft?.trackerId)?.goal)}
         completed={habitEntryDraft?.completed ?? false}
+        value={habitEntryDraft?.value ?? null}
         note={habitEntryDraft?.note ?? ''}
+        onOpenGoal={() => {
+          const tracker = habitTrackers.find((item) => item.id === habitEntryDraft?.trackerId)
+          if (!tracker) return
+          setHabitEntryDraft(null)
+          setGoalEditingTracker(tracker)
+        }}
         onChange={(next) => setHabitEntryDraft((current) => (current ? { ...current, ...next } : current))}
         onSave={saveHabitEntry}
       />

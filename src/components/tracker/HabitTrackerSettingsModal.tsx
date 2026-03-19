@@ -50,7 +50,9 @@ export function HabitTrackerSettingsModal({
   open,
   onClose,
   onSave,
+  onOpenGoal,
   onDelete,
+  onClearAchievements,
   onMoveUp,
   onMoveDown,
   canMoveUp,
@@ -60,7 +62,9 @@ export function HabitTrackerSettingsModal({
   open: boolean
   onClose: () => void
   onSave: (tracker: HabitTracker) => void
+  onOpenGoal: (tracker: HabitTracker) => void
   onDelete: (trackerId: string) => void
+  onClearAchievements: (trackerId: string) => void
   onMoveUp: (trackerId: string) => void
   onMoveDown: (trackerId: string) => void
   canMoveUp: boolean
@@ -68,10 +72,12 @@ export function HabitTrackerSettingsModal({
 }) {
   const [draft, setDraft] = useState<HabitTracker | null>(tracker)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [confirmClearAchievements, setConfirmClearAchievements] = useState(false)
 
   useEffect(() => {
     setDraft(tracker)
     setConfirmDelete(false)
+    setConfirmClearAchievements(false)
   }, [tracker])
 
   if (!draft) return null
@@ -96,6 +102,56 @@ export function HabitTrackerSettingsModal({
             className="mt-2 min-h-28 w-full rounded-2xl border border-[#2A2A2A] bg-[#181818] px-4 py-3 text-white outline-none"
             placeholder="Short description of what this tracker measures."
           />
+        </div>
+        <div className="rounded-2xl border border-[#2A2A2A] bg-[#181818] px-4 py-4">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm text-[#B0B0B0]">Tracker type</p>
+              <p className="mt-1 text-xs text-[#8C8C8C]">This shapes how goals and logging behave for the habit.</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {([
+                ['checkbox', 'Checkbox'],
+                ['number', 'Number'],
+                ['timer', 'Timer'],
+                ['options', 'Options'],
+              ] as const).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setDraft({ ...draft, habitType: value, goal: value === draft.habitType ? draft.goal : null })}
+                  className={`rounded-xl border px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition ${
+                    draft.habitType === value
+                      ? 'border-white/20 bg-white/10 text-white'
+                      : 'border-white/5 bg-[#1A1A1A] text-[#A0A0A0] hover:text-white'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="rounded-2xl border border-[#2A2A2A] bg-[#181818] px-4 py-4">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm text-[#B0B0B0]">Goal</p>
+              <p className="mt-1 text-xs text-[#8C8C8C]">
+                {draft.goal ? 'Edit or remove this habit goal in a dedicated setup modal.' : 'Goals are optional. Add one when you want a target to work toward.'}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                onSave(draft)
+                onOpenGoal(draft)
+                onClose()
+              }}
+              className="rounded-xl border border-[#2F2F2F] bg-[#141414] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#202020]"
+            >
+              {draft.goal ? 'Edit goal' : 'Set goal'}
+            </button>
+          </div>
         </div>
         <div className="rounded-2xl border border-[#2A2A2A] bg-[#181818] px-4 py-4">
           <p className="text-sm text-[#B0B0B0]">Tracker placement</p>
@@ -155,6 +211,23 @@ export function HabitTrackerSettingsModal({
         </div>
         <div className="flex items-center justify-between rounded-2xl border border-[#2A2A2A] bg-[#181818] px-4 py-4">
           <div>
+            <p className="text-sm text-[#B0B0B0]">Show alcohol markers</p>
+            <p className="mt-1 text-xs text-[#8C8C8C]">Overlay red dots on this heatmap for days marked as alcohol consumed in the mood tracker.</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setDraft({ ...draft, showAlcoholMarkers: !draft.showAlcoholMarkers })}
+            className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
+              draft.showAlcoholMarkers
+                ? 'border-white/20 bg-white/10 text-white'
+                : 'border-white/5 bg-[#1A1A1A] text-[#A0A0A0] hover:text-white'
+            }`}
+          >
+            {draft.showAlcoholMarkers ? 'On' : 'Off'}
+          </button>
+        </div>
+        <div className="flex items-center justify-between rounded-2xl border border-[#2A2A2A] bg-[#181818] px-4 py-4">
+          <div>
             <p className="text-sm text-[#B0B0B0]">Clamp description</p>
             <p className="mt-1 text-xs text-[#8C8C8C]">Limit the description to 3 lines on the tracker card.</p>
           </div>
@@ -209,6 +282,43 @@ export function HabitTrackerSettingsModal({
               />
               <p className="text-sm text-[#BEBEBE]">Adjust how vivid this tracker appears on the heatmap.</p>
             </div>
+          </div>
+        </div>
+        <div className="rounded-2xl border border-[#2A2A2A] bg-[#181818] px-4 py-4">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-sm text-[#B0B0B0]">Trophies</p>
+              <p className="mt-1 text-xs text-[#8C8C8C]">
+                {draft.achievements.length > 0
+                  ? `Clear ${draft.achievements.length} completed goal ${draft.achievements.length === 1 ? 'trophy' : 'trophies'} from this habit.`
+                  : 'No goal trophies recorded yet.'}
+              </p>
+              {confirmClearAchievements && draft.achievements.length > 0 ? (
+                <p className="mt-3 text-sm font-semibold text-[#FFB4B4]">This will permanently remove previously earned trophies for this habit.</p>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              disabled={draft.achievements.length === 0}
+              onClick={() => {
+                if (!confirmClearAchievements) {
+                  setConfirmClearAchievements(true)
+                  return
+                }
+                onClearAchievements(draft.id)
+                setDraft({ ...draft, achievements: [] })
+                setConfirmClearAchievements(false)
+              }}
+              className={`rounded-xl border px-4 py-2 text-sm font-semibold transition ${
+                draft.achievements.length === 0
+                  ? 'border-white/5 bg-[#141414] text-[#606060]'
+                  : confirmClearAchievements
+                    ? 'border-[#5A2B2B] bg-[#241414] text-[#FFB4B4] hover:bg-[#2D1717]'
+                    : 'border-[#5A2B2B] bg-[#241414] text-[#FF8C8C] hover:bg-[#2D1717]'
+              }`}
+            >
+              {confirmClearAchievements ? 'Confirm clear' : 'Clear trophies'}
+            </button>
           </div>
         </div>
         <div className="rounded-2xl border border-[#3A2323] bg-[#161111] px-4 py-4">

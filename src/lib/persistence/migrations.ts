@@ -1,6 +1,7 @@
 import { createMockData, defaultSettings, starterHabits, starterTags } from '../../data/mockData'
+import { normalizeHabitTracker, syncHabitTrackerAchievements } from '../habitTrackerGoals'
 import { getDefaultSidebarLabels, getDefaultSidebarOrder } from '../sidebar'
-import { ColorMode, Habit, HabitTracker, HabitTrackerCalendarRange, HabitTrackerPeriodView, HeatmapLayout, PageId, SettingsState, Tag, TrackerFilters, TrackerViewMode } from '../../types'
+import { ColorMode, Habit, HabitTracker, HabitTrackerCalendarRange, HabitTrackerEntryDraft, HabitTrackerPeriodView, HeatmapLayout, PageId, SettingsState, Tag, TrackerFilters, TrackerViewMode } from '../../types'
 
 export interface PersistedAppState {
   dataByYear: Record<number, ReturnType<typeof createMockData>>
@@ -18,7 +19,7 @@ export interface PersistedAppState {
   openDrawer: 'day' | 'week' | null
   habitTrackers: HabitTracker[]
   editingTracker: HabitTracker | null
-  habitEntryDraft: { trackerId: string; date: string; completed: boolean; note: string } | null
+  habitEntryDraft: HabitTrackerEntryDraft | null
   moodCollapsed: boolean
   collapsedTrackers: Record<string, boolean>
   sidebarCollapsed: boolean
@@ -124,12 +125,55 @@ export function normalizePersistedAppState(parsed: Partial<PersistedAppState>, c
     filters: parsed.filters ? { ...defaults.filters, ...parsed.filters } : defaults.filters,
     habitTrackers: Array.isArray(parsed.habitTrackers)
       ? parsed.habitTrackers.map((tracker) => ({
-          ...tracker,
-          colorIntensity: tracker.colorIntensity ?? 100,
-          weekendVisibility: tracker.weekendVisibility ?? 'show',
-          clampDescription: tracker.clampDescription ?? true,
+          ...syncHabitTrackerAchievements(normalizeHabitTracker({
+            ...tracker,
+            habitType: tracker.habitType ?? 'checkbox',
+            colorIntensity: tracker.colorIntensity ?? 100,
+            showAlcoholMarkers: tracker.showAlcoholMarkers ?? false,
+            weekendVisibility: tracker.weekendVisibility ?? 'show',
+            clampDescription: tracker.clampDescription ?? true,
+            goal:
+              tracker.goal && typeof tracker.goal === 'object'
+                ? tracker.goal.type === 'streak' && tracker.goal.target === 7 && (tracker.achievements?.length ?? 0) === 0
+                  ? null
+                  : { ...tracker.goal, startDate: tracker.goal.startDate ?? new Date().toISOString().slice(0, 10) }
+                : null,
+            achievements: Array.isArray(tracker.achievements)
+              ? tracker.achievements.map((achievement: any) => ({
+                  ...achievement,
+                  goalType: achievement.goalType ?? (achievement.type === 'streak-goal' ? 'streak' : 'streak'),
+                  date: achievement.date ?? achievement.completedDate,
+                  startedDate: achievement.startedDate ?? achievement.date ?? achievement.completedDate,
+                  completedDate: achievement.completedDate ?? achievement.date,
+                  durationDays:
+                    achievement.durationDays ??
+                    1,
+                }))
+              : [],
+            entries: Object.fromEntries(
+              Object.entries(tracker.entries ?? {}).map(([date, entry]) => [
+                date,
+                {
+                  date,
+                  completed: entry?.completed ?? false,
+                  value: entry?.value ?? null,
+                  note: entry?.note ?? '',
+                },
+              ]),
+            ),
+          })),
         }))
       : defaults.habitTrackers,
+    habitEntryDraft:
+      parsed.habitEntryDraft && typeof parsed.habitEntryDraft === 'object'
+        ? {
+            trackerId: parsed.habitEntryDraft.trackerId,
+            date: parsed.habitEntryDraft.date,
+            completed: parsed.habitEntryDraft.completed ?? false,
+            value: parsed.habitEntryDraft.value ?? null,
+            note: parsed.habitEntryDraft.note ?? '',
+          }
+        : defaults.habitEntryDraft,
     habitTrackerCalendarRangeByTracker:
       parsed.habitTrackerCalendarRangeByTracker && typeof parsed.habitTrackerCalendarRangeByTracker === 'object'
         ? parsed.habitTrackerCalendarRangeByTracker

@@ -7,6 +7,7 @@ export function HeatmapTile({
   hoverOutline = false,
   disabled = false,
   dimmed = false,
+  borderColorOverride,
   roundedClassName = 'rounded-[4px]',
   className = '',
   children,
@@ -17,6 +18,7 @@ export function HeatmapTile({
   hoverOutline?: boolean
   disabled?: boolean
   dimmed?: boolean
+  borderColorOverride?: string
   roundedClassName?: string
   className?: string
   children?: ReactNode
@@ -34,7 +36,7 @@ export function HeatmapTile({
       } ${className}`}
       style={{
         backgroundColor,
-        borderColor: disabled ? 'rgba(255,255,255,0.03)' : undefined,
+        borderColor: disabled ? 'rgba(255,255,255,0.03)' : borderColorOverride,
       }}
     >
       {children}

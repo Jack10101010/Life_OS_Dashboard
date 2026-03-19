@@ -15,6 +15,8 @@ export function HabitTrackerTooltip({
   title,
   status,
   preview,
+  streak,
+  alcoholConsumed = false,
   anchorRect,
   containerRect,
 }: {
@@ -22,6 +24,8 @@ export function HabitTrackerTooltip({
   title: string
   status: string
   preview?: string
+  streak?: number
+  alcoholConsumed?: boolean
   anchorRect: { top: number; left: number; right: number; width: number; height: number }
   containerRect: { top: number; left: number; width: number; height: number }
 }) {
@@ -52,6 +56,8 @@ export function HabitTrackerTooltip({
       <p className="text-[12px] font-semibold text-white">{title}</p>
       <p className="mt-1 text-[10px] text-[#B9B9B9]">{formatDate(date)}</p>
       <p className="mt-1.5 text-[13px] font-semibold text-white">{status}</p>
+      {streak && streak > 0 ? <p className="mt-1 text-[11px] text-[#C8C8C8]">Streak: {streak} day{streak === 1 ? '' : 's'}</p> : null}
+      {alcoholConsumed ? <p className="mt-1 text-[11px] text-[#C8C8C8]">Alcohol consumed: Yes</p> : null}
       {preview ? <p className="mt-1 text-[11px] leading-4 text-[#AEAEAE]">{preview}</p> : null}
     </div>
   )

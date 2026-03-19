@@ -1,6 +1,6 @@
 import { CustomHabitTrackerCard } from '../../components/tracker/CustomHabitTrackerCard'
 import { HeatmapSegmentedControl } from '../../components/tracker/HeatmapControls'
-import { HabitTrackerPeriodView, Tag } from '../../types'
+import { HabitTrackerEntryDraft, HabitTrackerPeriodView, Tag } from '../../types'
 import { TrackerPage } from './TrackerPage'
 
 export function TrackerWorkspace({
@@ -13,10 +13,11 @@ export function TrackerWorkspace({
     heatmapLayout: React.ComponentProps<typeof CustomHabitTrackerCard>['layout']
     year: number
     habitTrackers: React.ComponentProps<typeof CustomHabitTrackerCard>['tracker'][]
+    alcoholConsumedDates: string[]
     habitTrackerPeriodView: HabitTrackerPeriodView
     habitTrackerFocusDate: string
     habitTrackerCalendarRangeByTracker: Record<string, React.ComponentProps<typeof CustomHabitTrackerCard>['calendarRange']>
-    habitEntryDraft: { trackerId: string; date: string; completed: boolean; note: string } | null
+    habitEntryDraft: HabitTrackerEntryDraft | null
     collapsedTrackers: Record<string, boolean>
     onCreateTracker: () => void
     onPeriodViewChange: (view: HabitTrackerPeriodView) => void
@@ -25,12 +26,14 @@ export function TrackerWorkspace({
     onCalendarRangeChange: (trackerId: string, range: React.ComponentProps<typeof CustomHabitTrackerCard>['calendarRange']) => void
     onSelectDate: (tracker: React.ComponentProps<typeof CustomHabitTrackerCard>['tracker'], date: string) => void
     onOpenSettings: (tracker: React.ComponentProps<typeof CustomHabitTrackerCard>['tracker']) => void
+    onOpenGoalSetup: (tracker: React.ComponentProps<typeof CustomHabitTrackerCard>['tracker']) => void
   }
 }) {
   const {
     year,
     heatmapLayout,
     habitTrackers,
+    alcoholConsumedDates,
     habitTrackerPeriodView,
     habitTrackerFocusDate,
     habitTrackerCalendarRangeByTracker,
@@ -43,6 +46,7 @@ export function TrackerWorkspace({
     onCalendarRangeChange,
     onSelectDate,
     onOpenSettings,
+    onOpenGoalSetup,
   } = customTrackers
 
   return (
@@ -87,6 +91,7 @@ export function TrackerWorkspace({
             <CustomHabitTrackerCard
               key={tracker.id}
               tracker={tracker}
+              alcoholConsumedDates={alcoholConsumedDates}
               year={year}
               layout={heatmapLayout}
               periodView={habitTrackerPeriodView}
@@ -99,6 +104,7 @@ export function TrackerWorkspace({
               onCalendarRangeChange={(next) => onCalendarRangeChange(tracker.id, next)}
               onSelectDate={(date) => onSelectDate(tracker, date)}
               onOpenSettings={() => onOpenSettings(tracker)}
+              onOpenGoalSetup={() => onOpenGoalSetup(tracker)}
             />
           ))}
         </div>

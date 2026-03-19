@@ -108,17 +108,66 @@ export interface TradeLogEntry {
 export interface HabitTrackerDayEntry {
   date: string
   completed: boolean
+  value: number | null
   note: string
+}
+
+export interface HabitTrackerEntryDraft {
+  trackerId: string
+  date: string
+  completed: boolean
+  value: number | null
+  note: string
+}
+
+export type HabitTrackerType = 'checkbox' | 'number' | 'timer' | 'options'
+
+export type HabitTrackerGoal =
+  | {
+      type: 'streak'
+      target: number
+      startDate: string
+    }
+  | {
+      type: 'times-per-week'
+      target: number
+      period: 'week'
+      startDate: string
+    }
+  | {
+      type: 'target-value'
+      target: number
+      startDate: string
+    }
+  | {
+      type: 'minutes-target'
+      target: number
+      startDate: string
+    }
+
+export interface HabitTrackerAchievement {
+  id: string
+  goalType: HabitTrackerGoal['type']
+  date: string
+  target: number
+  period?: 'week'
+  startedDate: string
+  completedDate: string
+  durationDays: number
 }
 
 export interface HabitTracker {
   id: string
   title: string
   description: string
+  habitType: HabitTrackerType
   color: string
   colorIntensity: number
+  showAlcoholMarkers: boolean
   weekendVisibility: 'show' | 'disable' | 'hide'
   clampDescription: boolean
+  goal: HabitTrackerGoal | null
+  achievements: HabitTrackerAchievement[]
   entries: Record<string, HabitTrackerDayEntry>
 }
 
