@@ -19,7 +19,7 @@ export type HabitTrackerCalendarRange = 'full-year' | 'first-entry' | 'current-d
 export type ColorMode = 'overall' | 'habits' | 'mood' | 'alcohol'
 export type HeatmapLayout = 'github' | 'calendar'
 export type ManualCellColor = 'blank' | 'green' | 'yellow' | 'orange' | 'red'
-export type EveningOutcome = 'good' | 'mixed' | 'poor' | 'unstable' | null
+export type EveningOutcome = 'good' | 'mixed' | 'poor' | null
 export type EveningTrajectory = 'improved' | 'declined' | 'stable' | 'unstable' | null
 export type EveningSelfInfluence = 'helped' | 'neutral' | 'hurt' | null
 export type ScoreFilter = 'all' | 'high' | 'low'
@@ -185,6 +185,7 @@ export interface DayEntry {
   eveningMood: number
   moodNote: string
   eveningOutcome: EveningOutcome
+  eveningUnstable: boolean
   eveningTrajectory: EveningTrajectory
   eveningSelfInfluence: EveningSelfInfluence
   habitsCompleted: number

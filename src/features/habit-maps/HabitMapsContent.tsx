@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { CustomHabitTrackerCard } from '../../components/tracker/CustomHabitTrackerCard'
 import { HeatmapSegmentedControl } from '../../components/tracker/HeatmapControls'
 import { SectionCard } from '../../components/layout/LayoutPrimitives'
-import { HabitTrackerEntryDraft, HabitTrackerPeriodView, Tag } from '../../types'
+import { BadHabitDefinition, HabitTrackerEntryDraft, HabitTrackerPeriodView, Tag } from '../../types'
 
 type TrackerMapsViewMode = 'tabs' | 'scroll'
 
@@ -13,7 +13,7 @@ export type HabitMapsContentProps = {
   heatmapLayout: React.ComponentProps<typeof CustomHabitTrackerCard>['layout']
   year: number
   habitTrackers: React.ComponentProps<typeof CustomHabitTrackerCard>['tracker'][]
-  badHabitOccurredDates: string[]
+  badHabitDateMap: Map<string, BadHabitDefinition[]>
   enableBadHabitTracking: boolean
   habitTrackerPeriodView: HabitTrackerPeriodView
   habitTrackerFocusDate: string
@@ -34,7 +34,7 @@ export function HabitMapsContent({
   year,
   heatmapLayout,
   habitTrackers,
-  badHabitOccurredDates,
+  badHabitDateMap,
   enableBadHabitTracking,
   habitTrackerPeriodView,
   habitTrackerFocusDate,
@@ -148,7 +148,7 @@ export function HabitMapsContent({
             <CustomHabitTrackerCard
               key={activeTabTracker.id}
               tracker={activeTabTracker}
-              badHabitOccurredDates={badHabitOccurredDates}
+              badHabitDateMap={badHabitDateMap}
               enableBadHabitTracking={enableBadHabitTracking}
               year={year}
               layout={heatmapLayout}
@@ -172,7 +172,7 @@ export function HabitMapsContent({
             <CustomHabitTrackerCard
               key={tracker.id}
               tracker={tracker}
-              badHabitOccurredDates={badHabitOccurredDates}
+              badHabitDateMap={badHabitDateMap}
               enableBadHabitTracking={enableBadHabitTracking}
               year={year}
               layout={heatmapLayout}

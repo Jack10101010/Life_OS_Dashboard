@@ -14,13 +14,13 @@ import {
   WeekEntry,
 } from '../../types'
 import { getTrackerGoalProgress } from '../../lib/habitTrackerGoals'
-import { DayColorSelector } from './DayColorSelector'
 import { DetailDrawer } from '../layout/DetailDrawer'
 import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
 import { TagPill } from '../ui/TagPill'
 
 type CustomTagTimeContext = DayLogSection | 'sleep'
+
 const dailyLogSubsectionLabelClassName = 'text-[11px] font-semibold uppercase tracking-[0.12em] text-white/78'
 const dailyLogFieldLabelClassName = 'text-[13px] font-medium text-white/82'
 const dailyLogMicroLabelClassName = 'text-[10px] font-normal uppercase tracking-[0.1em] text-white/56'
@@ -451,6 +451,12 @@ export function DayDrawer({
   const eveningActionTags = tags.filter((tag) => tag.isActive && tag.section === 'actions' && isTagAvailableInSection(tag, 'evening'))
   const dayEventTags = tags.filter((tag) => tag.isActive && tag.section === 'events' && isTagAvailableInSection(tag, 'day'))
   const customTags = tags.filter((tag) => tag.isCustom)
+  const morningSummary = useMemo(
+    () => getMorningSummary(day, selectedTagEntries, tags),
+    [day, selectedTagEntries, tags],
+  )
+  const daySummary = day.dailyActions.length > 0 ? `${day.dailyActions.length} event${day.dailyActions.length === 1 ? '' : 's'} logged` : 'No events logged'
+  const eveningSummary = getEveningSummary(day)
   const customTagsBySection = useMemo(
     () => ({
       sleep: customTags.filter((tag) => tag.section === 'sleep'),
@@ -2011,21 +2017,8 @@ export function DayDrawer({
           <div ref={daySignalsRef} className="space-y-4 rounded-[20px] border border-white/[0.03] bg-[rgba(255,255,255,0.032)] px-3.5 py-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.012),0_12px_28px_rgba(0,0,0,0.12)]">
             <SectionHeader title="Signals" description="Keep the extra context close, but lightweight." />
             <div className="space-y-4">
-              <div className="space-y-2">
-                <p className={dailyLogSubsectionLabelClassName}>Day Color</p>
-                <DayColorSelector
-                  value={day.cellColor}
-                  onChange={(value) =>
-                    onUpdateDay(day.id, (current) => ({
-                      ...current,
-                      isLogged: true,
-                      cellColor: value,
-                    }))
-                  }
-                />
-              </div>
               {enableBadHabitTracking && badHabits.length > 0 ? (
-                <div className="space-y-2 border-t border-white/[0.06] pt-3">
+                <div className="space-y-2">
                   <p className={dailyLogSubsectionLabelClassName}>Bad habits</p>
                   <div className="flex flex-wrap gap-2">
                     {badHabits.map((habit) => {
@@ -2280,29 +2273,59 @@ export function DayDrawer({
                 ) : null}
               </div>
 
-              <div ref={eveningOutcomeRef} className="space-y-4 rounded-[20px] border border-white/[0.03] bg-[rgba(255,255,255,0.032)] px-3.5 py-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.012),0_12px_28px_rgba(0,0,0,0.12)]">
-                <SectionHeader title="Outcome" description="Capture the true ending and direction of the day." />
+              <div
+                ref={eveningOutcomeRef}
+                className="mt-2 space-y-4 rounded-[20px] border border-white/[0.03] border-t-white/[0.05] bg-[rgba(255,255,255,0.032)] px-3.5 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.012),0_12px_28px_rgba(0,0,0,0.12)]"
+              >
+                <div className="space-y-1.5">
+                  <p className="text-[12px] font-medium uppercase tracking-[0.18em] text-white/84">Outcome</p>
+                  <p className="text-sm leading-6 text-mist">Capture the true ending and direction of the day.</p>
+                </div>
                 <div className="space-y-4">
+                  <div className="space-y-3">
+                    <CompactChoiceRow
+                      label="How did the day actually go?"
+                      value={day.eveningOutcome}
+                      options={[
+                        { label: 'Good', value: 'good', tone: 'green' },
+                        { label: 'Mixed', value: 'mixed', tone: 'orange' },
+                        { label: 'Poor', value: 'poor', tone: 'red' },
+                      ]}
+                      onChange={(value) =>
+                        onUpdateDay(day.id, (current) => ({
+                          ...current,
+                          isLogged: true,
+                          eveningOutcome: value,
+                          cellColor: value ? current.cellColor : 'blank',
+                        }))
+                      }
+                    />
+                    <div className="flex items-center justify-between gap-3 rounded-[18px] border border-white/[0.05] bg-white/[0.02] px-3 py-2.5">
+                      <div className="space-y-0.5">
+                        <p className={dailyLogSubsectionLabelClassName}>Unstable day</p>
+                        <p className="text-xs text-mist/72">Mark this if the day felt volatile, regardless of outcome.</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onUpdateDay(day.id, (current) => ({
+                            ...current,
+                            isLogged: true,
+                            eveningUnstable: !current.eveningUnstable,
+                          }))
+                        }
+                        className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                          day.eveningUnstable
+                            ? 'border-[rgba(250,204,21,0.28)] bg-[rgba(250,204,21,0.1)] text-[#FDF3C6]'
+                            : 'border-white/[0.06] bg-[#1A1A1A] text-[#B0B0B0] hover:border-white/[0.1] hover:bg-[#202020] hover:text-white'
+                        }`}
+                      >
+                        {day.eveningUnstable ? 'On' : 'Off'}
+                      </button>
+                    </div>
+                  </div>
                   <CompactChoiceRow
-                    label="How did the day actually go?"
-                    value={day.eveningOutcome}
-                    options={[
-                      { label: 'Good', value: 'good', tone: 'green' },
-                      { label: 'Mixed', value: 'mixed', tone: 'orange' },
-                      { label: 'Poor', value: 'poor', tone: 'red' },
-                      { label: 'Unstable', value: 'unstable', tone: 'yellow' },
-                    ]}
-                    onChange={(value) =>
-                      onUpdateDay(day.id, (current) => ({
-                        ...current,
-                        isLogged: true,
-                        eveningOutcome: value,
-                        cellColor: getCellColorForEveningOutcome(value),
-                      }))
-                    }
-                  />
-                  <CompactChoiceRow
-                    label="How did the day move?"
+                    label="Did things get better or worse?"
                     value={day.eveningTrajectory}
                     optional
                     options={[
@@ -2320,7 +2343,7 @@ export function DayDrawer({
                     }
                   />
                   <CompactChoiceRow
-                    label="Did I help or hurt my state?"
+                    label="Did I influence my state?"
                     value={day.eveningSelfInfluence}
                     optional
                     options={[
@@ -2358,13 +2381,12 @@ export function DayDrawer({
                     }))
                   }
                   onInput={(event) => resizeTextarea(event.currentTarget)}
-                  onFocus={() => setReflectionFocused(true)}
+                  onFocus={(event) => {
+                    setReflectionFocused(true)
+                    resizeTextarea(event.currentTarget)
+                  }}
                   onBlur={() => setReflectionFocused(false)}
-                  placeholder={
-                    hasMorningIntention
-                      ? 'What stood out today?\nHow did today align with your intention?'
-                      : 'What stood out today?'
-                  }
+                  placeholder="One thing to capture (optional)"
                   className={`${innerFieldPanelClassName} min-h-[120px] w-full resize-none overflow-hidden px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-mist/45 focus:border-white/[0.08] focus:bg-[rgba(255,255,255,0.032)]`}
                   style={{
                     transition: 'height 160ms ease-out, border-color 150ms ease-out, background-color 150ms ease-out',
@@ -2394,6 +2416,25 @@ export function DayDrawer({
                     </>
                   )
                 })()}
+              </div>
+
+              <div className="space-y-3">
+                <SectionHeader title="Day summary" />
+                <div className="rounded-[20px] border border-white/[0.025] bg-[rgba(255,255,255,0.026)] px-3.5 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.01),0_10px_24px_rgba(0,0,0,0.1)]">
+                  {([
+                    ['Morning', morningSummary],
+                    ['Day', daySummary],
+                    ['Evening', eveningSummary],
+                  ] as Array<[string, string]>).map(([label, summary], index) => (
+                    <div
+                      key={label}
+                      className={`flex items-start justify-between gap-4 py-2 ${index > 0 ? 'border-t border-white/[0.04]' : ''}`}
+                    >
+                      <p className="min-w-[72px] text-[12px] font-medium uppercase tracking-[0.12em] text-white/58">{label}</p>
+                      <p className="flex-1 text-right text-sm leading-6 text-white/74">{summary}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
             </div>
@@ -3380,6 +3421,54 @@ function CompactChoiceRow<T extends string>({
   )
 }
 
+function getMorningSummary(day: DayEntry, selectedTagEntries: DayEntry['tagEntries'], tags: Tag[]) {
+  const selectedMorningTags = selectedTagEntries
+    .filter((entry) => entry.selected && entry.timeSection === 'morning')
+    .map((entry) => getDisplayTagForEntry(entry, tags)?.tag.name)
+    .filter((label): label is string => typeof label === 'string' && label.trim().length > 0)
+    .slice(0, 2)
+
+  const checkInValues = [day.mood, day.motivation, day.clarity, day.energy].filter((value): value is number => typeof value === 'number')
+  const averageCheckIn =
+    checkInValues.length > 0 ? `${Math.round(checkInValues.reduce((total, value) => total + value, 0) / checkInValues.length)}/10` : null
+
+  const parts = [...selectedMorningTags, averageCheckIn].filter((value): value is string => Boolean(value))
+  return parts.length > 0 ? parts.join(' · ') : 'No morning check-in logged'
+}
+
+function getEveningSummary(day: DayEntry) {
+  const parts = [
+    getEveningTrajectoryLabel(day.eveningTrajectory),
+    getEveningSelfInfluenceLabel(day.eveningSelfInfluence),
+    day.eveningUnstable ? 'Unstable' : null,
+    getEveningOutcomeLabel(day.eveningOutcome),
+  ].filter((value): value is string => Boolean(value))
+
+  return parts.length > 0 ? parts.join(' · ') : 'No evening check-out'
+}
+
+function getEveningOutcomeLabel(outcome: DayEntry['eveningOutcome']) {
+  if (outcome === 'good') return 'Good'
+  if (outcome === 'mixed') return 'Mixed'
+  if (outcome === 'poor') return 'Poor'
+  return null
+}
+
+function getEveningTrajectoryLabel(trajectory: DayEntry['eveningTrajectory']) {
+  if (trajectory === 'improved') return 'Improved'
+  if (trajectory === 'declined') return 'Declined'
+  if (trajectory === 'stable') return 'Stable'
+  if (trajectory === 'unstable') return 'Unstable'
+  return null
+}
+
+function getEveningSelfInfluenceLabel(selfInfluence: DayEntry['eveningSelfInfluence']) {
+  if (selfInfluence === 'helped') return 'Helped'
+  if (selfInfluence === 'neutral') return 'Neutral'
+  if (selfInfluence === 'hurt') return 'Hurt'
+  return null
+}
+
 function TagSectionFooterActions({
   onCreate,
   onManage,
@@ -3796,14 +3885,6 @@ function getDayLogSectionLabel(value: DayLogSection) {
   if (value === 'morning') return 'Morning'
   if (value === 'day') return 'Day'
   return 'Evening'
-}
-
-function getCellColorForEveningOutcome(outcome: DayEntry['eveningOutcome']): DayEntry['cellColor'] {
-  if (outcome === 'good') return 'green'
-  if (outcome === 'mixed') return 'orange'
-  if (outcome === 'poor') return 'red'
-  if (outcome === 'unstable') return 'yellow'
-  return 'blank'
 }
 
 function byDayLogSectionOrder(left: DayLogSection, right: DayLogSection) {

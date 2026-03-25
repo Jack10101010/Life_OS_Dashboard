@@ -27,6 +27,7 @@ export function DayHeatmapCell({
   currentWeek = false,
   hoverOutline = false,
   showBadHabitMarker = false,
+  badHabitMarkerColor = '#FF4D4F',
   habitMarkers = [],
   temporalEmptyShade = false,
   emptyDate = null,
@@ -38,6 +39,7 @@ export function DayHeatmapCell({
   currentWeek?: boolean
   hoverOutline?: boolean
   showBadHabitMarker?: boolean
+  badHabitMarkerColor?: string
   habitMarkers?: MoodHabitMarker[]
   temporalEmptyShade?: boolean
   emptyDate?: string | null
@@ -71,7 +73,13 @@ export function DayHeatmapCell({
       >
         {day.bigWin ? <span className="absolute -right-px -top-px h-[4px] w-[4px] rounded-full bg-sand" /> : null}
         {showBadHabitMarker ? (
-          <span className="absolute left-1/2 top-1/2 z-20 h-[7px] w-[7px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-[#1B1B1B] bg-[#FF4D4F] shadow-[0_0_0_1px_rgba(255,77,79,0.16)]" />
+          <span
+            className="absolute left-1/2 top-1/2 z-20 h-[7px] w-[7px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-[#1B1B1B]"
+            style={{
+              backgroundColor: badHabitMarkerColor,
+              boxShadow: `0 0 0 1px ${badHabitMarkerColor}29`,
+            }}
+          />
         ) : null}
         {visibleHabitMarkers.length > 0 ? (
           <span className="pointer-events-none absolute inset-x-[3px] bottom-[2px] z-20 flex items-center justify-center gap-[2px]">

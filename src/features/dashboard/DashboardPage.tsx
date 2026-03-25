@@ -1695,19 +1695,6 @@ export function DashboardPage({
             <div className="space-y-1">
               <p className="text-xs uppercase tracking-[0.22em] text-mist/70">Scratchpad</p>
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <p className="text-[11px] text-white/42">
-                  {scratchpadSaveState === 'saving' ? 'Saving...' : scratchpadSaveState === 'saved' ? 'Saved' : '\u00A0'}
-                </p>
-                {workspaceRecord?.updatedAt ? (
-                  <p className="text-[11px] text-white/38">
-                    Live {new Date(workspaceRecord.updatedAt).toLocaleString('en-IE', {
-                      day: 'numeric',
-                      month: 'short',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </p>
-                ) : null}
                 {scratchpadRecoveryMessage ? <p className="text-[11px] text-[#BDEFCF]">{scratchpadRecoveryMessage}</p> : null}
                 <button
                   type="button"
@@ -1738,7 +1725,7 @@ export function DashboardPage({
                         : 'border-white/[0.04] text-white/22'
                     }`}
                   >
-                    Saved {workspaceRecord?.updatedAt ? new Date(workspaceRecord.updatedAt).toLocaleTimeString('en-IE', { hour: '2-digit', minute: '2-digit' }) : 'empty'}
+                    Saved
                   </button>
                   {scratchpadRecoverySlots.map(({ slot, backup }) => (
                     <button
@@ -1763,7 +1750,7 @@ export function DashboardPage({
                           : 'border-white/[0.04] text-white/22'
                       }`}
                     >
-                      B{slot}{backup?.record.updatedAt ? ` ${new Date(backup.record.updatedAt).toLocaleTimeString('en-IE', { hour: '2-digit', minute: '2-digit' })}` : ''}
+                      B{slot}
                     </button>
                   ))}
                 </div>

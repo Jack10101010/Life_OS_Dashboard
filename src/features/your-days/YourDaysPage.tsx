@@ -2,6 +2,7 @@ import { type ReactNode, useMemo, useState } from 'react'
 import { ResponsiveGrid, SectionCard } from '../../components/layout/LayoutPrimitives'
 import { TagPill } from '../../components/ui/TagPill'
 import { DayEntry, Tag } from '../../types'
+import { getResolvedDayColor, getResolvedDayColorBadgeTone, getResolvedDayColorLabel } from '../../lib/color'
 import { formatLongDate } from '../../lib/date'
 
 export function YourDaysPage({
@@ -49,9 +50,9 @@ export function YourDaysPage({
                     <div className="min-w-0 space-y-3">
                       <div className="flex flex-wrap items-center gap-3">
                         <p className="text-lg font-semibold text-white">{formatLongDate(`${day.date}T00:00:00Z`)}</p>
-                        <span className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs ${getDayColorBadge(day.cellColor)}`}>
-                          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: getCellColorSwatch(day.cellColor) }} />
-                          {getDayColorLabel(day.cellColor)}
+                        <span className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs ${getDayColorBadge(day)}`}>
+                          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: getCellColorSwatch(day) }} />
+                          {getResolvedDayColorLabel(day)}
                         </span>
                       </div>
                       <div className="flex flex-wrap gap-2">
@@ -136,7 +137,7 @@ export function YourDaysPage({
                       </ReadOnlyGroup>
 
                       <ReadOnlyGroup title="Signals">
-                        <ReadOnlyItem label="Day color" value={getDayColorLabel(day.cellColor)} />
+                        <ReadOnlyItem label="Day color" value={getResolvedDayColorLabel(day)} />
                         <ReadOnlyText label="Big win" value={day.bigWin} empty="No big win logged." />
                       </ReadOnlyGroup>
 
@@ -273,27 +274,16 @@ function getSleepSummary(day: DayEntry) {
   return parts.join(' · ')
 }
 
-function getDayColorLabel(color: DayEntry['cellColor']) {
-  if (color === 'blank') return 'Blank'
-  if (color === 'green') return 'Green'
-  if (color === 'yellow') return 'Yellow'
-  if (color === 'orange') return 'Orange'
-  return 'Red'
+function getCellColorSwatch(day: DayEntry) {
+  return getResolvedDayColor(day, 'mood') ?? '#5B5B5B'
 }
 
-function getCellColorSwatch(color: DayEntry['cellColor']) {
-  if (color === 'green') return '#22C55E'
-  if (color === 'yellow') return '#FACC15'
-  if (color === 'orange') return '#F59E0B'
-  if (color === 'red') return '#EF4444'
-  return '#5B5B5B'
-}
-
-function getDayColorBadge(color: DayEntry['cellColor']) {
-  if (color === 'green') return 'border-[rgba(34,197,94,0.2)] bg-[rgba(34,197,94,0.08)] text-[#DDFBE7]'
-  if (color === 'yellow') return 'border-[rgba(250,204,21,0.2)] bg-[rgba(250,204,21,0.08)] text-[#FDF3C6]'
-  if (color === 'orange') return 'border-[rgba(245,158,11,0.2)] bg-[rgba(245,158,11,0.08)] text-[#FCE7C2]'
-  if (color === 'red') return 'border-[rgba(239,68,68,0.2)] bg-[rgba(239,68,68,0.08)] text-[#F7D6D3]'
+function getDayColorBadge(day: DayEntry) {
+  const tone = getResolvedDayColorBadgeTone(day)
+  if (tone === 'green') return 'border-[rgba(34,197,94,0.2)] bg-[rgba(34,197,94,0.08)] text-[#DDFBE7]'
+  if (tone === 'yellow') return 'border-[rgba(250,204,21,0.2)] bg-[rgba(250,204,21,0.08)] text-[#FDF3C6]'
+  if (tone === 'orange') return 'border-[rgba(245,158,11,0.2)] bg-[rgba(245,158,11,0.08)] text-[#FCE7C2]'
+  if (tone === 'red') return 'border-[rgba(239,68,68,0.2)] bg-[rgba(239,68,68,0.08)] text-[#F7D6D3]'
   return 'border-white/[0.08] bg-white/[0.03] text-white/72'
 }
 

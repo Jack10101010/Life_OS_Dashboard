@@ -586,6 +586,7 @@ function MoodMonthView({
                           active={selectedDayId === cell.day.id}
                           hoverOutline
                           showBadHabitMarker={showBadHabitMarker && (badHabitDateMap.get(cell.day.date)?.length ?? 0) > 0}
+                          badHabitMarkerColor={getBadHabitMarkerColor(badHabitDateMap.get(cell.day.date) ?? [])}
                           habitMarkers={showHabitMarkers ? getOrderedCompletedHabits(cell.day.date, habitTrackers) : []}
                           temporalEmptyShade
                           sizeClassName={MOOD_MONTH_TILE_CLASS}
@@ -678,6 +679,7 @@ function MoodWeekView({
                   active={selectedDayId === cell.day.id}
                   hoverOutline
                   showBadHabitMarker={showBadHabitMarker && (badHabitDateMap.get(cell.day.date)?.length ?? 0) > 0}
+                  badHabitMarkerColor={getBadHabitMarkerColor(badHabitDateMap.get(cell.day.date) ?? [])}
                   habitMarkers={showHabitMarkers ? getOrderedCompletedHabits(cell.day.date, habitTrackers) : []}
                   temporalEmptyShade
                   sizeClassName={MOOD_WEEK_TILE_CLASS}
@@ -724,6 +726,11 @@ function getOrderedCompletedHabits(date: string, habitTrackers: HabitTracker[]) 
       name: tracker.title,
       color: tracker.color,
     }))
+}
+
+function getBadHabitMarkerColor(occurredBadHabits: BadHabitDefinition[]) {
+  if (occurredBadHabits.some((habit) => habit.id === 'alcohol')) return '#FF4D4F'
+  return occurredBadHabits.find((habit) => !habit.isArchived)?.color ?? '#FF4D4F'
 }
 
 function CurrentWeekStrip({

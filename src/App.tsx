@@ -55,7 +55,6 @@ export default function App() {
     badHabitLogs,
     activeBadHabits,
     visibleBadHabitStreaks,
-    badHabitDates,
     badHabitDateMap,
     tags,
     viewMode,
@@ -421,7 +420,7 @@ export default function App() {
             heatmapLayout,
             year: filters.year,
             habitTrackers,
-            badHabitOccurredDates: badHabitDates,
+            badHabitDateMap,
             enableBadHabitTracking: settings.enableBadHabitTracking,
             habitTrackerPeriodView,
             habitTrackerFocusDate,
@@ -460,7 +459,7 @@ export default function App() {
           heatmapLayout={heatmapLayout}
           year={filters.year}
           habitTrackers={habitTrackers}
-          badHabitOccurredDates={badHabitDates}
+          badHabitDateMap={badHabitDateMap}
           enableBadHabitTracking={settings.enableBadHabitTracking}
           habitTrackerPeriodView={habitTrackerPeriodView}
           habitTrackerFocusDate={habitTrackerFocusDate}

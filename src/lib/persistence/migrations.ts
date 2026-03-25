@@ -143,13 +143,8 @@ export function normalizePersistedAppState(parsed: Partial<PersistedAppState>, c
                 dashboardScratchpad: normalizeScratchpad(day.dashboardScratchpad, day.date),
                 dailyIntentCompleteOneTask: day.dailyIntentCompleteOneTask ?? false,
                 morningIntention: typeof day.morningIntention === 'string' ? day.morningIntention : '',
-                eveningOutcome:
-                  day.eveningOutcome === 'good' ||
-                  day.eveningOutcome === 'mixed' ||
-                  day.eveningOutcome === 'poor' ||
-                  day.eveningOutcome === 'unstable'
-                    ? day.eveningOutcome
-                    : null,
+                eveningOutcome: normalizeLegacyEveningOutcome(day.eveningOutcome, day.cellColor),
+                eveningUnstable: normalizeLegacyEveningUnstable(day.eveningOutcome, day.eveningUnstable),
                 eveningTrajectory:
                   day.eveningTrajectory === 'improved' ||
                   day.eveningTrajectory === 'declined' ||
@@ -748,4 +743,19 @@ function normalizeTagAvailability(raw: unknown, section: TagSection): DayLogSect
   if (section === 'feelings') return ['morning', 'day', 'evening']
   if (section === 'events') return ['day']
   return ['morning', 'day', 'evening']
+}
+
+function normalizeLegacyEveningOutcome(raw: unknown, cellColor?: unknown): 'good' | 'mixed' | 'poor' | null {
+  if (raw === 'good' || raw === 'mixed' || raw === 'poor') return raw
+  if (raw !== 'unstable') return null
+
+  if (cellColor === 'green') return 'good'
+  if (cellColor === 'yellow') return 'mixed'
+  if (cellColor === 'orange' || cellColor === 'red') return 'poor'
+  return 'poor'
+}
+
+function normalizeLegacyEveningUnstable(rawOutcome: unknown, rawUnstable: unknown) {
+  if (typeof rawUnstable === 'boolean') return rawUnstable
+  return rawOutcome === 'unstable'
 }

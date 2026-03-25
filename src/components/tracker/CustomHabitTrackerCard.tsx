@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from 'framer-motion'
 import { useEffect, useRef, useState } from 'react'
-import { HabitTracker, HabitTrackerAchievement, HabitTrackerCalendarRange, HabitTrackerPeriodView, HeatmapLayout } from '../../types'
+import { BadHabitDefinition, HabitTracker, HabitTrackerAchievement, HabitTrackerCalendarRange, HabitTrackerPeriodView, HeatmapLayout } from '../../types'
 import {
   getAchievementDetailLabel,
   getLiveTrackerStreak,
@@ -274,7 +274,7 @@ function TrackerCellButton({
   dimmed,
   disabled = false,
   achievement = false,
-  badHabitOccurred = false,
+  badHabitMarkerColor,
   onClick,
   hoverProps,
   className = '',
@@ -289,7 +289,7 @@ function TrackerCellButton({
   dimmed?: boolean
   disabled?: boolean
   achievement?: boolean
-  badHabitOccurred?: boolean
+  badHabitMarkerColor?: string
   onClick: () => void
   hoverProps: Record<string, unknown>
   className?: string
@@ -311,8 +311,14 @@ function TrackerCellButton({
         dimmed={dimmed}
         className="h-full w-full"
       />
-      {badHabitOccurred ? (
-        <span className="pointer-events-none absolute left-1/2 top-1/2 z-20 h-[7px] w-[7px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-[#1B1B1B] bg-[#FF4D4F] shadow-[0_0_0_1px_rgba(255,77,79,0.16)]" />
+      {badHabitMarkerColor ? (
+        <span
+          className="pointer-events-none absolute left-1/2 top-1/2 z-20 h-[7px] w-[7px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-[#1B1B1B]"
+          style={{
+            backgroundColor: badHabitMarkerColor,
+            boxShadow: `0 0 0 1px ${badHabitMarkerColor}29`,
+          }}
+        />
       ) : null}
       {achievement ? (
         <span className="pointer-events-none absolute right-0.5 top-0.5 z-20 inline-flex h-3 w-3 items-center justify-center rounded-full bg-[#2A2316] text-[8px] leading-none text-[#F3C56B] shadow-[0_0_0_1px_rgba(243,197,107,0.18)]">
@@ -325,7 +331,7 @@ function TrackerCellButton({
 
 export function CustomHabitTrackerCard({
   tracker,
-  badHabitOccurredDates,
+  badHabitDateMap,
   enableBadHabitTracking,
   year,
   layout,
@@ -342,7 +348,7 @@ export function CustomHabitTrackerCard({
   onCalendarRangeChange,
 }: {
   tracker: HabitTracker
-  badHabitOccurredDates: string[]
+  badHabitDateMap: Map<string, BadHabitDefinition[]>
   enableBadHabitTracking: boolean
   year: number
   layout: HeatmapLayout
@@ -359,7 +365,6 @@ export function CustomHabitTrackerCard({
   onCalendarRangeChange: (next: HabitTrackerCalendarRange) => void
 }) {
   const trackerData = normalizeHabitTracker(tracker)
-  const badHabitOccurredDateSet = new Set(badHabitOccurredDates)
   const { containerRef: controlsRef, isOpen, toggleMenu, closeMenu } = usePopoverGroup<'view'>()
   const {
     containerRef: achievementShelfRef,
@@ -505,7 +510,7 @@ export function CustomHabitTrackerCard({
                           today={isTodayIso(item.cell.date)}
                           hovered={hoveredDate === item.cell.date}
                           achievement={achievementDates.has(item.cell.date)}
-                          badHabitOccurred={enableBadHabitTracking && trackerData.showAlcoholMarkers && badHabitOccurredDateSet.has(item.cell.date)}
+                          badHabitMarkerColor={getTrackerBadHabitMarkerColor(enableBadHabitTracking && trackerData.showAlcoholMarkers ? badHabitDateMap.get(item.cell.date) ?? [] : [])}
                           disabled={isWeekendIso(item.cell.date) && trackerData.weekendVisibility === 'disable'}
                           onClick={() => onSelectDate(item.cell.date)}
                           hoverProps={isWeekendIso(item.cell.date) && trackerData.weekendVisibility !== 'show' ? {} : bindHover(item.cell)}
@@ -574,7 +579,7 @@ export function CustomHabitTrackerCard({
                       today={isTodayIso(cell.date)}
                       hovered={hoveredDate === cell.date}
                       achievement={achievementDates.has(cell.date)}
-                      badHabitOccurred={enableBadHabitTracking && trackerData.showAlcoholMarkers && badHabitOccurredDateSet.has(cell.date)}
+                      badHabitMarkerColor={getTrackerBadHabitMarkerColor(enableBadHabitTracking && trackerData.showAlcoholMarkers ? badHabitDateMap.get(cell.date) ?? [] : [])}
                       disabled={rowIndex >= 5 && disableWeekends}
                       onClick={() => onSelectDate(cell.date)}
                       hoverProps={rowIndex >= 5 && disableWeekends ? {} : bindHover(cell)}
@@ -617,7 +622,7 @@ export function CustomHabitTrackerCard({
                     today={isTodayIso(cell.date)}
                     hovered={hoveredDate === cell.date}
                     achievement={achievementDates.has(cell.date)}
-                    badHabitOccurred={enableBadHabitTracking && trackerData.showAlcoholMarkers && badHabitOccurredDateSet.has(cell.date)}
+                    badHabitMarkerColor={getTrackerBadHabitMarkerColor(enableBadHabitTracking && trackerData.showAlcoholMarkers ? badHabitDateMap.get(cell.date) ?? [] : [])}
                     dimmed={!cell.inCurrentMonth}
                     disabled={isWeekendIso(cell.date) && disableWeekends}
                     onClick={() => onSelectDate(cell.date)}
@@ -654,7 +659,7 @@ export function CustomHabitTrackerCard({
               today={isTodayIso(cell.date)}
               hovered={hoveredDate === cell.date}
               achievement={achievementDates.has(cell.date)}
-              badHabitOccurred={enableBadHabitTracking && trackerData.showAlcoholMarkers && badHabitOccurredDateSet.has(cell.date)}
+              badHabitMarkerColor={getTrackerBadHabitMarkerColor(enableBadHabitTracking && trackerData.showAlcoholMarkers ? badHabitDateMap.get(cell.date) ?? [] : [])}
               disabled={isWeekendIso(cell.date) && disableWeekends}
               onClick={() => onSelectDate(cell.date)}
               hoverProps={isWeekendIso(cell.date) && tracker.weekendVisibility !== 'show' ? {} : bindHover(cell)}
@@ -873,7 +878,7 @@ export function CustomHabitTrackerCard({
               }
               preview={trackerData.entries[hovered.day.date]?.note || undefined}
               streak={trackerData.goal?.type === 'streak' ? getTrackerStreakEndingOn(trackerData, hovered.day.date) : undefined}
-              alcoholConsumed={enableBadHabitTracking && trackerData.showAlcoholMarkers && badHabitOccurredDateSet.has(hovered.day.date)}
+              occurredBadHabits={enableBadHabitTracking && trackerData.showAlcoholMarkers ? badHabitDateMap.get(hovered.day.date) ?? [] : []}
               anchorRect={hovered.rect}
               containerRect={hovered.container}
             />
@@ -960,4 +965,9 @@ export function CustomHabitTrackerCard({
       </div>
     </Card>
   )
+}
+
+function getTrackerBadHabitMarkerColor(occurredBadHabits: BadHabitDefinition[]) {
+  if (occurredBadHabits.some((habit) => habit.id === 'alcohol')) return '#FF4D4F'
+  return occurredBadHabits.find((habit) => !habit.isArchived)?.color ?? undefined
 }

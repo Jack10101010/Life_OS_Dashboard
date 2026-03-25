@@ -52,6 +52,7 @@ type DayRecordSections = {
   evening: {
     moodNote: string
     outcome: DayEntry['eveningOutcome']
+    unstable: boolean
     trajectory: DayEntry['eveningTrajectory']
     selfInfluence: DayEntry['eveningSelfInfluence']
     journal: string
@@ -128,6 +129,7 @@ export function buildCanonicalDayRecord(day: DayEntry): CanonicalDayRecord {
     evening: {
       moodNote: day.moodNote,
       outcome: day.eveningOutcome,
+      unstable: day.eveningUnstable,
       trajectory: day.eveningTrajectory,
       selfInfluence: day.eveningSelfInfluence,
       journal: day.journal,
@@ -153,6 +155,7 @@ export function isMeaningfulContent(record: CanonicalDayRecord | DayEntry | null
     day.wakeTime.trim().length > 0 ||
     day.wokeDuringNight !== null ||
     day.eveningOutcome !== null ||
+    day.eveningUnstable ||
     day.eveningTrajectory !== null ||
     day.eveningSelfInfluence !== null ||
     day.morningIntention.trim().length > 0 ||
@@ -372,6 +375,7 @@ export function normalizeStoredDayRecord(raw: unknown, viewedDate: string, fallb
     evening: {
       moodNote: normalizedDay.moodNote,
       outcome: normalizedDay.eveningOutcome,
+      unstable: normalizedDay.eveningUnstable,
       trajectory: normalizedDay.eveningTrajectory,
       selfInfluence: normalizedDay.eveningSelfInfluence,
       journal: normalizedDay.journal,
@@ -444,8 +448,21 @@ function mergeCanonicalSectionsIntoDayCandidate(
         ? daySection.lowStateEntry
         : fullDay.lowStateEntry ?? parsed.lowStateEntry,
     moodNote: eveningSection && 'moodNote' in eveningSection ? eveningSection.moodNote : fullDay.moodNote ?? parsed.moodNote,
-    eveningOutcome:
+    eveningOutcome: normalizeLegacyEveningOutcome(
       eveningSection && 'outcome' in eveningSection ? eveningSection.outcome : fullDay.eveningOutcome ?? parsed.eveningOutcome,
+      daySection && 'cellColor' in daySection ? daySection.cellColor : fullDay.cellColor ?? parsed.cellColor,
+      null,
+    ),
+    eveningUnstable:
+      eveningSection && 'unstable' in eveningSection
+        ? Boolean(eveningSection.unstable)
+        : typeof fullDay.eveningUnstable === 'boolean'
+          ? fullDay.eveningUnstable
+          : normalizeLegacyEveningUnstable(
+              fullDay.eveningOutcome ?? parsed.eveningOutcome,
+              fullDay.eveningUnstable ?? parsed.eveningUnstable,
+              false,
+            ),
     eveningTrajectory:
       eveningSection && 'trajectory' in eveningSection
         ? eveningSection.trajectory
@@ -521,6 +538,7 @@ function createEmptyDayEntry(date: string, fallbackDay?: DayEntry): DayEntry {
     eveningMood: 3,
     moodNote: '',
     eveningOutcome: null,
+    eveningUnstable: false,
     eveningTrajectory: null,
     eveningSelfInfluence: null,
     habitsCompleted: 0,
@@ -578,13 +596,8 @@ function normalizeDayEntryLike(
     morningMood: typeof raw.morningMood === 'number' ? raw.morningMood : baseDay.morningMood,
     eveningMood: typeof raw.eveningMood === 'number' ? raw.eveningMood : baseDay.eveningMood,
     moodNote: normalizeString(raw.moodNote, baseDay.moodNote),
-    eveningOutcome:
-      raw.eveningOutcome === 'good' ||
-      raw.eveningOutcome === 'mixed' ||
-      raw.eveningOutcome === 'poor' ||
-      raw.eveningOutcome === 'unstable'
-        ? raw.eveningOutcome
-        : baseDay.eveningOutcome,
+    eveningOutcome: normalizeLegacyEveningOutcome(raw.eveningOutcome, raw.cellColor, baseDay.eveningOutcome),
+    eveningUnstable: normalizeLegacyEveningUnstable(raw.eveningOutcome, raw.eveningUnstable, baseDay.eveningUnstable),
     eveningTrajectory:
       raw.eveningTrajectory === 'improved' ||
       raw.eveningTrajectory === 'declined' ||
@@ -918,6 +931,22 @@ function normalizeString(raw: unknown, fallback = '') {
 
 function normalizeTimeSection(raw: unknown): DayLogSection {
   return raw === 'morning' || raw === 'evening' || raw === 'day' ? raw : 'day'
+}
+
+function normalizeLegacyEveningOutcome(raw: unknown, rawCellColor: unknown, fallback: DayEntry['eveningOutcome']) {
+  if (raw === 'good' || raw === 'mixed' || raw === 'poor') return raw
+  if (raw !== 'unstable') return fallback
+
+  if (rawCellColor === 'green') return 'good'
+  if (rawCellColor === 'yellow') return 'mixed'
+  if (rawCellColor === 'orange' || rawCellColor === 'red') return 'poor'
+  return fallback ?? 'poor'
+}
+
+function normalizeLegacyEveningUnstable(rawOutcome: unknown, rawUnstable: unknown, fallback: boolean) {
+  if (typeof rawUnstable === 'boolean') return rawUnstable
+  if (rawOutcome === 'unstable') return true
+  return fallback
 }
 
 function hasMeaningfulString(value: string | undefined | null) {

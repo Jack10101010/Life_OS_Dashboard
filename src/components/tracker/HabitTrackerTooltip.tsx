@@ -1,3 +1,5 @@
+import { BadHabitDefinition } from '../../types'
+
 const CALLOUT_WIDTH = 220
 const GAP = 8
 
@@ -16,7 +18,7 @@ export function HabitTrackerTooltip({
   status,
   preview,
   streak,
-  alcoholConsumed = false,
+  occurredBadHabits = [],
   anchorRect,
   containerRect,
 }: {
@@ -25,7 +27,7 @@ export function HabitTrackerTooltip({
   status: string
   preview?: string
   streak?: number
-  alcoholConsumed?: boolean
+  occurredBadHabits?: BadHabitDefinition[]
   anchorRect: { top: number; left: number; right: number; width: number; height: number }
   containerRect: { top: number; left: number; width: number; height: number }
 }) {
@@ -57,7 +59,9 @@ export function HabitTrackerTooltip({
       <p className="mt-1 text-[10px] text-[#B9B9B9]">{formatDate(date)}</p>
       <p className="mt-1.5 text-[13px] font-semibold text-white">{status}</p>
       {streak && streak > 0 ? <p className="mt-1 text-[11px] text-[#C8C8C8]">Streak: {streak} day{streak === 1 ? '' : 's'}</p> : null}
-      {alcoholConsumed ? <p className="mt-1 text-[11px] text-[#C8C8C8]">Bad habit recorded: Yes</p> : null}
+      {occurredBadHabits.length > 0 ? (
+        <p className="mt-1 text-[11px] text-[#C8C8C8]">Bad habits: {occurredBadHabits.map((habit) => habit.name).join(', ')}</p>
+      ) : null}
       {preview ? <p className="mt-1 text-[11px] leading-4 text-[#AEAEAE]">{preview}</p> : null}
     </div>
   )

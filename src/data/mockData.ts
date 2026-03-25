@@ -84,6 +84,7 @@ export function createMockData(year: number) {
         eveningMood: 3,
         moodNote: '',
         eveningOutcome: null,
+        eveningUnstable: false,
         eveningTrajectory: null,
         eveningSelfInfluence: null,
         habitsCompleted: 0,

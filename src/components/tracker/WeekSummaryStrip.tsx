@@ -1,5 +1,6 @@
 import { ReactNode, useEffect, useMemo, useState } from 'react'
 import { DayEntry, Tag, WeekEntry } from '../../types'
+import { getResolvedDayColorLabel } from '../../lib/color'
 import { formatShortDate } from '../../lib/date'
 import { TagPill } from '../ui/TagPill'
 
@@ -269,12 +270,13 @@ function DailyReviewPanel({ day, visibleTags }: { day: DayEntry; visibleTags: Ta
         </ReadOnlyGroup>
 
         <ReadOnlyGroup title="Signals">
-          <ReadOnlyItem label="Day color" value={getDayColorLabel(day.cellColor)} />
+          <ReadOnlyItem label="Day color" value={getResolvedDayColorLabel(day)} />
           <ReadOnlyText label="Big win" value={day.bigWin} empty="No big win logged." />
         </ReadOnlyGroup>
 
         <ReadOnlyGroup title="Evening">
           <ReadOnlyItem label="Outcome" value={day.eveningOutcome ? titleCase(day.eveningOutcome) : 'No evening check-out'} />
+          <ReadOnlyItem label="Unstable day" value={day.eveningUnstable ? 'Yes' : 'No'} />
           <ReadOnlyItem label="Trajectory" value={day.eveningTrajectory ? titleCase(day.eveningTrajectory) : 'Not logged'} />
           <ReadOnlyItem label="Self influence" value={day.eveningSelfInfluence ? titleCase(day.eveningSelfInfluence) : 'Not logged'} />
           <ReadOnlyText label="Reflection" value={day.journal} empty="No reflection logged." />
@@ -299,7 +301,7 @@ function countOutcomes(days: DayEntry[]) {
     good: days.filter((day) => day.eveningOutcome === 'good').length,
     mixed: days.filter((day) => day.eveningOutcome === 'mixed').length,
     poor: days.filter((day) => day.eveningOutcome === 'poor').length,
-    unstable: days.filter((day) => day.eveningOutcome === 'unstable').length,
+    unstable: days.filter((day) => day.eveningUnstable).length,
   }
 }
 
@@ -385,12 +387,12 @@ function getSleepInsight(days: DayEntry[]) {
   if (poorSleepDays.length === 0) return null
 
   const declinedOrUnstable = poorSleepDays.filter(
-    (day) => day.eveningTrajectory === 'declined' || day.eveningOutcome === 'poor' || day.eveningOutcome === 'unstable',
+    (day) => day.eveningTrajectory === 'declined' || day.eveningOutcome === 'poor' || day.eveningUnstable,
   ).length
 
   const percent = Math.round((declinedOrUnstable / poorSleepDays.length) * 100)
   return {
-    headline: `${percent}% of low-sleep days ended in decline, poor, or unstable outcomes`,
+    headline: `${percent}% of low-sleep days ended in decline, poor, or unstable states`,
     detail: `${declinedOrUnstable} of ${poorSleepDays.length} ${poorSleepDays.length === 1 ? 'day with lower sleep' : 'days with lower sleep'} matched that pattern`,
     strength: percent,
   }
@@ -415,7 +417,7 @@ function getTagInsights(days: DayEntry[], tags: Tag[]) {
         if (day.eveningTrajectory === 'improved') current.improved += 1
         if (day.eveningTrajectory === 'declined') current.declined += 1
         if (day.eveningOutcome === 'good') current.good += 1
-        if (day.eveningOutcome === 'poor' || day.eveningOutcome === 'unstable') current.poorOrUnstable += 1
+        if (day.eveningOutcome === 'poor' || day.eveningUnstable) current.poorOrUnstable += 1
         stats.set(normalized, current)
       })
   })
@@ -441,7 +443,7 @@ function getTagInsights(days: DayEntry[], tags: Tag[]) {
         const percent = Math.round(Math.max(declinedRate, poorRate) * 100)
         return {
           headline: `${titleCase(name)} tended to show up on tougher days`,
-          detail: `${titleCase(name)} appeared on ${value.days} days and matched decline, poor, or unstable outcomes ${percent}% of the time`,
+          detail: `${titleCase(name)} appeared on ${value.days} days and matched decline, poor, or unstable states ${percent}% of the time`,
           strength: percent,
         }
       }
@@ -538,8 +540,9 @@ function getDaySecondaryContext(day: DayEntry) {
 }
 
 function formatDayOutcomeBadge(day: DayEntry) {
-  if (!day.eveningOutcome) return 'No evening check-out'
-  return titleCase(day.eveningOutcome)
+  if (!day.eveningOutcome && !day.eveningUnstable) return 'No evening check-out'
+  if (!day.eveningOutcome && day.eveningUnstable) return 'Unstable day'
+  return day.eveningUnstable ? `${titleCase(day.eveningOutcome!)} · Unstable` : titleCase(day.eveningOutcome!)
 }
 
 function ReadOnlyGroup({ title, children }: { title: string; children: ReactNode }) {
@@ -655,14 +658,6 @@ function formatMedicationLine(item: DayEntry['medications'][number]) {
 
 function formatDayEventLine(item: DayEntry['dailyActions'][number]) {
   return [item.time || null, item.title, item.description.trim() || null].filter(Boolean).join(' · ')
-}
-
-function getDayColorLabel(color: DayEntry['cellColor']) {
-  if (color === 'blank') return 'Blank'
-  if (color === 'green') return 'Green'
-  if (color === 'yellow') return 'Yellow'
-  if (color === 'orange') return 'Orange'
-  return 'Red'
 }
 
 function getPolarityColor(polarity: Tag['polarity']) {

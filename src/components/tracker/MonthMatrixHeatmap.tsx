@@ -114,6 +114,7 @@ export function MonthMatrixHeatmap({
                           active={selectedDayId === day.id}
                           hoverOutline
                           showBadHabitMarker={showBadHabitMarker && (badHabitDateMap.get(day.date)?.length ?? 0) > 0}
+                          badHabitMarkerColor={getBadHabitMarkerColor(badHabitDateMap.get(day.date) ?? [])}
                           habitMarkers={showHabitMarkers ? getOrderedCompletedHabits(day.date, habitTrackers) : []}
                           temporalEmptyShade
                           sizeClassName="aspect-square min-h-[14px] w-full min-w-[14px]"
@@ -160,6 +161,11 @@ function getOrderedCompletedHabits(date: string, habitTrackers: HabitTracker[]) 
       name: tracker.title,
       color: tracker.color,
     }))
+}
+
+function getBadHabitMarkerColor(occurredBadHabits: BadHabitDefinition[]) {
+  if (occurredBadHabits.some((habit) => habit.id === 'alcohol')) return '#FF4D4F'
+  return occurredBadHabits.find((habit) => !habit.isArchived)?.color ?? '#FF4D4F'
 }
 
 function getCurrentWeekRangeForRow(

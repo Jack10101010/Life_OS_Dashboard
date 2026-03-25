@@ -23,13 +23,88 @@ const manualCellColors: Record<ManualCellColor, string> = {
   red: '#FF3B30',
 }
 
+const outcomeScoreBands = [
+  { min: 0, max: 15, color: '#D7263D', label: 'Poor' },
+  { min: 16, max: 30, color: '#A61E2E', label: 'Poor' },
+  { min: 31, max: 50, color: '#C96A2B', label: 'Poor' },
+  { min: 51, max: 68, color: '#D9A441', label: 'Mixed' },
+  { min: 69, max: 84, color: '#5F8F4E', label: 'Good' },
+  { min: 85, max: 100, color: '#2FA36B', label: 'Good' },
+] as const
+
 export function getManualCellColor(cellColor: ManualCellColor) {
   return manualCellColors[cellColor]
 }
 
-export function getDayColor(day: DayEntry, mode: ColorMode) {
+export function getDerivedDayScore(day: DayEntry) {
+  if (!day.eveningOutcome) return null
+
+  const baseScore = day.eveningOutcome === 'good' ? 85 : day.eveningOutcome === 'mixed' ? 55 : 20
+  const adjustedScore = day.eveningUnstable ? baseScore - 10 : baseScore
+
+  return Math.max(0, Math.min(100, adjustedScore))
+}
+
+export function getScoreDerivedDayColor(score: number) {
+  const band = outcomeScoreBands.find((entry) => score >= entry.min && score <= entry.max)
+  return band?.color ?? outcomeScoreBands[0].color
+}
+
+function getScoreBandLabel(score: number) {
+  const band = outcomeScoreBands.find((entry) => score >= entry.min && score <= entry.max)
+  return band?.label ?? 'Poor'
+}
+
+function getLegacyDayColorLabel(color: ManualCellColor) {
+  if (color === 'blank') return 'Blank'
+  if (color === 'green') return 'Green'
+  if (color === 'yellow') return 'Yellow'
+  if (color === 'orange') return 'Orange'
+  return 'Red'
+}
+
+export function getResolvedDayColor(day: DayEntry, mode: ColorMode) {
+  const derivedScore = getDerivedDayScore(day)
+  if (derivedScore != null && (mode === 'mood' || mode === 'overall')) {
+    return getScoreDerivedDayColor(derivedScore)
+  }
+
   if (day.cellColor !== 'blank') {
     return getManualCellColor(day.cellColor)
+  }
+
+  return null
+}
+
+export function getResolvedDayColorLabel(day: DayEntry) {
+  const derivedScore = getDerivedDayScore(day)
+  if (derivedScore != null) {
+    const baseLabel = getScoreBandLabel(derivedScore)
+    return day.eveningUnstable ? `${baseLabel} · Unstable` : baseLabel
+  }
+
+  if (day.cellColor !== 'blank') {
+    return getLegacyDayColorLabel(day.cellColor)
+  }
+
+  return 'Blank'
+}
+
+export function getResolvedDayColorBadgeTone(day: DayEntry) {
+  const derivedScore = getDerivedDayScore(day)
+  if (derivedScore != null) {
+    if (derivedScore <= 50) return 'red'
+    if (derivedScore <= 68) return 'yellow'
+    return 'green'
+  }
+
+  return day.cellColor
+}
+
+export function getDayColor(day: DayEntry, mode: ColorMode) {
+  const resolvedColor = getResolvedDayColor(day, mode)
+  if (resolvedColor) {
+    return resolvedColor
   }
 
   return getDerivedDayColor(day, mode)
@@ -68,6 +143,16 @@ export function getWeekColor(week: WeekEntry, mode: ColorMode) {
 }
 
 export function getTooltipTint(day: DayEntry) {
+  const derivedScore = getDerivedDayScore(day)
+  if (derivedScore != null) {
+    if (derivedScore <= 15) return 'rgba(215, 38, 61, 0.14)'
+    if (derivedScore <= 30) return 'rgba(166, 30, 46, 0.14)'
+    if (derivedScore <= 50) return 'rgba(201, 106, 43, 0.14)'
+    if (derivedScore <= 68) return 'rgba(217, 164, 65, 0.15)'
+    if (derivedScore <= 84) return 'rgba(95, 143, 78, 0.14)'
+    return 'rgba(47, 163, 107, 0.14)'
+  }
+
   if (day.cellColor === 'red') return 'rgba(255, 59, 48, 0.12)'
   if (day.cellColor === 'yellow') return 'rgba(250, 204, 21, 0.13)'
   if (day.cellColor === 'orange') return 'rgba(255, 159, 10, 0.12)'
