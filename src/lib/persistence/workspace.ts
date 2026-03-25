@@ -83,44 +83,23 @@ export function normalizeStoredWorkspaceRecord(raw: unknown): WorkspaceRecord | 
 export function readWorkspaceRecord(): WorkspaceRecord | null {
   if (typeof window === 'undefined') return null
 
-  console.info('[workspace-debug] hydrationStart', { key: WORKSPACE_STORAGE_KEY })
   const canonicalRaw = window.localStorage.getItem(WORKSPACE_STORAGE_KEY)
   const canonicalRecord = canonicalRaw ? normalizeStoredWorkspaceRecord(safeParseWorkspacePayload(canonicalRaw)) : null
 
-  console.info('[workspace-debug] canonicalLookup', {
-    key: WORKSPACE_STORAGE_KEY,
-    found: Boolean(canonicalRaw),
-    meaningful: canonicalRecord ? isMeaningfulWorkspace(canonicalRecord.workspace) : false,
-  })
-
   if (canonicalRecord && isMeaningfulWorkspace(canonicalRecord.workspace)) {
-    console.info('[workspace-debug] hydrationComplete', {
-      source: 'canonical',
-      updatedAt: canonicalRecord.updatedAt,
-    })
     return canonicalRecord
   }
 
   const migratedRecord = findLatestLegacyWorkspaceRecord()
   if (migratedRecord) {
     persistMigratedWorkspaceRecord(migratedRecord.record, migratedRecord.sourceKey)
-    console.info('[workspace-debug] hydrationComplete', {
-      source: 'legacy',
-      updatedAt: migratedRecord.record.updatedAt,
-      from: migratedRecord.sourceKey,
-    })
     return migratedRecord.record
   }
 
   if (canonicalRecord) {
-    console.info('[workspace-debug] hydrationComplete', {
-      source: 'canonical-empty',
-      updatedAt: canonicalRecord.updatedAt,
-    })
     return canonicalRecord
   }
 
-  console.info('[workspace-debug] hydrationComplete', { source: 'none' })
   return null
 }
 
@@ -148,10 +127,6 @@ export function saveWorkspaceRecord(record: WorkspaceRecord) {
   const currentHasContent = currentRecord ? isMeaningfulWorkspace(currentRecord.workspace) : false
 
   if (!nextHasContent && currentHasContent) {
-    console.warn('[workspace-debug] saveSkipped', {
-      reason: 'Prevented placeholder workspace state from overwriting meaningful stored workspace data.',
-      key: WORKSPACE_STORAGE_KEY,
-    })
     return { skipped: true as const }
   }
 
@@ -162,10 +137,6 @@ export function saveWorkspaceRecord(record: WorkspaceRecord) {
       else window.localStorage.removeItem(getWorkspaceBackupStorageKey(slot))
     }
     window.localStorage.setItem(getWorkspaceBackupStorageKey(1), currentRaw)
-    console.info('[workspace-debug] backupCreated', {
-      key: getWorkspaceBackupStorageKey(1),
-      updatedAt: currentRecord.updatedAt,
-    })
   }
 
   writeJsonStorage(WORKSPACE_STORAGE_KEY, record)
@@ -175,11 +146,6 @@ export function saveWorkspaceRecord(record: WorkspaceRecord) {
 function persistMigratedWorkspaceRecord(record: WorkspaceRecord, sourceKey: string) {
   if (typeof window === 'undefined') return
   writeJsonStorage(WORKSPACE_STORAGE_KEY, record)
-  console.info('[workspace-debug] migrationPersisted', {
-    key: WORKSPACE_STORAGE_KEY,
-    from: sourceKey,
-    updatedAt: record.updatedAt,
-  })
 }
 
 function findLatestLegacyWorkspaceRecord() {
@@ -396,8 +362,7 @@ function normalizeWorkspaceFinanceSheet(raw: unknown): DashboardFinanceSheet {
 function safeParseWorkspacePayload(raw: string) {
   try {
     return JSON.parse(raw) as unknown
-  } catch (error) {
-    console.warn('[workspace-debug] parseFailed', error)
+  } catch {
     return null
   }
 }

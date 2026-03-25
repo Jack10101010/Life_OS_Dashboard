@@ -275,41 +275,23 @@ export function DashboardPage({
   }, [renamingFreeNoteId])
 
   useEffect(() => {
-    console.groupCollapsed('[workspace-debug] load')
-    console.info('storageKey', WORKSPACE_STORAGE_KEY)
-    console.info('workspaceRecord', workspaceRecord)
-    console.info('currentWorkspace', workspaceScratchpad)
-    console.info('alreadyInitialized', initializedWorkspaceHydrationRef.current)
-
     if (initializedWorkspaceHydrationRef.current) {
-      console.info('restoreSkipped', 'Workspace hydration already initialized; skipping reapply.')
-      console.groupEnd()
       return
     }
 
     if (!workspaceRecord) {
       hydratedWorkspaceRef.current = true
       initializedWorkspaceHydrationRef.current = true
-      console.info('restoreSkipped', 'No restorable workspace content found.')
-      console.groupEnd()
       return
     }
 
     const restoredSerialized = serializeScratchpad(workspaceRecord.workspace)
     const currentSerialized = serializeScratchpad(workspaceScratchpad)
-    console.info('normalizedWorkspace', workspaceRecord.workspace)
-    console.info('currentHasContent', scratchpadHasContent(workspaceScratchpad))
-    console.info('restoredHasContent', scratchpadHasContent(workspaceRecord.workspace))
-    console.info('selectedActiveFreeNote', getSelectedScratchpadDebugNote(workspaceRecord.workspace, 'workspace'))
-    console.info('financePresence', getScratchpadFinanceDebugSummary(workspaceRecord.workspace))
-    console.info('currentSerialized === restoredSerialized', currentSerialized === restoredSerialized)
 
     if (currentSerialized === restoredSerialized) {
       lastSavedScratchpadKeyRef.current = restoredSerialized
       hydratedWorkspaceRef.current = true
       initializedWorkspaceHydrationRef.current = true
-      console.info('restoreSkipped', 'Current UI workspace already matches stored payload.')
-      console.groupEnd()
       return
     }
 
@@ -321,39 +303,18 @@ export function DashboardPage({
       serialized: restoredSerialized,
     }
     setWorkspaceScratchpad(workspaceRecord.workspace)
-    console.info('restoreDecision', 'Applying stored global workspace state.')
-    console.groupEnd()
   }, [workspaceRecord])
 
   useEffect(() => {
-    const selectedNote = getSelectedScratchpadDebugNote(workspaceScratchpad, 'workspace')
-    const financePresence = getScratchpadFinanceDebugSummary(workspaceScratchpad)
     const serialized = serializeScratchpad(workspaceScratchpad)
-    const restoreSnapshot = lastRestoredScratchpadSnapshotRef.current
-
-    console.groupCollapsed('[workspace-debug] render')
-    console.info('renderScratchpad', workspaceScratchpad)
-    console.info('renderSelectedFreeNote', selectedNote)
-    console.info('renderFinancePresence', financePresence)
-    console.info('lastRestoredSnapshot', restoreSnapshot)
-    if (restoreSnapshot) {
-      console.info('restoredStatePreserved', restoreSnapshot === serialized)
-      if (restoreSnapshot !== serialized) {
-        console.warn('renderOverwriteDetected', 'The rendered workspace no longer matches the most recently restored workspace snapshot.')
-      }
-    }
     const pendingHydration = pendingScratchpadHydrationRef.current
     if (pendingHydration) {
-      console.info('pendingHydration', pendingHydration)
       if (pendingHydration.serialized === serialized) {
         pendingScratchpadHydrationRef.current = null
-        console.info('pendingHydrationResolved', true)
       } else {
-        console.warn('pendingHydrationMismatch', 'Reapplying restored workspace because the rendered state does not match it yet.')
         setWorkspaceScratchpad(pendingHydration.scratchpad)
       }
     }
-    console.groupEnd()
   }, [workspaceScratchpad])
 
   useEffect(() => {
@@ -506,17 +467,11 @@ export function DashboardPage({
     if (lastSavedScratchpadKeyRef.current === saveKey) return
 
     if (!hydratedWorkspaceRef.current) {
-      console.info('[workspace-debug] saveSkipped', {
-        reason: 'Workspace hydration has not completed yet.',
-      })
       return
     }
 
     const pendingHydration = pendingScratchpadHydrationRef.current
     if (pendingHydration && pendingHydration.serialized !== serialized) {
-      console.info('[workspace-debug] saveSkipped', {
-        reason: 'Waiting for restored workspace hydration to settle before saving.',
-      })
       return
     }
 
@@ -700,43 +655,20 @@ export function DashboardPage({
       setSelectedFinanceMonth(getPreferredFinanceMonthKey(scratchpad, getCurrentFinanceMonthKey()))
     }
 
-    console.info('finalRestoredScratchpadState', scratchpad)
-    console.info('[workspace-debug] restoreOccurred', {
-      key: WORKSPACE_STORAGE_KEY,
-      skippedSave: saveResult.skipped,
-    })
-
     setWorkspaceScratchpad(scratchpad)
     setScratchpadBackupRefreshToken((current) => current + 1)
-
-    console.info('forceRestoreSelectedFreeNote', getSelectedScratchpadDebugNote(scratchpad, 'workspace'))
-    console.info('forceRestoreFinancePresence', getScratchpadFinanceDebugSummary(scratchpad))
     showScratchpadRecoveryMessage(message)
   }
 
   const forceRestoreScratchpadFromStorage = () => {
     const rawStoredString = typeof window === 'undefined' ? null : window.localStorage.getItem(WORKSPACE_STORAGE_KEY)
 
-    console.info('[workspace-debug] Restore clicked', {
-      storageKey: WORKSPACE_STORAGE_KEY,
-    })
-    console.info('[workspace-debug] rawStoredString', rawStoredString)
-
     const parsedStoredPayload = rawStoredString ? safeParseScratchpadPayload(rawStoredString) : null
-    console.info('[workspace-debug] parsedStoredPayload', parsedStoredPayload)
 
     const restoredPayload = normalizeStoredWorkspaceRecord(parsedStoredPayload) ?? readWorkspaceRecord()
 
-    console.groupCollapsed('[workspace-debug] force-restore')
-    console.info('storageKey', WORKSPACE_STORAGE_KEY)
-    console.info('rawStoredPayload', rawStoredString)
-    console.info('parsedStoredPayload', parsedStoredPayload)
-    console.info('normalizedRestoredScratchpad', restoredPayload?.workspace ?? null)
-
     if (!restoredPayload) {
-      console.warn('forceRestoreSkipped', 'No restorable workspace payload found.')
       showScratchpadRecoveryMessage(`No stored data found for key ${WORKSPACE_STORAGE_KEY}`)
-      console.groupEnd()
       return
     }
 
@@ -744,7 +676,6 @@ export function DashboardPage({
       restoredPayload.workspace,
       `${getScratchpadRecoverySummary(restoredPayload.workspace, 'workspace')} from ${WORKSPACE_STORAGE_KEY}`,
     )
-    console.groupEnd()
   }
 
   const showScratchpadRecoveryMessage = (message: string) => {
@@ -1704,20 +1635,15 @@ export function DashboardPage({
                   Restore workspace
                 </button>
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!workspaceRecord) return
-                      console.info('[workspace-debug] restoreOccurred', {
-                        source: 'current-saved',
-                        key: WORKSPACE_STORAGE_KEY,
-                        updatedAt: workspaceRecord.updatedAt,
-                      })
-                      applyRecoveredScratchpad(
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!workspaceRecord) return
+                        applyRecoveredScratchpad(
                         workspaceRecord.workspace,
                         `Restored saved workspace from ${workspaceRecord.updatedAt || 'storage'}`,
-                      )
-                    }}
+                        )
+                      }}
                     disabled={!workspaceRecord}
                     className={`rounded-full border px-2 py-0.5 text-[10px] transition ${
                       workspaceRecord
@@ -1733,11 +1659,6 @@ export function DashboardPage({
                       type="button"
                       onClick={() => {
                         if (!backup) return
-                        console.info('[workspace-debug] restoreOccurred', {
-                          source: `backup:${slot}`,
-                          key: backup.key,
-                          updatedAt: backup.record.updatedAt,
-                        })
                         applyRecoveredScratchpad(
                           backup.record.workspace,
                           `Restored workspace backup ${slot} from ${backup.record.updatedAt || 'storage'}`,
@@ -3047,41 +2968,6 @@ function normalizeStoredFinanceSheet(raw: unknown): DashboardFinanceSheet {
   }
 }
 
-function getSelectedScratchpadDebugNote(scratchpad: DashboardScratchpad, dayId: string) {
-  const notes = getScratchpadFreeNotes(scratchpad, dayId)
-  const activeId = resolveActiveFreeNoteId(notes, scratchpad.activeFreeNoteId)
-  const activeNote = notes.find((note) => note.id === activeId) ?? notes[0] ?? null
-
-  return {
-    activeFreeNoteId: activeId,
-    availableNoteIds: notes.map((note) => note.id),
-    activeNote,
-  }
-}
-
-function getScratchpadFinanceDebugSummary(scratchpad: DashboardScratchpad) {
-  const financeSheets = Object.entries(scratchpad.financeSheets).map(([monthKey, sheet]) => ({
-    monthKey,
-    incomingCount: sheet.moneyIn.length,
-    outgoingCount: sheet.moneyOut.length,
-    notesLength: sheet.notes.trim().length,
-  }))
-
-  return {
-    legacyFinance: {
-      incomingCount: scratchpad.moneyIn.length,
-      outgoingCount: scratchpad.moneyOut.length,
-      notesLength: scratchpad.notes.trim().length,
-    },
-    financeSheetsCount: financeSheets.length,
-    financeSheets,
-    hasAnyFinanceData:
-      scratchpad.moneyIn.length > 0 ||
-      scratchpad.moneyOut.length > 0 ||
-      scratchpad.notes.trim().length > 0 ||
-      financeSheets.some((sheet) => sheet.incomingCount > 0 || sheet.outgoingCount > 0 || sheet.notesLength > 0),
-  }
-}
 
 function getScratchpadRecoverySummary(scratchpad: DashboardScratchpad, dayId: string) {
   const notes = getScratchpadFreeNotes(scratchpad, dayId)
