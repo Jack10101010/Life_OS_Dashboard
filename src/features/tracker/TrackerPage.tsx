@@ -1,8 +1,10 @@
 import { useMemo } from 'react'
 import {
+  BadHabitDefinition,
   ColorMode,
   DayEntry,
   Habit,
+  HabitTracker,
   HabitTrackerCalendarRange,
   Tag,
   TrackerFilters,
@@ -11,7 +13,7 @@ import {
 } from '../../types'
 import { Button } from '../../components/ui/Button'
 import { Card } from '../../components/ui/Card'
-import { FiltersPanel } from '../../components/tracker/FiltersPanel'
+import { TagPill } from '../../components/ui/TagPill'
 import { DayHeatmap } from '../../components/tracker/DayHeatmap'
 import { DayHeatmapCell } from '../../components/tracker/DayHeatmapCell'
 import {
@@ -41,15 +43,17 @@ export function TrackerPage({
   colorMode,
   onColorModeChange,
   year,
+  onYearChange,
   years,
   filters,
-  showFilters,
-  onToggleFilters,
   onFiltersChange,
+  allWeeks,
   weeks,
   days,
   allDays,
   habits,
+  badHabits,
+  habitTrackers,
   tags,
   selectedWeek,
   selectedWeekDays,
@@ -60,6 +64,12 @@ export function TrackerPage({
   onMoodHeatmapCalendarRangeChange,
   moodHighlightCurrentWeek,
   onMoodHighlightCurrentWeekChange,
+  moodShowBadHabitMarkers,
+  onMoodShowAlcoholMarkersChange,
+  moodShowHabitMarkers,
+  onMoodShowHabitMarkersChange,
+  enableBadHabitTracking,
+  badHabitDateMap,
   onLogToday,
   onSelectWeek,
   onPreviewWeek,
@@ -70,15 +80,17 @@ export function TrackerPage({
   colorMode: ColorMode
   onColorModeChange: (mode: ColorMode) => void
   year: number
+  onYearChange: (year: number) => void
   years: number[]
   filters: TrackerFilters
-  showFilters: boolean
-  onToggleFilters: () => void
   onFiltersChange: (filters: TrackerFilters) => void
+  allWeeks: WeekEntry[]
   weeks: WeekEntry[]
   days: DayEntry[]
   allDays: DayEntry[]
   habits: Habit[]
+  badHabits: BadHabitDefinition[]
+  habitTrackers: HabitTracker[]
   tags: Tag[]
   selectedWeek: WeekEntry | null
   selectedWeekDays: DayEntry[]
@@ -89,14 +101,22 @@ export function TrackerPage({
   onMoodHeatmapCalendarRangeChange: (range: HabitTrackerCalendarRange) => void
   moodHighlightCurrentWeek: boolean
   onMoodHighlightCurrentWeekChange: (value: boolean) => void
+  moodShowBadHabitMarkers: boolean
+  onMoodShowAlcoholMarkersChange: (value: boolean) => void
+  moodShowHabitMarkers: boolean
+  onMoodShowHabitMarkersChange: (value: boolean) => void
+  enableBadHabitTracking: boolean
+  badHabitDateMap: Map<string, BadHabitDefinition[]>
   onLogToday: () => void
   onSelectWeek: (week: WeekEntry) => void
   onPreviewWeek: (week: WeekEntry) => void
   onSelectDay: (day: DayEntry) => void
 }) {
-  const { containerRef: controlsRef, isOpen, toggleMenu, closeMenu } = usePopoverGroup<'view' | 'settings'>()
+  const { containerRef: controlsRef, isOpen, toggleMenu, closeMenu } = usePopoverGroup<'view' | 'settings' | 'filter'>()
   const moodSummary = getRecentMoodSummary(days)
-  const currentWeekSummary = useMemo(() => getCurrentWeekSummary(weeks, days), [weeks, days])
+  const effectiveMoodMode: ColorMode = colorMode === 'habits' || colorMode === 'alcohol' ? 'mood' : colorMode
+  const visibleBadHabitDateMap = enableBadHabitTracking ? badHabitDateMap : new Map<string, BadHabitDefinition[]>()
+  const currentWeekSummary = useMemo(() => getCurrentWeekSummary(allWeeks, allDays), [allWeeks, allDays])
   const moodPeriodLabel = getMoodPeriodLabel(viewMode, moodHeatmapFocusDate, year)
   const visibleDayIdSet = useMemo(() => new Set(days.map((day) => day.id)), [days])
   const moodMonthDays = useMemo(() => getMoodMonthViewDays(allDays, moodHeatmapFocusDate), [allDays, moodHeatmapFocusDate])
@@ -106,12 +126,53 @@ export function TrackerPage({
   const nextWeekCandidate = selectedWeekIndex >= 0 ? weeks[selectedWeekIndex + 1] ?? null : null
   const todayIso = new Date().toISOString().slice(0, 10)
   const nextWeek = nextWeekCandidate && nextWeekCandidate.startDate <= todayIso ? nextWeekCandidate : null
-  const weeklyTrendData = useMemo(() => getWeeklyTrendData(weeks, days), [weeks, days])
+  const activeFilterChips = useMemo(() => {
+    const chips: Array<{ key: string; label: string; onRemove: () => void }> = []
+
+    if (filters.mood !== 'all') {
+      chips.push({
+        key: `mood-${filters.mood}`,
+        label: `Mood: ${capitalizeLabel(filters.mood)}`,
+        onRemove: () => onFiltersChange({ ...filters, mood: 'all' }),
+      })
+    }
+
+    filters.selectedTagIds.forEach((tagId) => {
+      const tag = tags.find((item) => item.id === tagId)
+      if (!tag) return
+      chips.push({
+        key: `tag-${tag.id}`,
+        label: tag.name,
+        onRemove: () => onFiltersChange({ ...filters, selectedTagIds: filters.selectedTagIds.filter((value) => value !== tag.id) }),
+      })
+    })
+
+    if (enableBadHabitTracking) {
+      filters.selectedBadHabitIds.forEach((habitId) => {
+        const habit = badHabits.find((item) => item.id === habitId)
+        if (!habit) return
+        chips.push({
+          key: `bad-habit-${habit.id}`,
+          label: habit.name,
+          onRemove: () =>
+            onFiltersChange({
+              ...filters,
+              selectedBadHabitIds: filters.selectedBadHabitIds.filter((value) => value !== habit.id),
+            }),
+        })
+      })
+    }
+
+    return chips
+  }, [badHabitDateMap, enableBadHabitTracking, filters, onFiltersChange, tags])
+  const availableBadHabits = useMemo(
+    () => badHabits.filter((habit) => !habit.isArchived).sort((left, right) => left.name.localeCompare(right.name)),
+    [badHabits],
+  )
+  const availableTags = useMemo(() => tags.filter((tag) => tag.isActive), [tags])
 
   return (
     <div className="space-y-5">
-      {showFilters ? <FiltersPanel filters={filters} tags={tags} onChange={onFiltersChange} /> : null}
-
       <Card className="space-y-4 border-white/[0.04] p-4">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="min-w-0 flex-1">
@@ -174,6 +235,99 @@ export function TrackerPage({
             ) : null}
 
             <div className="relative">
+              <HeatmapMenuButton label="Filter" onClick={() => toggleMenu('filter')} />
+              {isOpen('filter') ? (
+                <div className="absolute right-0 top-[calc(100%+8px)] z-30 w-[min(320px,88vw)] rounded-2xl border border-[#2F2F2F] bg-[#171717] p-3 shadow-[0_16px_40px_rgba(0,0,0,0.35)]">
+                  <div className="space-y-3">
+                    <div>
+                      <p className="mb-2 text-[10px] uppercase tracking-[0.18em] text-[#8F8F8F]">Mood</p>
+                      <div className="flex flex-wrap gap-1">
+                        {([
+                          ['all', 'All'],
+                          ['good', 'Good'],
+                          ['average', 'Average'],
+                          ['low', 'Low'],
+                        ] as Array<[TrackerFilters['mood'], string]>).map(([value, label]) => (
+                          <button
+                            key={value}
+                            type="button"
+                            onClick={() => onFiltersChange({ ...filters, mood: value })}
+                            className={`rounded-xl px-3 py-2 text-[13px] transition ${
+                              filters.mood === value ? 'bg-[#343434] text-white' : 'bg-[#1D1D1D] text-[#A3A3A3] hover:text-white'
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="mb-2 text-[10px] uppercase tracking-[0.18em] text-[#8F8F8F]">Tags</p>
+                      <div className="flex flex-wrap gap-2">
+                        {availableTags.map((tag) => {
+                          const active = filters.selectedTagIds.includes(tag.id)
+                          return (
+                            <button
+                              key={tag.id}
+                              type="button"
+                              onClick={() =>
+                                onFiltersChange({
+                                  ...filters,
+                                  selectedTagIds: active
+                                    ? filters.selectedTagIds.filter((value) => value !== tag.id)
+                                    : [...filters.selectedTagIds, tag.id],
+                                })
+                              }
+                            >
+                              <TagPill tag={tag} active={active} />
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+
+                    {enableBadHabitTracking ? (
+                      <div>
+                        <p className="mb-2 text-[10px] uppercase tracking-[0.18em] text-[#8F8F8F]">Bad habits</p>
+                        <div className="flex flex-wrap gap-2">
+                          {availableBadHabits.map((habit) => {
+                            const active = filters.selectedBadHabitIds.includes(habit.id)
+                            return (
+                              <button
+                                key={habit.id}
+                                type="button"
+                                onClick={() =>
+                                  onFiltersChange({
+                                    ...filters,
+                                    selectedBadHabitIds: active
+                                      ? filters.selectedBadHabitIds.filter((value) => value !== habit.id)
+                                      : [...filters.selectedBadHabitIds, habit.id],
+                                  })
+                                }
+                                className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                                  active
+                                    ? 'text-white'
+                                    : 'text-[#B0B0B0] hover:text-white'
+                                }`}
+                                style={{
+                                  backgroundColor: active ? `${habit.color}1A` : '#1D1D1D',
+                                  borderColor: active ? `${habit.color}55` : 'rgba(255,255,255,0.08)',
+                                }}
+                              >
+                                {habit.name}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="relative">
               <HeatmapIconButton onClick={() => toggleMenu('settings')} ariaLabel="Mood heatmap settings" compact={false}>
                 ⚙
               </HeatmapIconButton>
@@ -185,9 +339,7 @@ export function TrackerPage({
                       <div className="flex flex-wrap gap-1">
                         {([
                           ['overall', 'Overall'],
-                          ['habits', 'Habits'],
                           ['mood', 'Mood'],
-                          ['alcohol', 'Alcohol'],
                         ] as Array<[ColorMode, string]>).map(([value, label]) => (
                           <button
                             key={value}
@@ -209,7 +361,7 @@ export function TrackerPage({
                           <button
                             key={item}
                             type="button"
-                            onClick={() => onFiltersChange({ ...filters, year: item })}
+                            onClick={() => onYearChange(item)}
                             className={`rounded-xl px-3 py-2 text-[13px] transition ${
                               year === item ? 'bg-[#343434] text-white' : 'bg-[#1D1D1D] text-[#A3A3A3] hover:text-white'
                             }`}
@@ -229,6 +381,26 @@ export function TrackerPage({
                         />
                         <span>Highlight current week</span>
                       </label>
+                      {enableBadHabitTracking ? (
+                        <label className="mt-3 inline-flex cursor-pointer items-center gap-2 text-[13px] text-mist/80 transition hover:text-white">
+                          <input
+                            type="checkbox"
+                            checked={moodShowBadHabitMarkers}
+                            onChange={() => onMoodShowAlcoholMarkersChange(!moodShowBadHabitMarkers)}
+                            className="h-3.5 w-3.5 rounded border border-white/10 bg-transparent accent-[#78A7FF]"
+                          />
+                          <span>Show bad habit markers</span>
+                        </label>
+                      ) : null}
+                      <label className="mt-3 inline-flex cursor-pointer items-center gap-2 text-[13px] text-mist/80 transition hover:text-white">
+                        <input
+                          type="checkbox"
+                          checked={moodShowHabitMarkers}
+                          onChange={() => onMoodShowHabitMarkersChange(!moodShowHabitMarkers)}
+                          className="h-3.5 w-3.5 rounded border border-white/10 bg-transparent accent-[#78A7FF]"
+                        />
+                        <span>Show habit markers</span>
+                      </label>
                     </div>
                   </div>
                 </div>
@@ -238,6 +410,28 @@ export function TrackerPage({
             <HeatmapActionButton label="Log" compact={false} onClick={onLogToday} />
           </div>
         </div>
+
+        {activeFilterChips.length > 0 ? (
+          <div className="flex flex-wrap items-center gap-2 border-t border-white/[0.05] pt-1">
+            {activeFilterChips.map((chip) => (
+              <button
+                key={chip.key}
+                type="button"
+                onClick={chip.onRemove}
+                className="rounded-full border border-white/[0.08] bg-[#1A1A1A] px-3 py-1.5 text-xs font-medium text-white/82 transition hover:border-white/[0.14] hover:text-white"
+              >
+                {chip.label} <span className="text-white/45">×</span>
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => onFiltersChange({ ...filters, mood: 'all', selectedTagIds: [], selectedBadHabitIds: [] })}
+              className="text-xs font-medium text-white/58 transition hover:text-white/82"
+            >
+              Clear all
+            </button>
+          </div>
+        ) : null}
 
         {currentWeekSummary ? (
           <CurrentWeekStrip
@@ -253,31 +447,42 @@ export function TrackerPage({
         {viewMode === 'year' ? (
           <DayHeatmap
             days={allDays}
-            visibleDayIds={days.map((day) => day.id)}
-            mode={colorMode}
+            visibleDayIdSet={visibleDayIdSet}
+            mode={effectiveMoodMode}
             year={year}
             selectedDayId={selectedDay?.id}
             onSelectDay={onSelectDay}
+            habitTrackers={habitTrackers}
             calendarRange={moodHeatmapCalendarRange}
             highlightCurrentWeek={moodHighlightCurrentWeek}
-            showAlcoholMarker
+            showBadHabitMarker={enableBadHabitTracking && moodShowBadHabitMarkers}
+            showHabitMarkers={moodShowHabitMarkers}
+            badHabitDateMap={visibleBadHabitDateMap}
           />
         ) : viewMode === 'days' ? (
           <MoodMonthView
             days={moodMonthDays}
             visibleDayIdSet={visibleDayIdSet}
-            mode={colorMode}
+            habitTrackers={habitTrackers}
+            mode={effectiveMoodMode}
             selectedDayId={selectedDay?.id}
             highlightCurrentWeek={moodHighlightCurrentWeek}
+            showBadHabitMarker={enableBadHabitTracking && moodShowBadHabitMarkers}
+            showHabitMarkers={moodShowHabitMarkers}
+            badHabitDateMap={visibleBadHabitDateMap}
             onSelectDay={onSelectDay}
           />
         ) : (
           <MoodWeekView
             days={moodWeekDays}
             visibleDayIdSet={visibleDayIdSet}
-            mode={colorMode}
+            habitTrackers={habitTrackers}
+            mode={effectiveMoodMode}
             selectedDayId={selectedDay?.id}
             highlightCurrentWeek={moodHighlightCurrentWeek}
+            showBadHabitMarker={enableBadHabitTracking && moodShowBadHabitMarkers}
+            showHabitMarkers={moodShowHabitMarkers}
+            badHabitDateMap={visibleBadHabitDateMap}
             onSelectDay={onSelectDay}
           />
         )}
@@ -289,12 +494,13 @@ export function TrackerPage({
             week={selectedWeek}
             days={selectedWeekDays}
             tags={tags}
+            selectedDay={selectedDay}
             canGoPrev={Boolean(previousWeek)}
             canGoNext={Boolean(nextWeek)}
             onPrevWeek={() => previousWeek && onPreviewWeek(previousWeek)}
             onNextWeek={() => nextWeek && onPreviewWeek(nextWeek)}
             onOpenWeek={() => onSelectWeek(selectedWeek)}
-            trendData={weeklyTrendData}
+            onSelectDay={onSelectDay}
           />
         ) : null}
 
@@ -317,16 +523,24 @@ export function TrackerPage({
 function MoodMonthView({
   days,
   visibleDayIdSet,
+  habitTrackers,
   mode,
   selectedDayId,
   highlightCurrentWeek,
+  showBadHabitMarker,
+  showHabitMarkers,
+  badHabitDateMap,
   onSelectDay,
 }: {
   days: Array<{ day: DayEntry | null; dayNumber: number; inCurrentMonth: boolean; isoDate: string }>
   visibleDayIdSet: Set<string>
+  habitTrackers: HabitTracker[]
   mode: ColorMode
   selectedDayId?: string
   highlightCurrentWeek: boolean
+  showBadHabitMarker: boolean
+  showHabitMarkers: boolean
+  badHabitDateMap: Map<string, BadHabitDefinition[]>
   onSelectDay: (day: DayEntry) => void
 }) {
   const { containerRef, hovered, bindHover } = useHeatmapHover<DayEntry>()
@@ -371,7 +585,8 @@ function MoodMonthView({
                           mode={mode}
                           active={selectedDayId === cell.day.id}
                           hoverOutline
-                          showAlcoholMarker
+                          showBadHabitMarker={showBadHabitMarker && (badHabitDateMap.get(cell.day.date)?.length ?? 0) > 0}
+                          habitMarkers={showHabitMarkers ? getOrderedCompletedHabits(cell.day.date, habitTrackers) : []}
                           temporalEmptyShade
                           sizeClassName={MOOD_MONTH_TILE_CLASS}
                         />
@@ -400,7 +615,15 @@ function MoodMonthView({
           })}
       </HeatmapWeekRow>
       </div>
-      {hovered ? <HeatmapTooltip day={hovered.day} anchorRect={hovered.rect} containerRect={hovered.container} /> : null}
+      {hovered ? (
+        <HeatmapTooltip
+          day={hovered.day}
+          anchorRect={hovered.rect}
+          containerRect={hovered.container}
+          completedHabits={getOrderedCompletedHabits(hovered.day.date, habitTrackers)}
+          occurredBadHabits={badHabitDateMap.get(hovered.day.date) ?? []}
+        />
+      ) : null}
     </div>
   )
 }
@@ -408,16 +631,24 @@ function MoodMonthView({
 function MoodWeekView({
   days,
   visibleDayIdSet,
+  habitTrackers,
   mode,
   selectedDayId,
   highlightCurrentWeek,
+  showBadHabitMarker,
+  showHabitMarkers,
+  badHabitDateMap,
   onSelectDay,
 }: {
   days: Array<{ day: DayEntry | null; dayNumber: number; isoDate: string }>
   visibleDayIdSet: Set<string>
+  habitTrackers: HabitTracker[]
   mode: ColorMode
   selectedDayId?: string
   highlightCurrentWeek: boolean
+  showBadHabitMarker: boolean
+  showHabitMarkers: boolean
+  badHabitDateMap: Map<string, BadHabitDefinition[]>
   onSelectDay: (day: DayEntry) => void
 }) {
   const { containerRef, hovered, bindHover } = useHeatmapHover<DayEntry>()
@@ -432,12 +663,6 @@ function MoodWeekView({
         labelClassName="text-[10px] uppercase tracking-[0.16em] text-[#969696]"
       >
           <div className="relative col-span-7 grid grid-cols-7 gap-2 rounded-[16px] p-1.5">
-          {highlightCurrentWeek ? (
-            <div
-              className="pointer-events-none absolute top-1.5 z-0 rounded-[14px] border border-[#78A7FF] shadow-[0_0_0_1px_rgba(120,167,255,0.16)]"
-              style={getCompactWeekOutlineStyle(0, 6, MOOD_WEEK_TILE_SIZE)}
-            />
-          ) : null}
           {days.map((cell, index) => (
             <div key={`${cell.day?.id ?? 'empty'}-${index}`} className="relative z-10">
               {cell.day && visibleDayIdSet.has(cell.day.id) ? (
@@ -448,14 +673,15 @@ function MoodWeekView({
                   {...bindHover(cell.day)}
                 >
                   <DayHeatmapCell
-                    day={cell.day}
-                    mode={mode}
-                    active={selectedDayId === cell.day.id}
-                    hoverOutline
-                    showAlcoholMarker
-                    temporalEmptyShade
-                    sizeClassName={MOOD_WEEK_TILE_CLASS}
-                  />
+                  day={cell.day}
+                  mode={mode}
+                  active={selectedDayId === cell.day.id}
+                  hoverOutline
+                  showBadHabitMarker={showBadHabitMarker && (badHabitDateMap.get(cell.day.date)?.length ?? 0) > 0}
+                  habitMarkers={showHabitMarkers ? getOrderedCompletedHabits(cell.day.date, habitTrackers) : []}
+                  temporalEmptyShade
+                  sizeClassName={MOOD_WEEK_TILE_CLASS}
+                />
                 </button>
               ) : (
                 <DayHeatmapCell
@@ -475,9 +701,29 @@ function MoodWeekView({
           </div>
       </HeatmapWeekRow>
       </div>
-      {hovered ? <HeatmapTooltip day={hovered.day} anchorRect={hovered.rect} containerRect={hovered.container} /> : null}
+      {hovered ? (
+        <HeatmapTooltip
+          day={hovered.day}
+          anchorRect={hovered.rect}
+          containerRect={hovered.container}
+          completedHabits={getOrderedCompletedHabits(hovered.day.date, habitTrackers)}
+          occurredBadHabits={badHabitDateMap.get(hovered.day.date) ?? []}
+        />
+      ) : null}
     </div>
   )
+}
+
+function getOrderedCompletedHabits(date: string, habitTrackers: HabitTracker[]) {
+  if (!habitTrackers.length) return []
+
+  return habitTrackers
+    .filter((tracker) => tracker.entries[date]?.completed)
+    .map((tracker) => ({
+      id: tracker.id,
+      name: tracker.title,
+      color: tracker.color,
+    }))
 }
 
 function CurrentWeekStrip({
@@ -498,52 +744,53 @@ function CurrentWeekStrip({
   return (
     <div className="rounded-[22px] border border-white/[0.04] bg-white/[0.02] px-4 py-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <span className="text-xs uppercase tracking-[0.2em] text-mist/55">Current Week</span>
-          <span className="text-[#6E6E6E]">·</span>
-          <span className="text-[#78A7FF]">{rangeLabel}</span>
+        <div className="flex flex-wrap items-end gap-5">
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="text-xs uppercase tracking-[0.2em] text-mist/55">Current Week</span>
+            <span className="text-[#6E6E6E]">·</span>
+            <span className="text-[#78A7FF]">{rangeLabel}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            {days.map((day, index) => (
+              <div key={`${day.label}-${index}`} className="flex flex-col items-center gap-1">
+                <span className="text-[10px] uppercase tracking-[0.18em] text-[#727272]">{day.label}</span>
+                <div
+                  className={`h-[10px] w-[22px] rounded-full border transition-colors ${
+                    day.state === 'past'
+                      ? 'border-[#4B4B4B] bg-[#4B4B4B]'
+                      : day.state === 'today'
+                        ? 'border-[#78A7FF] bg-[#1B1F29]'
+                        : 'border-white/[0.06] bg-[#1D1D1D]'
+                  }`}
+                  style={
+                    day.state === 'today'
+                      ? { boxShadow: 'inset 0 0 0 1px rgba(120,167,255,0.38)' }
+                      : undefined
+                  }
+                  aria-hidden="true"
+                />
+              </div>
+            ))}
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex flex-wrap items-center gap-2 text-sm text-mist">
             <span>
-              <span className="mr-1.5 text-[#17C964]">●</span>
+              <span className="mr-1.5 text-[#22C55E]">●</span>
               {good} good
             </span>
             <span>
-              <span className="mr-1.5 text-[#C27A2C]">●</span>
+              <span className="mr-1.5 text-[#F59E0B]">●</span>
               {average} average
             </span>
             <span>
-              <span className="mr-1.5 text-[#A44A43]">●</span>
+              <span className="mr-1.5 text-[#C2414B]">●</span>
               {low} low
             </span>
           </div>
           <Button onClick={onOpenWeek}>Open Week</Button>
         </div>
-      </div>
-
-      <div className="mt-3 flex items-center gap-2">
-        {days.map((day, index) => (
-          <div key={`${day.label}-${index}`} className="flex flex-col items-center gap-1">
-            <span className="text-[10px] uppercase tracking-[0.18em] text-[#727272]">{day.label}</span>
-            <div
-              className={`h-[10px] w-[22px] rounded-full border transition-colors ${
-                day.state === 'past'
-                  ? 'border-[#4B4B4B] bg-[#4B4B4B]'
-                  : day.state === 'today'
-                    ? 'border-[#78A7FF] bg-[#1B1F29]'
-                    : 'border-white/[0.06] bg-[#1D1D1D]'
-              }`}
-              style={
-                day.state === 'today'
-                  ? { boxShadow: 'inset 0 0 0 1px rgba(120,167,255,0.38)' }
-                  : undefined
-              }
-              aria-hidden="true"
-            />
-          </div>
-        ))}
       </div>
     </div>
   )
@@ -568,15 +815,15 @@ function MoodSummaryStrip({
       <span className="text-xs uppercase tracking-[0.2em] text-mist/45">Last {summary.windowDays} days</span>
       <span className="text-[#6E6E6E]">·</span>
       <span>
-        <span className="mr-1.5 text-[#17C964]">●</span>
+        <span className="mr-1.5 text-[#22C55E]">●</span>
         {summary.good} good
       </span>
       <span>
-        <span className="mr-1.5 text-[#C27A2C]">●</span>
+        <span className="mr-1.5 text-[#F59E0B]">●</span>
         {summary.average} average
       </span>
       <span>
-        <span className="mr-1.5 text-[#A44A43]">●</span>
+        <span className="mr-1.5 text-[#C2414B]">●</span>
         {summary.low} low
       </span>
       <span className="text-[#6E6E6E]">·</span>
@@ -775,32 +1022,6 @@ function getMoodWeekViewDays(days: DayEntry[], focusDate: string) {
   })
 }
 
-function getWeeklyTrendData(weeks: WeekEntry[], days: DayEntry[]) {
-  return weeks
-    .filter((week) => week.loggedDaysCount > 0)
-    .slice(-8)
-    .map((week) => {
-      const linkedDays = days.filter((day) => week.linkedDays.includes(day.id) && day.isLogged)
-      const lowDays = linkedDays.filter((day) => {
-        const signal = getMoodSignal(day)
-        return signal !== null && signal < 4
-      }).length
-
-      return {
-        label: formatTrendWeekLabel(week),
-        mood: Number(week.moodAverage.toFixed(1)),
-        lowDays,
-        drank: linkedDays.some((day) => day.drank),
-        poorSleep: linkedDays.some((day) => day.tags.includes('poor-sleep')),
-      }
-    })
-}
-
-function formatTrendWeekLabel(week: WeekEntry) {
-  const start = new Date(`${week.startDate}T00:00:00Z`)
-  return start.toLocaleDateString('en-IE', { month: 'short', day: 'numeric', timeZone: 'UTC' })
-}
-
 function getMoodSignal(day: DayEntry) {
   const values = [day.mood, day.energy, day.clarity, day.motivation].filter(
     (value): value is number => typeof value === 'number',
@@ -819,6 +1040,10 @@ function getMoodSignal(day: DayEntry) {
 function averageOf(values: number[]) {
   if (values.length === 0) return 0
   return values.reduce((sum, value) => sum + value, 0) / values.length
+}
+
+function capitalizeLabel(value: string) {
+  return value.charAt(0).toUpperCase() + value.slice(1)
 }
 
 function isDateInCurrentIsoWeek(isoDate: string) {

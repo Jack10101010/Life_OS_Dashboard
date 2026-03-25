@@ -1,7 +1,8 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Sidebar } from './components/layout/Sidebar'
 import { TopBar } from './components/layout/TopBar'
+import { PageContainer } from './components/layout/LayoutPrimitives'
 import { DayDrawer } from './components/tracker/DayDrawer'
 import { HabitTrackerEntryModal } from './components/tracker/HabitTrackerEntryModal'
 import { HabitTrackerGoalModal } from './components/tracker/HabitTrackerGoalModal'
@@ -19,16 +20,18 @@ import { JournalPage } from './features/journal/JournalPage'
 import { PlaceholderPage } from './features/placeholder/PlaceholderPage'
 import { SettingsPage } from './features/settings/SettingsPage'
 import { TrackerWorkspace } from './features/tracker/TrackerWorkspace'
+import { YourDaysPage } from './features/your-days/YourDaysPage'
 import { PageId } from './types'
 
-const currentYear = 2026
-const availableYears = [2025, 2026]
 export default function App() {
+  const currentYear = new Date().getUTCFullYear()
   const persisted = useMemo(() => loadPersistedAppState(currentYear), [])
+  const [hasHydratedFromStorage, setHasHydratedFromStorage] = useState(false)
   const appShell = useAppShellState(persisted)
   const settingsState = useSettingsState(persisted.settings)
-  const trackerState = useTrackerState(persisted, currentYear)
+  const trackerState = useTrackerState(persisted, currentYear, settingsState.settings.enableBadHabitTracking)
   const habitTrackerState = useHabitTrackerState(persisted)
+  const [tasks, setTasks] = useState(persisted.tasks)
 
   const { settings, setSettings, hydrate: hydrateSettings } = settingsState
   const {
@@ -47,14 +50,18 @@ export default function App() {
   const {
     dataByYear,
     habits,
+    badHabits,
+    badHabitLogs,
+    activeBadHabits,
+    visibleBadHabitStreaks,
+    badHabitDates,
+    badHabitDateMap,
     tags,
     viewMode,
     setViewMode,
     colorMode,
     setColorMode,
     heatmapLayout,
-    showFilters,
-    setShowFilters,
     filters,
     setFilters,
     selectedWeekId,
@@ -69,6 +76,10 @@ export default function App() {
     setMoodHeatmapCalendarRange,
     moodHighlightCurrentWeek,
     setMoodHighlightCurrentWeek,
+    moodShowAlcoholMarkers,
+    setMoodShowAlcoholMarkers,
+    moodShowHabitMarkers,
+    setMoodShowHabitMarkers,
     dataset,
     computedWeeks,
     filteredDays,
@@ -76,16 +87,33 @@ export default function App() {
     selectedWeek,
     selectedWeekDays,
     selectedDay,
-    alcoholFreeStreak,
     momentumScore,
     updateDay,
+    toggleBadHabit,
     handleSelectTag,
+    createTag,
+    renameTag,
+    updateTag,
+    reorganizeTag,
+    archiveTag,
+    unarchiveTag,
+    deleteTag,
+    createBadHabit,
+    updateBadHabit,
+    archiveBadHabit,
     handleNavigateDay,
     openSpecificDay,
     openToday,
     deleteDayEntry,
     hydrate: hydrateTracker,
   } = trackerState
+  const availableYears = useMemo(
+    () =>
+      Array.from(new Set([...Object.keys(dataByYear).map((year) => Number(year)), currentYear]))
+        .filter((year) => Number.isFinite(year))
+        .sort((left, right) => right - left),
+    [currentYear, dataByYear],
+  )
   const {
     habitTrackers,
     editingTracker,
@@ -110,20 +138,28 @@ export default function App() {
     moveTrackerDown,
     saveTracker,
     saveHabitEntry,
+    toggleHabitCompletion,
     hydrate: hydrateHabitTrackers,
   } = habitTrackerState
 
   useEffect(() => {
+    setHasHydratedFromStorage(true)
+  }, [])
+
+  useEffect(() => {
+    if (!hasHydratedFromStorage) return
     savePersistedAppState({
       dataByYear,
       habits,
+      badHabits,
+      badHabitLogs,
       tags,
+      tasks,
       settings,
       page,
       viewMode,
       colorMode,
       heatmapLayout,
-      showFilters,
       filters,
       selectedWeekId,
       selectedDayId,
@@ -143,17 +179,21 @@ export default function App() {
       moodHeatmapFocusDate,
       moodHeatmapCalendarRange,
       moodHighlightCurrentWeek,
+      moodShowAlcoholMarkers,
+      moodShowHabitMarkers,
     })
   }, [
     dataByYear,
     habits,
+    badHabits,
+    badHabitLogs,
     tags,
+    tasks,
     settings,
     page,
     viewMode,
     colorMode,
     heatmapLayout,
-    showFilters,
     filters,
     selectedWeekId,
     selectedDayId,
@@ -173,18 +213,23 @@ export default function App() {
     moodHeatmapFocusDate,
     moodHeatmapCalendarRange,
     moodHighlightCurrentWeek,
+    moodShowAlcoholMarkers,
+    moodShowHabitMarkers,
+    hasHydratedFromStorage,
   ])
 
   const buildPersistedSnapshot = () => ({
     dataByYear,
     habits,
+    badHabits,
+    badHabitLogs,
     tags,
+    tasks,
     settings,
     page,
     viewMode,
     colorMode,
     heatmapLayout,
-    showFilters,
     filters,
     selectedWeekId,
     selectedDayId,
@@ -204,6 +249,8 @@ export default function App() {
     moodHeatmapFocusDate,
     moodHeatmapCalendarRange,
     moodHighlightCurrentWeek,
+    moodShowAlcoholMarkers,
+    moodShowHabitMarkers,
   })
 
   const handleExportState = () => {
@@ -224,6 +271,7 @@ export default function App() {
       hydrateSettings(imported.settings)
       hydrateTracker(imported)
       hydrateHabitTrackers(imported)
+      setTasks(imported.tasks)
       window.alert('Backup restored successfully.')
     } catch {
       window.alert('That backup file could not be imported.')
@@ -237,14 +285,72 @@ export default function App() {
           weeks={computedWeeks}
           days={dataset.days}
           tags={tags}
-          alcoholFreeStreak={alcoholFreeStreak}
+          tasks={tasks}
+          habitTrackers={habitTrackers}
+          year={filters.year}
+          badHabitStreaks={visibleBadHabitStreaks}
+          showBadHabitTracking={settings.enableBadHabitTracking}
           momentumScore={momentumScore}
-          onExportState={handleExportState}
+          onUpdateDay={updateDay}
+          onAddTask={(text) =>
+            setTasks((current) => [
+              {
+                id: `task-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+                text: text.trim(),
+                dueDate: new Date().toISOString().slice(0, 10),
+                starred: false,
+                important: false,
+                completed: false,
+                completedAt: null,
+              },
+              ...current,
+            ])
+          }
+          onToggleTaskStarred={(taskId) =>
+            setTasks((current) =>
+              current.map((task) =>
+                task.id === taskId
+                  ? {
+                      ...task,
+                      starred: !task.starred,
+                    }
+                  : task,
+              ),
+            )
+          }
+          onToggleTaskImportant={(taskId) =>
+            setTasks((current) =>
+              current.map((task) =>
+                task.id === taskId
+                  ? {
+                      ...task,
+                      important: !task.important,
+                    }
+                  : task,
+              ),
+            )
+          }
+          onToggleTask={(taskId) =>
+            setTasks((current) =>
+              current.map((task) =>
+                task.id === taskId
+                  ? {
+                      ...task,
+                      completed: !task.completed,
+                      completedAt: !task.completed ? new Date().toISOString() : null,
+                    }
+                  : task,
+              ),
+            )
+          }
+          onDeleteTask={(taskId) => setTasks((current) => current.filter((task) => task.id !== taskId))}
           onOpenToday={() => openToday(false, setPage)}
+          onOpenFullNote={() => openToday(true, setPage)}
           onOpenTracker={() => {
             setPage('tracker')
             setViewMode('days')
           }}
+          onOpenGoals={() => setPage('goals')}
           onOpenDay={(day) => openSpecificDay(Number(day.date.slice(0, 4)), day.id, day.linkedWeek)}
           onOpenWeek={(week) => {
             setSelectedWeekId(week.id)
@@ -269,15 +375,17 @@ export default function App() {
             colorMode,
             onColorModeChange: setColorMode,
             year: filters.year,
+            onYearChange: (year) => setFilters((current) => ({ ...current, year })),
             years: availableYears,
             filters,
-            showFilters,
-            onToggleFilters: () => setShowFilters((value) => !value),
             onFiltersChange: setFilters,
+            allWeeks: computedWeeks,
             weeks: filteredWeeks,
             days: filteredDays,
             allDays: dataset.days,
             habits,
+            badHabits,
+            habitTrackers,
             tags,
             selectedWeek,
             selectedWeekDays,
@@ -288,6 +396,12 @@ export default function App() {
             onMoodHeatmapCalendarRangeChange: setMoodHeatmapCalendarRange,
             moodHighlightCurrentWeek,
             onMoodHighlightCurrentWeekChange: setMoodHighlightCurrentWeek,
+            moodShowBadHabitMarkers: moodShowAlcoholMarkers,
+            onMoodShowAlcoholMarkersChange: setMoodShowAlcoholMarkers,
+            moodShowHabitMarkers,
+            onMoodShowHabitMarkersChange: setMoodShowHabitMarkers,
+            enableBadHabitTracking: settings.enableBadHabitTracking,
+            badHabitDateMap,
             onLogToday: () => openToday(false, setPage),
             onSelectWeek: (week) => {
               setSelectedWeekId(week.id)
@@ -301,14 +415,15 @@ export default function App() {
               setOpenDrawer('day')
             },
           }}
-              customTrackers={{
-                tags,
-                heatmapLayout,
-                year: filters.year,
-                habitTrackers,
-                alcoholConsumedDates: dataset.days.filter((day) => day.drank).map((day) => day.date),
-                habitTrackerPeriodView,
-                habitTrackerFocusDate,
+          customTrackers={{
+            tags,
+            heatmapLayout,
+            year: filters.year,
+            habitTrackers,
+            badHabitOccurredDates: badHabitDates,
+            enableBadHabitTracking: settings.enableBadHabitTracking,
+            habitTrackerPeriodView,
+            habitTrackerFocusDate,
             habitTrackerCalendarRangeByTracker,
             habitEntryDraft,
             collapsedTrackers,
@@ -337,10 +452,11 @@ export default function App() {
       )
     }
 
-    if (page === 'journal-recordings') {
+    if (page === 'your-days') {
       return (
-        <JournalPage
-          entries={dataset.days}
+        <YourDaysPage
+          days={dataset.days}
+          tags={tags}
           onOpenDay={(day) => {
             setPage('tracker')
             setSelectedDayId(day.id)
@@ -351,12 +467,18 @@ export default function App() {
       )
     }
 
-    if (page === 'gratitude') {
+    if (page === 'journal-recordings' || page === 'gratitude' || page === 'vision-board') {
       return (
-        <PlaceholderPage
-          title="Gratitude"
-          description="A dedicated gratitude space is planned for short daily entries, memory anchors, and weekly reflection prompts."
-          highlights={['Daily gratitude capture', 'Prompted reflection', 'Weekly gratitude review']}
+        <JournalPage
+          entries={dataset.days}
+          initialSection={page === 'gratitude' ? 'gratitude' : page === 'vision-board' ? 'vision-board' : 'journal'}
+          onUpdateDay={updateDay}
+          onOpenDay={(day) => {
+            setPage('tracker')
+            setSelectedDayId(day.id)
+            setSelectedWeekId(day.linkedWeek)
+            setOpenDrawer('day')
+          }}
         />
       )
     }
@@ -366,7 +488,11 @@ export default function App() {
         <SettingsPage
           settings={settings}
           habits={habits}
+          badHabits={badHabits}
           onUpdateSettings={setSettings}
+          onCreateBadHabit={createBadHabit}
+          onUpdateBadHabit={updateBadHabit}
+          onArchiveBadHabit={archiveBadHabit}
           onExportState={handleExportState}
           onImportState={handleImportState}
         />
@@ -378,7 +504,7 @@ export default function App() {
     }
 
     const placeholderMap: Record<
-      Exclude<PageId, 'dashboard' | 'tracker' | 'settings' | 'journal-recordings' | 'gratitude' | 'goals'>,
+      Exclude<PageId, 'dashboard' | 'tracker' | 'your-days' | 'settings' | 'journal-recordings' | 'gratitude' | 'vision-board' | 'goals'>,
       { title: string; description: string; highlights: string[] }
     > = {
       tasks: {
@@ -390,11 +516,6 @@ export default function App() {
         title: 'Notes',
         description: 'Notes will become the flexible writing layer for journal entries, references, and reflections linked back to weeks and tags.',
         highlights: ['Linked daily notes', 'Search and tagging', 'Review snippets from tracker data'],
-      },
-      'vision-board': {
-        title: 'Vision Board',
-        description: 'A calm, intentional space for visual direction, identity reminders, and long-range themes will live here in a future version.',
-        highlights: ['Image and text cards', 'Theme clusters', 'Weekly review tie-ins'],
       },
       analytics: {
         title: 'Analytics',
@@ -409,14 +530,14 @@ export default function App() {
     }
 
     const placeholder = placeholderMap[
-      page as Exclude<PageId, 'dashboard' | 'tracker' | 'settings' | 'journal-recordings' | 'gratitude' | 'goals'>
+      page as Exclude<PageId, 'dashboard' | 'tracker' | 'your-days' | 'settings' | 'journal-recordings' | 'gratitude' | 'vision-board' | 'goals'>
     ]
     return <PlaceholderPage {...placeholder} />
   }
 
   return (
     <div className="app-grid min-h-screen bg-ink text-white" style={{ minHeight: '100vh' }}>
-      <div className="flex min-h-screen">
+      <div className="mx-auto flex min-h-screen w-full max-w-[1920px] flex-col lg:flex-row lg:items-start">
         <Sidebar
           currentPage={page}
           collapsed={sidebarCollapsed}
@@ -434,16 +555,16 @@ export default function App() {
               [pageId]: label,
             }))
           }
-          currentStreak={alcoholFreeStreak}
-          momentumScore={momentumScore}
-          onQuickAdd={() => openToday(true, setPage)}
+          badHabitStreaks={visibleBadHabitStreaks}
+          showBadHabitTracking={settings.enableBadHabitTracking}
         />
 
-        <div className="flex-1">
-          <TopBar page={page} onOpenToday={() => openToday(false, setPage)} />
-          <main className="px-8 py-6">
-            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.28 }}>
-              {page !== 'dashboard' && page !== 'tracker' ? (
+        <div className="min-w-0 flex-1">
+          <TopBar page={page} onOpenToday={() => openToday(false, setPage)} sidebarCollapsed={sidebarCollapsed} />
+          <main className="py-5 sm:py-6">
+            <PageContainer width="wide" className={sidebarCollapsed ? 'lg:pl-16' : ''}>
+              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.28 }}>
+              {page !== 'dashboard' && page !== 'tracker' && page !== 'journal-recordings' && page !== 'gratitude' && page !== 'vision-board' ? (
                 <DevNotesCard
                   page={page}
                   value={pageDevNotes[page] ?? ''}
@@ -456,7 +577,8 @@ export default function App() {
                 />
               ) : null}
               {renderPage()}
-            </motion.div>
+              </motion.div>
+            </PageContainer>
           </main>
         </div>
       </div>
@@ -466,6 +588,7 @@ export default function App() {
         week={selectedWeek}
         days={selectedWeekDays}
         tags={tags}
+        showBadHabitTracking={settings.enableBadHabitTracking}
         onClose={() => setOpenDrawer(null)}
         onOpenDay={(day) => {
           setSelectedDayId(day.id)
@@ -476,20 +599,34 @@ export default function App() {
       <DayDrawer
         open={openDrawer === 'day'}
         day={selectedDay}
+        allDays={dataset.days}
         week={selectedWeek}
-        habits={habits}
         tags={tags}
         habitTrackers={habitTrackers}
+        badHabits={activeBadHabits}
+        badHabitDateMap={badHabitDateMap}
+        enableBadHabitTracking={settings.enableBadHabitTracking}
+        enableMedicationTracking={settings.enableMedicationTracking}
         onClose={() => setOpenDrawer(null)}
         onSelectTag={handleSelectTag}
+        onCreateTag={createTag}
+        onRenameTag={renameTag}
+        onUpdateTag={updateTag}
+        onReorganizeTag={reorganizeTag}
+        onArchiveTag={archiveTag}
+        onUnarchiveTag={unarchiveTag}
+        onDeleteTag={deleteTag}
         onNavigateDay={handleNavigateDay}
         onUpdateDay={updateDay}
+        onToggleHabit={toggleHabitCompletion}
+        onToggleBadHabit={toggleBadHabit}
         onDeleteDay={deleteDayEntry}
       />
 
       <HabitTrackerSettingsModal
         tracker={editingTracker}
         open={Boolean(editingTracker)}
+        enableBadHabitTracking={settings.enableBadHabitTracking}
         onClose={() => setEditingTracker(null)}
         onOpenGoal={(tracker) => setGoalEditingTracker(tracker)}
         onDelete={(trackerId) => {

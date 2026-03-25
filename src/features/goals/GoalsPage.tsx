@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { DetailDrawer } from '../../components/layout/DetailDrawer'
-import { Card } from '../../components/ui/Card'
+import { ResponsiveGrid, SectionCard } from '../../components/layout/LayoutPrimitives'
 import { Button } from '../../components/ui/Button'
 import {
   getAchievementDetailLabel,
@@ -112,8 +112,8 @@ export function GoalsPage({
 
   return (
     <>
-      <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
-        <Card className="space-y-4">
+      <ResponsiveGrid columns="two-uneven">
+        <SectionCard className="space-y-4">
           <div className="flex items-center justify-between gap-4">
             <div>
               <p className="text-xs uppercase tracking-[0.24em] text-mist/70">Active goals</p>
@@ -179,9 +179,9 @@ export function GoalsPage({
               ))}
             </div>
           )}
-        </Card>
+        </SectionCard>
 
-        <Card className="space-y-4">
+        <SectionCard className="space-y-4">
           <div className="flex items-center justify-between gap-4">
             <div>
               <p className="text-xs uppercase tracking-[0.24em] text-mist/70">Completed goals</p>
@@ -228,8 +228,8 @@ export function GoalsPage({
               ))}
             </div>
           )}
-        </Card>
-      </div>
+        </SectionCard>
+      </ResponsiveGrid>
 
       <DetailDrawer
         open={Boolean(selectedGoal)}

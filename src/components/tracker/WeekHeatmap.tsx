@@ -8,12 +8,14 @@ export function WeekHeatmap({
   mode,
   selectedWeekId,
   onSelectWeek,
+  showBadHabitMarkers = true,
   compact = false,
 }: {
   weeks: WeekEntry[]
   mode: ColorMode
   selectedWeekId?: string
   onSelectWeek: (week: WeekEntry) => void
+  showBadHabitMarkers?: boolean
   compact?: boolean
 }) {
   const columns = Array.from({ length: Math.ceil(weeks.length / 7) }, (_, columnIndex) =>
@@ -44,7 +46,7 @@ export function WeekHeatmap({
             <div className="pointer-events-none absolute inset-0">
               <div className="absolute bottom-[1px] right-[1px] flex items-center gap-px">
                 {week.bigWin ? <span className={`${markerSize} rounded-full bg-sand`} /> : null}
-                {week.drankThisWeek ? <span className={`${markerSize} rounded-full bg-rose`} /> : null}
+                {showBadHabitMarkers && week.drankThisWeek ? <span className={`${markerSize} rounded-full bg-rose`} /> : null}
               </div>
             </div>
           </HeatmapTile>

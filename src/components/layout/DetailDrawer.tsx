@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { ReactNode } from 'react'
+import { ReactNode, RefObject } from 'react'
 
 export function DetailDrawer({
   open,
@@ -8,6 +8,7 @@ export function DetailDrawer({
   onClose,
   size = 'md',
   headerActions,
+  bodyRef,
   children,
 }: {
   open: boolean
@@ -16,9 +17,10 @@ export function DetailDrawer({
   onClose: () => void
   size?: 'md' | 'lg'
   headerActions?: ReactNode
+  bodyRef?: RefObject<HTMLDivElement | null>
   children: ReactNode
 }) {
-  const widthClassName = size === 'lg' ? 'w-[min(1080px,92vw)]' : 'w-[min(760px,88vw)]'
+  const widthClassName = size === 'lg' ? 'w-[min(940px,92vw)]' : 'w-[min(760px,88vw)]'
 
   return (
     <AnimatePresence>
@@ -38,7 +40,7 @@ export function DetailDrawer({
             exit={{ y: 20, x: '-50%', opacity: 0, scale: 0.98 }}
             transition={{ type: 'spring', stiffness: 250, damping: 28 }}
           >
-            <div className="border-b border-[#232323] px-6 py-5">
+            <div className="border-b border-[#232323] px-7 py-5">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <p className="text-xs uppercase tracking-[0.22em] text-[#8B8B8B]">{subtitle}</p>
@@ -55,7 +57,9 @@ export function DetailDrawer({
                 </div>
               </div>
             </div>
-            <div className="max-h-[calc(86vh-92px)] overflow-y-auto bg-[#0D0D0D] px-6 py-5">{children}</div>
+            <div ref={bodyRef} className="max-h-[calc(86vh-92px)] overflow-y-auto overscroll-contain bg-[#0D0D0D] px-7 py-5">
+              {children}
+            </div>
           </motion.aside>
         </>
       ) : null}

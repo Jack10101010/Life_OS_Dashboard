@@ -228,6 +228,7 @@ export function normalizeHabitTracker(tracker: HabitTracker): HabitTracker {
     habitType: tracker.habitType ?? 'checkbox',
     colorIntensity: tracker.colorIntensity ?? 100,
     showAlcoholMarkers: tracker.showAlcoholMarkers ?? false,
+    showCurrentWeekHighlight: tracker.showCurrentWeekHighlight ?? false,
     weekendVisibility: tracker.weekendVisibility ?? 'show',
     clampDescription: tracker.clampDescription ?? true,
     goal: tracker.goal ? { ...tracker.goal, startDate: tracker.goal.startDate ?? getTodayIsoDate() } : null,

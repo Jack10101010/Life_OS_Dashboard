@@ -48,6 +48,7 @@ function getTrackerPreviewColor(color: string, intensity: number) {
 export function HabitTrackerSettingsModal({
   tracker,
   open,
+  enableBadHabitTracking,
   onClose,
   onSave,
   onOpenGoal,
@@ -60,6 +61,7 @@ export function HabitTrackerSettingsModal({
 }: {
   tracker: HabitTracker | null
   open: boolean
+  enableBadHabitTracking: boolean
   onClose: () => void
   onSave: (tracker: HabitTracker) => void
   onOpenGoal: (tracker: HabitTracker) => void
@@ -209,21 +211,40 @@ export function HabitTrackerSettingsModal({
             </div>
           </div>
         </div>
+        {enableBadHabitTracking ? (
+          <div className="flex items-center justify-between rounded-2xl border border-[#2A2A2A] bg-[#181818] px-4 py-4">
+            <div>
+              <p className="text-sm text-[#B0B0B0]">Show bad habit markers</p>
+              <p className="mt-1 text-xs text-[#8C8C8C]">Overlay red dots on this heatmap for days marked with an active bad habit in the mood tracker.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setDraft({ ...draft, showAlcoholMarkers: !draft.showAlcoholMarkers })}
+              className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
+                draft.showAlcoholMarkers
+                  ? 'border-white/20 bg-white/10 text-white'
+                  : 'border-white/5 bg-[#1A1A1A] text-[#A0A0A0] hover:text-white'
+              }`}
+            >
+              {draft.showAlcoholMarkers ? 'On' : 'Off'}
+            </button>
+          </div>
+        ) : null}
         <div className="flex items-center justify-between rounded-2xl border border-[#2A2A2A] bg-[#181818] px-4 py-4">
           <div>
-            <p className="text-sm text-[#B0B0B0]">Show alcohol markers</p>
-            <p className="mt-1 text-xs text-[#8C8C8C]">Overlay red dots on this heatmap for days marked as alcohol consumed in the mood tracker.</p>
+            <p className="text-sm text-[#B0B0B0]">Show current week highlight</p>
+            <p className="mt-1 text-xs text-[#8C8C8C]">Outline the current ISO week in year and month views.</p>
           </div>
           <button
             type="button"
-            onClick={() => setDraft({ ...draft, showAlcoholMarkers: !draft.showAlcoholMarkers })}
+            onClick={() => setDraft({ ...draft, showCurrentWeekHighlight: !draft.showCurrentWeekHighlight })}
             className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
-              draft.showAlcoholMarkers
+              draft.showCurrentWeekHighlight
                 ? 'border-white/20 bg-white/10 text-white'
                 : 'border-white/5 bg-[#1A1A1A] text-[#A0A0A0] hover:text-white'
             }`}
           >
-            {draft.showAlcoholMarkers ? 'On' : 'Off'}
+            {draft.showCurrentWeekHighlight ? 'On' : 'Off'}
           </button>
         </div>
         <div className="flex items-center justify-between rounded-2xl border border-[#2A2A2A] bg-[#181818] px-4 py-4">

@@ -10,6 +10,7 @@ export function WeekDrawer({
   week,
   days,
   tags,
+  showBadHabitTracking,
   open,
   onClose,
   onOpenDay,
@@ -17,6 +18,7 @@ export function WeekDrawer({
   week: WeekEntry | null
   days: DayEntry[]
   tags: Tag[]
+  showBadHabitTracking: boolean
   open: boolean
   onClose: () => void
   onOpenDay: (day: DayEntry) => void
@@ -46,7 +48,7 @@ export function WeekDrawer({
               <div className="mt-3 grid grid-cols-2 gap-3">
                 <Status label="Habit completion" value={`${week.habitCompletionPercent}%`} />
                 <Status label="Mood average" value={week.loggedDaysCount > 0 ? week.moodAverage.toFixed(1) : '-'} />
-                <Status label="Drank" value={week.drankThisWeek ? 'Yes' : 'No'} />
+                {showBadHabitTracking ? <Status label="Drank" value={week.drankThisWeek ? 'Yes' : 'No'} /> : null}
                 <Status label="Big win" value={week.bigWin ? 'Yes' : 'No'} />
               </div>
             </div>
@@ -60,7 +62,9 @@ export function WeekDrawer({
             <button
               key={day.id}
               onClick={() => onOpenDay(day)}
-              className="grid w-full grid-cols-[0.9fr_0.7fr_0.7fr_1fr_0.7fr] gap-3 rounded-2xl border border-[#2A2A2A] bg-[#181818] px-3 py-3 text-left transition hover:bg-[#202020]"
+              className={`grid w-full gap-3 rounded-2xl border border-[#2A2A2A] bg-[#181818] px-3 py-3 text-left transition hover:bg-[#202020] ${
+                showBadHabitTracking ? 'grid-cols-[0.9fr_0.7fr_0.7fr_1fr_0.7fr]' : 'grid-cols-[0.9fr_0.7fr_0.7fr_1fr]'
+              }`}
             >
               <div>
                 <p className="text-sm font-semibold text-white">
@@ -71,7 +75,7 @@ export function WeekDrawer({
               <Status label="Score" value={`${day.score}`} compact />
               <Status label="Mood" value={`${day.morningMood}/${day.eveningMood}`} compact />
               <Status label="Habits" value={`${day.habitsCompleted}/${day.habitsTotal}`} compact />
-              <Status label="Drank" value={day.drank ? 'Yes' : 'No'} compact />
+              {showBadHabitTracking ? <Status label="Drank" value={day.drank ? 'Yes' : 'No'} compact /> : null}
             </button>
           ))}
         </Card>

@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion'
 import { Fragment } from 'react'
-import { ColorMode, DayEntry, HabitTrackerCalendarRange } from '../../types'
+import { BadHabitDefinition, ColorMode, DayEntry, HabitTracker, HabitTrackerCalendarRange } from '../../types'
 import { DayHeatmapCell } from './DayHeatmapCell'
 import { HeatmapTooltip } from './HeatmapTooltip'
 import { getMonthMatrix } from './heatmapUtils'
@@ -8,40 +8,47 @@ import { useHeatmapHover } from './useHeatmapHover'
 
 export function MonthMatrixHeatmap({
   days,
-  visibleDayIds,
+  visibleDayIdSet,
   mode,
   year,
   selectedDayId,
   onSelectDay,
+  habitTrackers = [],
   calendarRange = 'full-year',
   highlightCurrentWeek = true,
-  showAlcoholMarker = false,
+  showBadHabitMarker = false,
+  showHabitMarkers = false,
+  badHabitDateMap = new Map<string, BadHabitDefinition[]>(),
 }: {
   days: DayEntry[]
-  visibleDayIds?: string[]
+  visibleDayIdSet?: Set<string>
   mode: ColorMode
   year: number
   selectedDayId?: string
   onSelectDay: (day: DayEntry) => void
+  habitTrackers?: HabitTracker[]
   calendarRange?: HabitTrackerCalendarRange
   highlightCurrentWeek?: boolean
-  showAlcoholMarker?: boolean
+  showBadHabitMarker?: boolean
+  showHabitMarkers?: boolean
+  badHabitDateMap?: Map<string, BadHabitDefinition[]>
 }) {
   const rows = getMonthMatrix(days, year)
-  const visibleDayIdSet = new Set(visibleDayIds ?? days.map((day) => day.id))
   const { containerRef, hovered, bindHover } = useHeatmapHover<DayEntry>()
   const { startMonth, startDay } = getCalendarRangeStart(days, year, calendarRange)
   const currentMonthIndex = getCurrentMonthIndex(year)
   const currentDayNumber = getCurrentDayNumber(year)
-  const visibleRows = rows.slice(startMonth).map((row, rowIndex) => ({
-    ...row,
-    monthIndex: startMonth + rowIndex,
-    cells:
-      rowIndex === 0 && calendarRange !== 'full-year'
-        ? row.cells.map((day, index) => (index < Math.max(startDay - 1, 0) ? null : day))
-        : row.cells,
-  }))
-  const currentWeekRanges = visibleRows.map((row) => getCurrentWeekRangeForRow(year, row.monthIndex, row.cells))
+  const visibleRows = rows.slice(startMonth).map((row, rowIndex) => {
+    const hiddenBeforeStart = rowIndex === 0 && calendarRange !== 'full-year' ? Math.max(startDay - 1, 0) : 0
+    return {
+      ...row,
+      monthIndex: startMonth + rowIndex,
+      hiddenBeforeStart,
+    }
+  })
+  const currentWeekRanges = visibleRows.map((row) =>
+    getCurrentWeekRangeForRow(year, row.monthIndex, row.cells, row.hiddenBeforeStart),
+  )
 
   return (
     <div ref={containerRef} className="relative overflow-visible rounded-[28px] border border-white/5 bg-white/[0.02] px-4 py-4">
@@ -84,29 +91,30 @@ export function MonthMatrixHeatmap({
                   />
                 ) : null}
                 {row.cells.map((day, index) => {
-                  const visibleDay = day && visibleDayIdSet.has(day.id) ? day : null
                   const cellDate = day?.date ?? getIsoDateForCell(year, row.monthIndex, index + 1)
+                  const hiddenBeforeStart = index < row.hiddenBeforeStart
 
                   return (
                   <div
                     key={day?.id ?? `${row.label}-${index}`}
-                    className="relative z-10"
+                    className={`relative z-10 ${hiddenBeforeStart ? 'pointer-events-none opacity-0' : ''}`}
                     style={{ gridColumn: `${index + 1}` }}
                   >
-                    {visibleDay ? (
+                    {day && (!visibleDayIdSet || visibleDayIdSet.has(day.id)) ? (
                       <motion.button
                         whileHover={{ scale: 1.08, filter: 'brightness(1.08)' }}
-                        onClick={() => onSelectDay(visibleDay)}
+                        onClick={() => onSelectDay(day)}
                         type="button"
                         className="group relative block h-full w-full cursor-pointer text-left transition"
-                        {...bindHover(visibleDay)}
+                        {...bindHover(day)}
                       >
                         <DayHeatmapCell
-                          day={visibleDay}
+                          day={day}
                           mode={mode}
-                          active={selectedDayId === visibleDay.id}
+                          active={selectedDayId === day.id}
                           hoverOutline
-                          showAlcoholMarker={showAlcoholMarker}
+                          showBadHabitMarker={showBadHabitMarker && (badHabitDateMap.get(day.date)?.length ?? 0) > 0}
+                          habitMarkers={showHabitMarkers ? getOrderedCompletedHabits(day.date, habitTrackers) : []}
                           temporalEmptyShade
                           sizeClassName="aspect-square min-h-[14px] w-full min-w-[14px]"
                         />
@@ -129,14 +137,40 @@ export function MonthMatrixHeatmap({
           ))}
         </div>
       </div>
-      {hovered ? <HeatmapTooltip day={hovered.day} anchorRect={hovered.rect} containerRect={hovered.container} /> : null}
+      {hovered ? (
+        <HeatmapTooltip
+          day={hovered.day}
+          anchorRect={hovered.rect}
+          containerRect={hovered.container}
+          completedHabits={getOrderedCompletedHabits(hovered.day.date, habitTrackers)}
+          occurredBadHabits={badHabitDateMap.get(hovered.day.date) ?? []}
+        />
+      ) : null}
     </div>
   )
 }
 
-function getCurrentWeekRangeForRow(year: number, monthIndex: number, cells: Array<DayEntry | null>) {
+function getOrderedCompletedHabits(date: string, habitTrackers: HabitTracker[]) {
+  if (!habitTrackers.length) return []
+
+  return habitTrackers
+    .filter((tracker) => tracker.entries[date]?.completed)
+    .map((tracker) => ({
+      id: tracker.id,
+      name: tracker.title,
+      color: tracker.color,
+    }))
+}
+
+function getCurrentWeekRangeForRow(
+  year: number,
+  monthIndex: number,
+  cells: Array<DayEntry | null>,
+  hiddenBeforeStart = 0,
+) {
   const indices = cells
     .map((day, index) => {
+      if (index < hiddenBeforeStart) return null
       const cellDate = day?.date ?? getIsoDateForCell(year, monthIndex, index + 1)
       return cellDate && isDateInCurrentIsoWeek(cellDate) ? index : null
     })

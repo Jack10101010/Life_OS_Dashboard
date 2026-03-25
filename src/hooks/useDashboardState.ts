@@ -2,10 +2,12 @@ import { useMemo } from 'react'
 import { DayEntry, Tag, WeekEntry } from '../types'
 
 export function useDashboardState({ days, weeks }: { days: DayEntry[]; weeks: WeekEntry[] }) {
-  const currentWeek = weeks[weeks.length - 1]
   const recentDays = days.slice(-14)
   const todayDate = new Date().toISOString().slice(0, 10)
   const todayEntry = days.find((day) => day.date === todayDate) ?? days[days.length - 1]
+  const currentWeek =
+    weeks.find((week) => todayDate >= week.startDate && todayDate <= week.endDate) ??
+    weeks[weeks.length - 1]
 
   const moodTrend = useMemo(
     () =>

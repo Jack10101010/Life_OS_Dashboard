@@ -12,6 +12,7 @@ function createEmptyHabitTracker(): HabitTracker {
     color: '#17C964',
     colorIntensity: 100,
     showAlcoholMarkers: false,
+    showCurrentWeekHighlight: false,
     weekendVisibility: 'show',
     clampDescription: true,
     goal: null,
@@ -116,6 +117,28 @@ export function useHabitTrackerState(initialState: PersistedAppState) {
     setHabitEntryDraft(null)
   }
 
+  const toggleHabitCompletion = (trackerId: string, date: string) => {
+    setHabitTrackers((current) =>
+      current.map((tracker) => {
+        if (tracker.id !== trackerId) return tracker
+
+        const existingEntry = tracker.entries[date]
+        return syncHabitTrackerAchievements({
+          ...tracker,
+          entries: {
+            ...tracker.entries,
+            [date]: {
+              date,
+              completed: !(existingEntry?.completed ?? false),
+              value: existingEntry?.value ?? null,
+              note: existingEntry?.note ?? '',
+            },
+          },
+        })
+      }),
+    )
+  }
+
   const clearTrackerAchievements = (trackerId: string) => {
     setHabitTrackers((current) =>
       current.map((tracker) =>
@@ -154,6 +177,7 @@ export function useHabitTrackerState(initialState: PersistedAppState) {
     moveTrackerDown,
     saveTracker,
     saveHabitEntry,
+    toggleHabitCompletion,
     clearTrackerAchievements,
     hydrate,
   }

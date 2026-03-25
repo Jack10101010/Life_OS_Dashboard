@@ -57,7 +57,7 @@ export function HabitTrackerTooltip({
       <p className="mt-1 text-[10px] text-[#B9B9B9]">{formatDate(date)}</p>
       <p className="mt-1.5 text-[13px] font-semibold text-white">{status}</p>
       {streak && streak > 0 ? <p className="mt-1 text-[11px] text-[#C8C8C8]">Streak: {streak} day{streak === 1 ? '' : 's'}</p> : null}
-      {alcoholConsumed ? <p className="mt-1 text-[11px] text-[#C8C8C8]">Alcohol consumed: Yes</p> : null}
+      {alcoholConsumed ? <p className="mt-1 text-[11px] text-[#C8C8C8]">Bad habit recorded: Yes</p> : null}
       {preview ? <p className="mt-1 text-[11px] leading-4 text-[#AEAEAE]">{preview}</p> : null}
     </div>
   )

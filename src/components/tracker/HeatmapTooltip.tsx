@@ -3,6 +3,17 @@ import { DayEntry } from '../../types'
 const CALLOUT_WIDTH = 236
 const GAP = 8
 
+type CompletedHabitPreview = {
+  id: string
+  name: string
+  color: string
+}
+
+type BadHabitPreview = {
+  id: string
+  name: string
+}
+
 function formatReferenceDate(date: string) {
   return new Date(`${date}T00:00:00Z`).toLocaleDateString('en-IE', {
     weekday: 'short',
@@ -16,10 +27,14 @@ export function HeatmapTooltip({
   day,
   anchorRect,
   containerRect,
+  completedHabits = [],
+  occurredBadHabits = [],
 }: {
   day: DayEntry
   anchorRect: { top: number; left: number; right: number; width: number; height: number }
   containerRect: { top: number; left: number; width: number; height: number }
+  completedHabits?: CompletedHabitPreview[]
+  occurredBadHabits?: BadHabitPreview[]
 }) {
   const preview = (day.journal || day.bigWin || day.moodNote || '').trim()
   const truncatedPreview = preview.length > 90 ? `${preview.slice(0, 87)}...` : preview
@@ -70,13 +85,31 @@ export function HeatmapTooltip({
               {label} {value}
             </span>
           ))}
-          <span className="rounded-full border border-white/6 bg-white/[0.04] px-2 py-1 text-[11px] text-[#C9C9C9]">
-            Alcohol consumed: {day.drank ? 'Yes' : 'No'}
-          </span>
+          {occurredBadHabits.length > 0 ? (
+            <span className="rounded-full border border-white/6 bg-white/[0.04] px-2 py-1 text-[11px] text-[#C9C9C9]">
+              Bad habits: {occurredBadHabits.map((habit) => habit.name).join(', ')}
+            </span>
+          ) : null}
         </div>
       ) : null}
       {day.isLogged && truncatedPreview ? (
         <p className="relative mt-1 text-[11px] leading-4 text-[#AEAEAE]">{truncatedPreview}</p>
+      ) : null}
+      {completedHabits.length > 0 ? (
+        <div className="relative mt-2">
+          <p className="text-[10px] uppercase tracking-[0.14em] text-[#8F8F8F]">Completed habits</p>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {completedHabits.map((habit) => (
+              <span
+                key={habit.id}
+                className="inline-flex items-center gap-1.5 rounded-full border border-white/6 bg-white/[0.04] px-2 py-1 text-[11px] text-[#C9C9C9]"
+              >
+                <span className="h-[6px] w-[6px] rounded-full" style={{ backgroundColor: habit.color }} />
+                <span>{habit.name}</span>
+              </span>
+            ))}
+          </div>
+        </div>
       ) : null}
     </div>
   )

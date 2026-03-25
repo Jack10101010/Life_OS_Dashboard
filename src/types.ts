@@ -1,6 +1,7 @@
 export type PageId =
   | 'dashboard'
   | 'tracker'
+  | 'your-days'
   | 'journal-recordings'
   | 'gratitude'
   | 'goals'
@@ -16,13 +17,39 @@ export type HabitTrackerPeriodView = 'year' | 'month' | 'week'
 export type HabitTrackerCalendarRange = 'full-year' | 'first-entry' | 'current-date'
 export type ColorMode = 'overall' | 'habits' | 'mood' | 'alcohol'
 export type HeatmapLayout = 'github' | 'calendar'
-export type ManualCellColor = 'blank' | 'green' | 'orange' | 'red'
+export type ManualCellColor = 'blank' | 'green' | 'yellow' | 'orange' | 'red'
+export type EveningOutcome = 'good' | 'mixed' | 'poor' | 'unstable' | null
+export type EveningTrajectory = 'improved' | 'declined' | 'stable' | 'unstable' | null
+export type EveningSelfInfluence = 'helped' | 'neutral' | 'hurt' | null
 export type ScoreFilter = 'all' | 'high' | 'low'
+export type TagPolarity = 'positive' | 'neutral' | 'negative'
+export type TagType = TagPolarity
+export type TagSection = 'sleep' | 'feelings' | 'actions' | 'events'
+export type TagKind = 'feeling' | 'action'
+export type DayLogSection = 'morning' | 'evening' | 'day'
+export type BadHabitCategory = 'Substances' | 'Food' | 'Mind' | 'Body' | 'Custom'
 
 export interface Tag {
   id: string
   name: string
   color: string
+  section: TagSection
+  kind: TagKind
+  polarity: TagPolarity
+  availableIn: DayLogSection[]
+  isCustom: boolean
+  isActive: boolean
+}
+
+export interface DayTagEntry {
+  id: string
+  tagId?: string
+  customLabel?: string
+  section: TagSection
+  kind: TagKind
+  polarity: TagPolarity
+  timeSection: DayLogSection
+  selected: boolean
 }
 
 export interface Habit {
@@ -31,6 +58,113 @@ export interface Habit {
   color: string
   active: boolean
   targetFrequency: number
+}
+
+export interface BadHabitDefinition {
+  id: string
+  name: string
+  color: string
+  category: BadHabitCategory
+  createdAt: string
+  isActive: boolean
+  isArchived: boolean
+  isBuiltIn: boolean
+  showStreakInUI: boolean
+}
+
+export interface BadHabitLog {
+  date: string
+  badHabitId: string
+  occurred: boolean
+}
+
+export interface MedicationSupplementEntry {
+  id: string
+  name: string
+  dose: string
+  unit: string
+  timeTaken: string
+  notes: string
+}
+
+export interface DayEventTagEntry {
+  id: string
+  tagId?: string
+  customLabel?: string
+  section: TagSection
+  kind: TagKind
+  polarity: TagPolarity
+}
+
+export interface DayEventEntry {
+  id: string
+  title: string
+  description: string
+  time: string
+  tags: DayEventTagEntry[]
+}
+
+export interface LowStateEntry {
+  feelings: string[]
+  customFeeling: string
+  mindText: string
+  mindHelping: 'yes' | 'no' | 'not-sure' | null
+  realSituation: string
+  nextThing: string
+  completedAt: string | null
+}
+
+export interface ScratchpadLineItem {
+  id: string
+  name: string
+  day: string
+  amount: string
+  settled: boolean
+}
+
+export interface ScratchpadTodoItem {
+  id: string
+  text: string
+  completed: boolean
+}
+
+export interface ScratchpadFreeNote {
+  id: string
+  title: string
+  text: string
+}
+
+export interface DashboardFinanceSheet {
+  moneyIn: ScratchpadLineItem[]
+  moneyOut: ScratchpadLineItem[]
+  notes: string
+}
+
+export interface DashboardScratchpad {
+  mode: 'free' | 'structured' | 'todo'
+  text: string
+  freeNotes: ScratchpadFreeNote[]
+  activeFreeNoteId: string | null
+  moneyIn: ScratchpadLineItem[]
+  moneyOut: ScratchpadLineItem[]
+  notes: string
+  todoItems: ScratchpadTodoItem[]
+  financeSheets: Record<string, DashboardFinanceSheet>
+}
+
+export type DashboardExecutionStatus = 'idle' | 'started' | 'partial' | 'complete'
+
+export interface DashboardExecution {
+  goal: string
+  whyItMatters: string
+  todayTask: string
+  nextAction: string
+  minimumVersion: string
+  status: DashboardExecutionStatus
+  deepWorkDone: boolean
+  movementDone: boolean
+  nightResetReflection: string
+  nightResetNextTask: string
 }
 
 export interface DayEntry {
@@ -43,19 +177,33 @@ export interface DayEntry {
   clarity: number | null
   energy: number | null
   sleepQuality: number | null
+  bedtime: string
+  wakeTime: string
+  wokeDuringNight: boolean | null
   morningMood: number
   eveningMood: number
   moodNote: string
+  eveningOutcome: EveningOutcome
+  eveningTrajectory: EveningTrajectory
+  eveningSelfInfluence: EveningSelfInfluence
   habitsCompleted: number
   habitsTotal: number
   completedHabitIds: string[]
   drank: boolean
   bigWin: string
   journal: string
+  dashboardQuickNote: string
+  dashboardScratchpad: DashboardScratchpad
+  dashboardExecution: DashboardExecution
+  dailyIntentCompleteOneTask: boolean
+  morningIntention: string
+  lowStateEntry: LowStateEntry | null
+  medications: MedicationSupplementEntry[]
   tasks: string[]
   reminders: string[]
-  dailyActions: string[]
+  dailyActions: DayEventEntry[]
   tags: string[]
+  tagEntries: DayTagEntry[]
   score: number
   updatedAt: string | null
   linkedWeek: string
@@ -87,7 +235,12 @@ export interface Goal {
 
 export interface Task {
   id: string
-  title: string
+  text: string
+  dueDate: string
+  starred: boolean
+  important: boolean
+  completed: boolean
+  completedAt: string | null
 }
 
 export interface Note {
@@ -110,6 +263,12 @@ export interface HabitTrackerDayEntry {
   completed: boolean
   value: number | null
   note: string
+}
+
+export interface HabitLog {
+  date: string
+  habitId: string
+  completed: boolean
 }
 
 export interface HabitTrackerEntryDraft {
@@ -164,6 +323,7 @@ export interface HabitTracker {
   color: string
   colorIntensity: number
   showAlcoholMarkers: boolean
+  showCurrentWeekHighlight: boolean
   weekendVisibility: 'show' | 'disable' | 'hide'
   clampDescription: boolean
   goal: HabitTrackerGoal | null
@@ -172,11 +332,10 @@ export interface HabitTracker {
 }
 
 export interface TrackerFilters {
-  selectedTags: string[]
-  alcohol: 'all' | 'drank' | 'dry'
-  bigWinOnly: boolean
-  score: ScoreFilter
   year: number
+  mood: 'all' | 'good' | 'average' | 'low'
+  selectedTagIds: string[]
+  selectedBadHabitIds: string[]
 }
 
 export interface SettingsState {
@@ -186,4 +345,6 @@ export interface SettingsState {
   moodLabels: string[]
   panelHue: 'blue' | 'purple' | 'green' | 'amber' | 'none'
   panelHueIntensity: number
+  enableBadHabitTracking: boolean
+  enableMedicationTracking: boolean
 }

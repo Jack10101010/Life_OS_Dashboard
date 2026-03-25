@@ -23,3 +23,17 @@ export function getConsecutiveDateStreak(dateSet: Set<string>, year: number) {
 
   return streak
 }
+
+export function getConsecutiveDateStreakEndingAt(dateSet: Set<string>, endDateIso: string) {
+  let cursor = new Date(`${endDateIso}T00:00:00Z`)
+  let streak = 0
+
+  while (true) {
+    const iso = cursor.toISOString().slice(0, 10)
+    if (!dateSet.has(iso)) break
+    streak += 1
+    cursor.setUTCDate(cursor.getUTCDate() - 1)
+  }
+
+  return streak
+}

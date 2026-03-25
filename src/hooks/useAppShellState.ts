@@ -3,14 +3,14 @@ import { PageId } from '../types'
 import { PersistedAppState } from '../lib/persistence'
 
 export function useAppShellState(initialState: PersistedAppState) {
-  const [page, setPage] = useState<PageId>(initialState.page)
+  const [page, setPage] = useState<PageId>(normalizeJournalPage(initialState.page))
   const [sidebarCollapsed, setSidebarCollapsed] = useState(initialState.sidebarCollapsed)
   const [sidebarOrder, setSidebarOrder] = useState<PageId[]>(initialState.sidebarOrder)
   const [sidebarLabels, setSidebarLabels] = useState<Record<PageId, string>>(initialState.sidebarLabels)
   const [pageDevNotes, setPageDevNotes] = useState<Record<PageId, string>>(initialState.pageDevNotes)
 
   const hydrate = (next: PersistedAppState) => {
-    setPage(next.page)
+    setPage(normalizeJournalPage(next.page))
     setSidebarCollapsed(next.sidebarCollapsed)
     setSidebarOrder(next.sidebarOrder)
     setSidebarLabels(next.sidebarLabels)
@@ -30,4 +30,8 @@ export function useAppShellState(initialState: PersistedAppState) {
     setPageDevNotes,
     hydrate,
   }
+}
+
+function normalizeJournalPage(page: PageId): PageId {
+  return page === 'gratitude' || page === 'vision-board' ? 'journal-recordings' : page
 }

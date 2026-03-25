@@ -1,7 +1,6 @@
 import { FormEvent, useMemo, useState } from 'react'
-import { PageId } from '../../types'
+import { BadHabitDefinition, PageId } from '../../types'
 import { DEFAULT_SIDEBAR_ITEMS } from '../../lib/sidebar'
-import { Button } from '../ui/Button'
 
 export function Sidebar({
   currentPage,
@@ -12,9 +11,8 @@ export function Sidebar({
   onToggleCollapsed,
   onReorderPages,
   onRenamePage,
-  currentStreak,
-  momentumScore,
-  onQuickAdd,
+  badHabitStreaks,
+  showBadHabitTracking,
 }: {
   currentPage: PageId
   collapsed: boolean
@@ -24,9 +22,8 @@ export function Sidebar({
   onToggleCollapsed: () => void
   onReorderPages: (nextOrder: PageId[]) => void
   onRenamePage: (page: PageId, label: string) => void
-  currentStreak: number
-  momentumScore: number
-  onQuickAdd: () => void
+  badHabitStreaks: Array<{ habit: BadHabitDefinition; streak: number; startsToday?: boolean; brokenToday?: boolean }>
+  showBadHabitTracking: boolean
 }) {
   const [draggedPage, setDraggedPage] = useState<PageId | null>(null)
   const [renamingPage, setRenamingPage] = useState<PageId | null>(null)
@@ -42,13 +39,15 @@ export function Sidebar({
         label: pageLabels[item.id] ?? item.label,
       }))
   }, [pageLabels, pageOrder])
+  const settingsItem = items.find((item) => item.id === 'settings') ?? null
+  const primaryItems = items.filter((item) => item.id !== 'settings')
 
   if (collapsed) {
     return (
-      <aside className="relative h-screen w-0">
+      <aside className="relative h-0 shrink-0 lg:h-screen lg:w-0">
         <button
           onClick={onToggleCollapsed}
-          className="absolute left-4 top-6 z-30 flex h-10 w-10 items-center justify-center rounded-xl border border-[#2A2A2A] bg-[#171717] text-sm text-[#B0B0B0] shadow-[0_10px_30px_rgba(0,0,0,0.35)] transition hover:bg-[#242424] hover:text-white"
+          className="fixed left-4 top-5 z-30 flex h-10 w-10 items-center justify-center rounded-xl border border-[#2A2A2A] bg-[#171717] text-sm text-[#B0B0B0] shadow-[0_10px_30px_rgba(0,0,0,0.35)] transition hover:bg-[#242424] hover:text-white lg:absolute lg:left-4 lg:top-6"
           aria-label="Expand sidebar"
         >
           &gt;
@@ -58,8 +57,8 @@ export function Sidebar({
   }
 
   return (
-    <aside className="flex h-screen w-[260px] flex-col border-r border-[#262626] bg-[#171717] px-4 py-6 transition-[width] duration-200">
-      <div className="mb-8">
+      <aside className="flex h-auto w-full shrink-0 flex-col border-b border-[#262626] bg-[#171717] px-3.5 py-5 transition-[width] duration-200 sm:px-5 lg:sticky lg:top-0 lg:h-screen lg:max-h-screen lg:w-[224px] lg:self-start lg:overflow-y-auto lg:overscroll-contain lg:border-b-0 lg:border-r xl:w-[236px] 2xl:w-[248px]">
+      <div className="mb-7">
         <div className="flex items-center justify-between">
           <p className="text-xs uppercase tracking-[0.32em] text-[#A8A8A8]">Life Dashboard</p>
           <button
@@ -70,11 +69,11 @@ export function Sidebar({
             &lt;
           </button>
         </div>
-        <h1 className="mt-3 text-2xl font-semibold text-white">Quiet signal, clearer weeks.</h1>
+        <h1 className="mt-2.5 text-[26px] font-semibold leading-[1.1] text-white">Quiet signal, clearer weeks.</h1>
       </div>
 
-      <nav className="space-y-1.5">
-        {items.map((item) => {
+      <nav className="grid gap-1 sm:grid-cols-2 lg:block lg:space-y-1">
+        {primaryItems.map((item) => {
           const active = currentPage === item.id
           const isRenaming = renamingPage === item.id
 
@@ -110,12 +109,18 @@ export function Sidebar({
                   onReorderPages(nextOrder)
                   setDraggedPage(null)
                 }}
-                className={`flex w-full items-center justify-between rounded-2xl px-4 py-3 text-left text-sm font-medium transition ${
-                  active ? 'bg-[#2A2A2A] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.03)]' : 'text-[#A3A3A3] hover:bg-[#202020] hover:text-white'
+                className={`flex w-full items-center justify-between rounded-2xl px-3 py-2.5 text-left text-sm font-medium transition ${
+                  active
+                    ? 'bg-[#232323] text-white shadow-[0_8px_22px_rgba(0,0,0,0.16),inset_0_0_0_1px_rgba(255,255,255,0.035)]'
+                    : 'text-[#8F8F8F] hover:bg-[#1D1D1D] hover:text-[#E6E6E6]'
                 } ${draggedPage === item.id ? 'opacity-50' : ''}`}
               >
-                {item.label}
-                {active ? <span className="h-2 w-2 rounded-full bg-glow" /> : null}
+                <span className="min-w-0 truncate">{item.label}</span>
+                <span
+                  className={`h-1.5 w-1.5 shrink-0 rounded-full transition ${
+                    active ? 'bg-glow opacity-100' : 'bg-white/20 opacity-0'
+                  }`}
+                />
               </button>
 
               {isRenaming ? (
@@ -154,19 +159,52 @@ export function Sidebar({
         })}
       </nav>
 
-      <div className="mt-auto space-y-3 rounded-3xl border border-[#2A2A2A] bg-[#181818] p-4">
-        <div>
-          <p className="text-[11px] uppercase tracking-[0.22em] text-[#8D8D8D]">Alcohol-free streak</p>
-          <p className="mt-2 text-2xl font-semibold text-white">{`${currentStreak} days`}</p>
-        </div>
-        <div>
-          <p className="text-[11px] uppercase tracking-[0.22em] text-[#8D8D8D]">Momentum score</p>
-          <p className="mt-2 text-2xl font-semibold text-white">{momentumScore}</p>
-        </div>
-        <Button variant="primary" className="w-full" onClick={onQuickAdd}>
-          Quick add
-        </Button>
+      <div className="mt-6 lg:mt-auto">
+        {settingsItem ? (
+          <div className="mb-3">
+            <button
+              onClick={() => onNavigate(settingsItem.id)}
+              onContextMenu={(event) => {
+                event.preventDefault()
+                setRenamingPage(settingsItem.id)
+                setRenameValue(settingsItem.label)
+              }}
+              className={`flex w-full items-center justify-between rounded-2xl px-3 py-2.5 text-left text-sm font-medium transition ${
+                currentPage === settingsItem.id
+                  ? 'bg-[#232323] text-white shadow-[0_8px_22px_rgba(0,0,0,0.16),inset_0_0_0_1px_rgba(255,255,255,0.035)]'
+                  : 'text-[#8F8F8F] hover:bg-[#1D1D1D] hover:text-[#E6E6E6]'
+              }`}
+            >
+              <span className="min-w-0 truncate">{settingsItem.label}</span>
+              <span
+                className={`h-1.5 w-1.5 shrink-0 rounded-full transition ${
+                  currentPage === settingsItem.id ? 'bg-glow opacity-100' : 'bg-white/20 opacity-0'
+                }`}
+              />
+            </button>
+          </div>
+        ) : null}
+
+        {showBadHabitTracking ? (
+          <div className="space-y-3 rounded-3xl border border-[#2A2A2A] bg-[#181818] p-4">
+            {badHabitStreaks.map(({ habit, streak, startsToday, brokenToday }) => (
+              <div key={habit.id}>
+                <p className="text-[11px] uppercase tracking-[0.22em] text-[#8D8D8D]">{getBadHabitStreakLabel(habit.name)}</p>
+                <p className="mt-2 text-2xl font-semibold text-white">
+                  {startsToday ? 'Starts today' : brokenToday ? '0 days' : `${streak} days`}
+                </p>
+              </div>
+            ))}
+          </div>
+        ) : null}
       </div>
     </aside>
   )
+}
+
+function getBadHabitStreakLabel(name: string) {
+  const normalized = name.trim().toLowerCase()
+  if (normalized === 'alcohol') return 'Alcohol-free streak'
+  if (normalized === 'nicotine') return 'Nicotine-free streak'
+  return `${name} streak`
 }

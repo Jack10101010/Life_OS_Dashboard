@@ -1,4 +1,5 @@
 import { APP_STATE_STORAGE_KEY } from './keys'
+import { overlayCanonicalDayRecords } from './dayRecords'
 import { getDefaultPersistedAppState, normalizePersistedAppState, PersistedAppState } from './migrations'
 import { readJsonStorage, writeJsonStorage } from './storage'
 
@@ -10,7 +11,14 @@ export function loadPersistedAppState(currentYear: number): PersistedAppState {
   if (!parsed || typeof parsed !== 'object') {
     return getDefaultPersistedAppState(currentYear)
   }
-  return normalizePersistedAppState(parsed, currentYear)
+  const withCanonicalDays =
+    parsed.dataByYear && typeof parsed.dataByYear === 'object'
+      ? {
+          ...parsed,
+          dataByYear: overlayCanonicalDayRecords(parsed.dataByYear as PersistedAppState['dataByYear']),
+        }
+      : parsed
+  return normalizePersistedAppState(withCanonicalDays, currentYear)
 }
 
 export function savePersistedAppState(state: PersistedAppState) {

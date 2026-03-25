@@ -38,6 +38,32 @@ function isTodayIso(date: string) {
   return date === new Date().toISOString().slice(0, 10)
 }
 
+function isDateInCurrentIsoWeek(isoDate: string) {
+  const currentWeekStart = startOfIsoWeek(new Date())
+  const currentWeekEnd = addDays(currentWeekStart, 6)
+  const date = new Date(`${isoDate}T00:00:00Z`)
+  return date >= currentWeekStart && date <= currentWeekEnd
+}
+
+function getCurrentWeekRangeForCalendarRow(
+  cells: Array<{ type: 'hidden'; key: string } | { type: 'cell'; cell: TrackerCell }>,
+) {
+  const indices = cells
+    .map((item, index) => (item.type === 'cell' && isDateInCurrentIsoWeek(item.cell.date) ? index : null))
+    .filter((value): value is number => value !== null)
+
+  if (!indices.length) return null
+  return { start: indices[0], end: indices[indices.length - 1] }
+}
+
+function chunkIntoRows<T>(items: T[], size: number) {
+  const rows: T[][] = []
+  for (let index = 0; index < items.length; index += size) {
+    rows.push(items.slice(index, index + size))
+  }
+  return rows
+}
+
 function getCurrentMonthIndex(year: number) {
   const today = new Date()
   return today.getUTCFullYear() === year ? today.getUTCMonth() : null
@@ -82,7 +108,7 @@ function toIsoDate(date: Date) {
 }
 
 function startOfIsoWeek(date: Date) {
-  const copy = new Date(date)
+  const copy = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()))
   const day = (copy.getUTCDay() + 6) % 7
   copy.setUTCDate(copy.getUTCDate() - day)
   return copy
@@ -243,11 +269,12 @@ function TrackerCellButton({
   colorIntensity,
   active,
   today = false,
+  currentWeek = false,
   hovered,
   dimmed,
   disabled = false,
   achievement = false,
-  alcoholConsumed = false,
+  badHabitOccurred = false,
   onClick,
   hoverProps,
   className = '',
@@ -257,11 +284,12 @@ function TrackerCellButton({
   colorIntensity: number
   active?: boolean
   today?: boolean
+  currentWeek?: boolean
   hovered?: boolean
   dimmed?: boolean
   disabled?: boolean
   achievement?: boolean
-  alcoholConsumed?: boolean
+  badHabitOccurred?: boolean
   onClick: () => void
   hoverProps: Record<string, unknown>
   className?: string
@@ -283,7 +311,7 @@ function TrackerCellButton({
         dimmed={dimmed}
         className="h-full w-full"
       />
-      {alcoholConsumed ? (
+      {badHabitOccurred ? (
         <span className="pointer-events-none absolute left-1/2 top-1/2 z-20 h-[7px] w-[7px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-[#1B1B1B] bg-[#FF4D4F] shadow-[0_0_0_1px_rgba(255,77,79,0.16)]" />
       ) : null}
       {achievement ? (
@@ -297,7 +325,8 @@ function TrackerCellButton({
 
 export function CustomHabitTrackerCard({
   tracker,
-  alcoholConsumedDates,
+  badHabitOccurredDates,
+  enableBadHabitTracking,
   year,
   layout,
   periodView,
@@ -313,7 +342,8 @@ export function CustomHabitTrackerCard({
   onCalendarRangeChange,
 }: {
   tracker: HabitTracker
-  alcoholConsumedDates: string[]
+  badHabitOccurredDates: string[]
+  enableBadHabitTracking: boolean
   year: number
   layout: HeatmapLayout
   periodView: HabitTrackerPeriodView
@@ -329,7 +359,7 @@ export function CustomHabitTrackerCard({
   onCalendarRangeChange: (next: HabitTrackerCalendarRange) => void
 }) {
   const trackerData = normalizeHabitTracker(tracker)
-  const alcoholConsumedDateSet = new Set(alcoholConsumedDates)
+  const badHabitOccurredDateSet = new Set(badHabitOccurredDates)
   const { containerRef: controlsRef, isOpen, toggleMenu, closeMenu } = usePopoverGroup<'view'>()
   const {
     containerRef: achievementShelfRef,
@@ -366,20 +396,31 @@ export function CustomHabitTrackerCard({
   const weekdayLabels = hideWeekends ? WEEKDAY_LABELS.slice(0, 5) : WEEKDAY_LABELS
   const [showCelebration, setShowCelebration] = useState(false)
   const [selectedAchievement, setSelectedAchievement] = useState<HabitTrackerAchievement | null>(null)
-  const previousCompletedRef = useRef(Boolean(goalProgress?.completed))
+  const matchingGoalAchievements = trackerData.goal
+    ? [...trackerData.achievements]
+        .filter(
+          (achievement) =>
+            achievement.goalType === trackerData.goal?.type &&
+            achievement.target === trackerData.goal?.target &&
+            achievement.startedDate >= trackerData.goal.startDate,
+        )
+        .sort((left, right) => left.completedDate.localeCompare(right.completedDate))
+    : []
+  const latestGoalAchievement =
+    matchingGoalAchievements.length > 0 ? matchingGoalAchievements[matchingGoalAchievements.length - 1] : null
+  const previousCelebratedAchievementRef = useRef<string | null>(latestGoalAchievement?.id ?? null)
   const visibleAchievements = trackerData.achievements.slice(-10).reverse()
 
   useEffect(() => {
-    const nextCompleted = Boolean(goalProgress?.completed)
-    if (!previousCompletedRef.current && nextCompleted) {
-      previousCompletedRef.current = nextCompleted
+    const nextAchievementId = latestGoalAchievement?.id ?? null
+    if (nextAchievementId && previousCelebratedAchievementRef.current !== nextAchievementId) {
+      previousCelebratedAchievementRef.current = nextAchievementId
       setShowCelebration(true)
-      const timeout = window.setTimeout(() => setShowCelebration(false), 2800)
-      return () => window.clearTimeout(timeout)
+      return undefined
     }
-    previousCompletedRef.current = nextCompleted
+    previousCelebratedAchievementRef.current = nextAchievementId
     return undefined
-  }, [goalProgress?.completed])
+  }, [latestGoalAchievement?.id])
 
   const openAchievementDetails = (achievement: HabitTrackerAchievement) => {
     if (isAchievementOpen('details') && selectedAchievement?.id === achievement.id) {
@@ -441,27 +482,40 @@ export function CustomHabitTrackerCard({
                   <div className={`flex h-[17px] w-[46px] items-center pr-2 text-[11px] uppercase tracking-[0.16em] ${row.monthIndex === currentMonthIndex ? 'text-[#78A7FF]' : 'text-[#8C8C8C]'}`}>
                     {row.label}
                   </div>
-                  {row.cells.map((item) =>
-                    item.type === 'cell' ? (
-                      <TrackerCellButton
-                      key={item.cell.date}
-                      cell={item.cell}
-                        color={trackerData.color}
-                      colorIntensity={trackerData.colorIntensity ?? 100}
-                      active={selectedDate === item.cell.date}
-                      today={isTodayIso(item.cell.date)}
-                      hovered={hoveredDate === item.cell.date}
-                      achievement={achievementDates.has(item.cell.date)}
-                      alcoholConsumed={trackerData.showAlcoholMarkers && alcoholConsumedDateSet.has(item.cell.date)}
-                      disabled={isWeekendIso(item.cell.date) && trackerData.weekendVisibility === 'disable'}
-                      onClick={() => onSelectDate(item.cell.date)}
-                      hoverProps={isWeekendIso(item.cell.date) && trackerData.weekendVisibility !== 'show' ? {} : bindHover(item.cell)}
-                        className="h-[17px] w-[30px]"
+                  <div className="relative grid gap-[3px]" style={{ gridTemplateColumns: `repeat(${row.cells.length}, 30px)` }}>
+                    {trackerData.showCurrentWeekHighlight && getCurrentWeekRangeForCalendarRow(row.cells) ? (
+                      <div
+                        className="pointer-events-none absolute z-0 rounded-[8px] border border-[#78A7FF] shadow-[0_0_0_1px_rgba(120,167,255,0.16)]"
+                        style={{
+                          left: `${getCurrentWeekRangeForCalendarRow(row.cells)!.start * 33 - 2}px`,
+                          top: -2,
+                          width: `${(getCurrentWeekRangeForCalendarRow(row.cells)!.end - getCurrentWeekRangeForCalendarRow(row.cells)!.start + 1) * 30 + (getCurrentWeekRangeForCalendarRow(row.cells)!.end - getCurrentWeekRangeForCalendarRow(row.cells)!.start) * 3 + 4}px`,
+                          height: 21,
+                        }}
                       />
-                    ) : (
-                      <div key={item.key} className="h-[17px] w-[30px]" />
-                    ),
-                  )}
+                    ) : null}
+                    {row.cells.map((item) =>
+                      item.type === 'cell' ? (
+                        <TrackerCellButton
+                          key={item.cell.date}
+                          cell={item.cell}
+                          color={trackerData.color}
+                          colorIntensity={trackerData.colorIntensity ?? 100}
+                          active={selectedDate === item.cell.date}
+                          today={isTodayIso(item.cell.date)}
+                          hovered={hoveredDate === item.cell.date}
+                          achievement={achievementDates.has(item.cell.date)}
+                          badHabitOccurred={enableBadHabitTracking && trackerData.showAlcoholMarkers && badHabitOccurredDateSet.has(item.cell.date)}
+                          disabled={isWeekendIso(item.cell.date) && trackerData.weekendVisibility === 'disable'}
+                          onClick={() => onSelectDate(item.cell.date)}
+                          hoverProps={isWeekendIso(item.cell.date) && trackerData.weekendVisibility !== 'show' ? {} : bindHover(item.cell)}
+                          className="relative z-10 h-[17px] w-[30px]"
+                        />
+                      ) : (
+                        <div key={item.key} className="h-[17px] w-[30px]" />
+                      ),
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -501,7 +555,11 @@ export function CustomHabitTrackerCard({
             style={{ gridTemplateColumns: `repeat(${Math.max(contributionColumns.columns.length, 1)}, minmax(14px, 1fr))` }}
           >
             {contributionColumns.columns.map((column, columnIndex) => (
-              <div key={columnIndex} className="grid gap-[3px]">
+              <div key={columnIndex} className="relative grid gap-[3px]">
+                {trackerData.showCurrentWeekHighlight &&
+                column.some((cell) => cell && isDateInCurrentIsoWeek(cell.date)) ? (
+                  <div className="pointer-events-none absolute inset-[-2px] z-0 rounded-[8px] border border-[#78A7FF] shadow-[0_0_0_1px_rgba(120,167,255,0.16)]" />
+                ) : null}
                 {column
                   .map((cell, rowIndex) => ({ cell, rowIndex }))
                   .filter(({ rowIndex }) => !hideWeekends || rowIndex < 5)
@@ -516,11 +574,11 @@ export function CustomHabitTrackerCard({
                       today={isTodayIso(cell.date)}
                       hovered={hoveredDate === cell.date}
                       achievement={achievementDates.has(cell.date)}
-                      alcoholConsumed={trackerData.showAlcoholMarkers && alcoholConsumedDateSet.has(cell.date)}
+                      badHabitOccurred={enableBadHabitTracking && trackerData.showAlcoholMarkers && badHabitOccurredDateSet.has(cell.date)}
                       disabled={rowIndex >= 5 && disableWeekends}
                       onClick={() => onSelectDate(cell.date)}
                       hoverProps={rowIndex >= 5 && disableWeekends ? {} : bindHover(cell)}
-                      className="aspect-square w-full"
+                      className="relative z-10 aspect-square w-full"
                     />
                   ) : (
                     <div key={`empty-${columnIndex}-${visibleRowIndex}`} className="aspect-square w-full rounded-[4px] border border-white/[0.04] bg-[#242424]" />
@@ -534,38 +592,53 @@ export function CustomHabitTrackerCard({
     )
   }
 
-const renderMonthView = () => (
-    <HeatmapWeekRow labels={weekdayLabels} columns={trackerData.weekendVisibility === 'hide' ? 5 : 7}>
-        {monthCells
-          .filter((cell) => !hideWeekends || !isWeekendIso(cell.date))
-          .map((cell) => (
-          <div key={cell.date} className="relative">
-            <TrackerCellButton
-              cell={cell}
-              color={trackerData.color}
-              colorIntensity={trackerData.colorIntensity ?? 100}
-              active={selectedDate === cell.date}
-              today={isTodayIso(cell.date)}
-              hovered={hoveredDate === cell.date}
-              achievement={achievementDates.has(cell.date)}
-              alcoholConsumed={trackerData.showAlcoholMarkers && alcoholConsumedDateSet.has(cell.date)}
-              dimmed={!cell.inCurrentMonth}
-              disabled={isWeekendIso(cell.date) && disableWeekends}
-              onClick={() => onSelectDate(cell.date)}
-              hoverProps={isWeekendIso(cell.date) && tracker.weekendVisibility !== 'show' ? {} : bindHover(cell)}
-              className="aspect-square w-full overflow-hidden rounded-[18px]"
-            />
-            <p
-              className={`pointer-events-none absolute inset-x-0 top-1/2 z-20 -translate-y-1/2 text-center text-[12px] font-medium ${
-                isTodayIso(cell.date) ? 'text-[#78A7FF]' : cell.inCurrentMonth ? 'text-[#D0D0D0]' : 'text-[#636363]'
-              }`}
-            >
-              {cell.dayNumber}
-            </p>
-          </div>
-        ))}
-    </HeatmapWeekRow>
-  )
+  const renderMonthView = () => {
+    const visibleMonthCells = monthCells.filter((cell) => !hideWeekends || !isWeekendIso(cell.date))
+    const monthRows = chunkIntoRows(visibleMonthCells, trackerData.weekendVisibility === 'hide' ? 5 : 7)
+
+    return (
+      <HeatmapWeekRow labels={weekdayLabels} columns={trackerData.weekendVisibility === 'hide' ? 5 : 7}>
+        {monthRows.map((row, rowIndex) => {
+          const rowHasCurrentWeek =
+            trackerData.showCurrentWeekHighlight && row.some((cell) => isDateInCurrentIsoWeek(cell.date))
+
+          return (
+            <div key={`month-row-${rowIndex}`} className={`relative col-span-full grid gap-3`} style={{ gridTemplateColumns: `repeat(${row.length}, minmax(0, 1fr))` }}>
+              {rowHasCurrentWeek ? (
+                <div className="pointer-events-none absolute inset-[-4px] z-0 rounded-[22px] border border-[#78A7FF] shadow-[0_0_0_1px_rgba(120,167,255,0.16)]" />
+              ) : null}
+              {row.map((cell) => (
+                <div key={cell.date} className="relative z-10">
+                  <TrackerCellButton
+                    cell={cell}
+                    color={trackerData.color}
+                    colorIntensity={trackerData.colorIntensity ?? 100}
+                    active={selectedDate === cell.date}
+                    today={isTodayIso(cell.date)}
+                    hovered={hoveredDate === cell.date}
+                    achievement={achievementDates.has(cell.date)}
+                    badHabitOccurred={enableBadHabitTracking && trackerData.showAlcoholMarkers && badHabitOccurredDateSet.has(cell.date)}
+                    dimmed={!cell.inCurrentMonth}
+                    disabled={isWeekendIso(cell.date) && disableWeekends}
+                    onClick={() => onSelectDate(cell.date)}
+                    hoverProps={isWeekendIso(cell.date) && tracker.weekendVisibility !== 'show' ? {} : bindHover(cell)}
+                    className="aspect-square w-full overflow-hidden rounded-[18px]"
+                  />
+                  <p
+                    className={`pointer-events-none absolute inset-x-0 top-1/2 z-20 -translate-y-1/2 text-center text-[12px] font-medium ${
+                      isTodayIso(cell.date) ? 'text-[#78A7FF]' : cell.inCurrentMonth ? 'text-[#D0D0D0]' : 'text-[#636363]'
+                    }`}
+                  >
+                    {cell.dayNumber}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )
+        })}
+      </HeatmapWeekRow>
+    )
+  }
 
   const renderWeekView = () => (
     <HeatmapWeekRow labels={weekdayLabels} columns={trackerData.weekendVisibility === 'hide' ? 5 : 7}>
@@ -581,7 +654,7 @@ const renderMonthView = () => (
               today={isTodayIso(cell.date)}
               hovered={hoveredDate === cell.date}
               achievement={achievementDates.has(cell.date)}
-              alcoholConsumed={trackerData.showAlcoholMarkers && alcoholConsumedDateSet.has(cell.date)}
+              badHabitOccurred={enableBadHabitTracking && trackerData.showAlcoholMarkers && badHabitOccurredDateSet.has(cell.date)}
               disabled={isWeekendIso(cell.date) && disableWeekends}
               onClick={() => onSelectDate(cell.date)}
               hoverProps={isWeekendIso(cell.date) && tracker.weekendVisibility !== 'show' ? {} : bindHover(cell)}
@@ -605,57 +678,67 @@ const renderMonthView = () => (
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="fixed inset-0 z-[120] bg-black/45"
+                className="fixed inset-0 z-[120] bg-black/58 backdrop-blur-[2px]"
                 onClick={() => setShowCelebration(false)}
               />
-              <motion.div
-                initial={{ opacity: 0, scale: 0.94, y: 12 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.97, y: 8 }}
-                transition={{ duration: 0.18, ease: 'easeOut' }}
-                className="fixed left-1/2 top-1/2 z-[130] w-[min(92vw,440px)] -translate-x-1/2 -translate-y-1/2"
-              >
-                <div className="rounded-[28px] border border-[#332B18] bg-[#17130E] px-6 py-6 text-center shadow-[0_22px_60px_rgba(0,0,0,0.45)]">
-                  <p className="text-[24px] font-semibold text-[#F3E4B4]">🎉 Goal Completed!</p>
-                  <p className="mt-3 text-sm leading-6 text-[#D7C59A]">
-                    You completed your{' '}
-                    {trackerData.goal.type === 'times-per-week'
-                      ? `${goalProgress?.target}x weekly`
-                      : trackerData.goal.type === 'minutes-target'
-                        ? `${goalProgress?.target}-minute`
-                        : trackerData.goal.type === 'target-value'
-                          ? `${goalProgress?.target}-point`
-                          : `${goalProgress?.target}-day`}{' '}
-                    {tracker.title} goal. Keep it up.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setShowCelebration(false)}
-                    className="mt-5 rounded-full border border-[#4C4023] bg-[#221B12] px-4 py-2 text-sm font-semibold text-[#F1E2B5] transition hover:bg-[#2A2116]"
-                  >
-                    Close
-                  </button>
-                </div>
-              </motion.div>
-              <div className="pointer-events-none fixed left-1/2 top-1/2 z-[125] -translate-x-1/2 -translate-y-1/2">
-                {Array.from({ length: 22 }, (_, index) => (
+              <div className="fixed inset-0 z-[130] flex items-center justify-center p-6">
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.94, y: 12 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.97, y: 8 }}
+                  transition={{ duration: 0.18, ease: 'easeOut' }}
+                  className="w-[min(92vw,460px)]"
+                >
+                  <div className="rounded-[28px] border border-[#2F2F2F] bg-[#141414] px-6 py-6 text-center shadow-[0_22px_60px_rgba(0,0,0,0.48)]">
+                    <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-white/10 bg-white/[0.03] text-[24px]">
+                      🎉
+                    </div>
+                    <p className="mt-4 text-[24px] font-semibold text-white">🎉 Goal Completed!</p>
+                    <p className="mt-3 text-sm leading-6 text-[#BDBDBD]">
+                      You completed your{' '}
+                      <span className="font-semibold text-white">
+                        {trackerData.goal.type === 'times-per-week'
+                          ? `${goalProgress?.target}x weekly`
+                          : trackerData.goal.type === 'minutes-target'
+                            ? `${goalProgress?.target}-minute`
+                            : trackerData.goal.type === 'target-value'
+                              ? `${goalProgress?.target}-point`
+                              : `${goalProgress?.target}-day`}
+                      </span>{' '}
+                      <span className="font-semibold" style={{ color: trackerColor }}>
+                        {tracker.title}
+                      </span>{' '}
+                      goal. Keep it up.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setShowCelebration(false)}
+                      className="mt-5 rounded-full border border-[#2F2F2F] bg-[#1B1B1B] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#222222]"
+                    >
+                      Close
+                    </button>
+                  </div>
+                </motion.div>
+              </div>
+              <div className="pointer-events-none fixed inset-0 z-[125] overflow-hidden">
+                {Array.from({ length: 96 }, (_, index) => (
                   <motion.span
                     key={index}
-                    className="absolute block rounded-full"
+                    className="absolute left-1/2 top-1/2 block rounded-full"
                     style={{
-                      width: index % 3 === 0 ? 8 : 6,
-                      height: index % 3 === 0 ? 8 : 6,
-                      backgroundColor: ['#F3C56B', '#F0E1B3', '#CBE87A', '#7CC9FF'][index % 4],
+                      width: index % 5 === 0 ? 10 : index % 3 === 0 ? 8 : 6,
+                      height: index % 5 === 0 ? 10 : index % 3 === 0 ? 8 : 6,
+                      backgroundColor: [trackerColor, '#78A7FF', '#17C964', '#FF9F0A', '#FF4D4F'][index % 5],
                     }}
-                    initial={{ opacity: 0, x: 0, y: 0, scale: 0.7 }}
+                    initial={{ opacity: 0, x: 0, y: 0, scale: 0.72 }}
                     animate={{
                       opacity: [0, 1, 0],
-                      x: Math.cos((index / 22) * Math.PI * 2) * (70 + (index % 4) * 18),
-                      y: Math.sin((index / 22) * Math.PI * 2) * (70 + (index % 5) * 14),
-                      scale: [0.7, 1, 0.85],
-                      rotate: [0, index % 2 === 0 ? 140 : -140],
+                      x: Math.cos((index / 96) * Math.PI * 2) * (130 + (index % 8) * 26),
+                      y: Math.sin((index / 96) * Math.PI * 2) * (130 + (index % 7) * 24),
+                      scale: [0.72, 1, 0.9],
+                      rotate: [0, index % 2 === 0 ? 220 : -220],
                     }}
-                    transition={{ duration: 2.25, ease: 'easeOut', delay: index * 0.018 }}
+                    transition={{ duration: 2.55, ease: 'easeOut', delay: index * 0.006 }}
                   />
                 ))}
               </div>
@@ -790,7 +873,7 @@ const renderMonthView = () => (
               }
               preview={trackerData.entries[hovered.day.date]?.note || undefined}
               streak={trackerData.goal?.type === 'streak' ? getTrackerStreakEndingOn(trackerData, hovered.day.date) : undefined}
-              alcoholConsumed={trackerData.showAlcoholMarkers && alcoholConsumedDateSet.has(hovered.day.date)}
+              alcoholConsumed={enableBadHabitTracking && trackerData.showAlcoholMarkers && badHabitOccurredDateSet.has(hovered.day.date)}
               anchorRect={hovered.rect}
               containerRect={hovered.container}
             />
