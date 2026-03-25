@@ -1,6 +1,7 @@
 export type PageId =
   | 'dashboard'
   | 'tracker'
+  | 'habit-maps'
   | 'your-days'
   | 'journal-recordings'
   | 'gratitude'

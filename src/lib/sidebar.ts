@@ -3,6 +3,7 @@ import { PageId } from '../types'
 export const DEFAULT_SIDEBAR_ITEMS: Array<{ id: PageId; label: string }> = [
   { id: 'dashboard', label: 'Dashboard' },
   { id: 'tracker', label: 'Tracker' },
+  { id: 'habit-maps', label: 'Habit Maps' },
   { id: 'your-days', label: 'Your Days' },
   { id: 'journal-recordings', label: 'Journal' },
   { id: 'goals', label: 'Goals' },

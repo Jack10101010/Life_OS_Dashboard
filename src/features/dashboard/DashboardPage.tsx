@@ -94,7 +94,6 @@ export function DashboardPage({
     message: string
     tone: 'incoming' | 'outgoing'
   } | null>(null)
-  const [pushedToday, setPushedToday] = useState(false)
   const [quickAddEventOpen, setQuickAddEventOpen] = useState(false)
   const [quickAddEventDraft, setQuickAddEventDraft] = useState(() => createDashboardDayEventDraft())
   const [quickAddEventSelectedTagIds, setQuickAddEventSelectedTagIds] = useState<string[]>([])
@@ -477,15 +476,6 @@ export function DashboardPage({
         percent: progress.target > 0 ? Math.min(Math.round((progress.current / progress.target) * 100), 100) : 0,
       })),
     [activeGoals],
-  )
-  const dashboardHeaderDateLabel = useMemo(
-    () =>
-      new Date(`${todayEntry.date}T00:00:00Z`).toLocaleDateString('en-IE', {
-        weekday: 'short',
-        day: 'numeric',
-        month: 'short',
-      }),
-    [todayEntry.date],
   )
   const safeLowStateNextAction = lowStateNextAction || 'Take one small step: open your task or move your body'
 
@@ -911,45 +901,29 @@ export function DashboardPage({
                 ))}
               </div>
             </div>
-            <div className="ml-auto flex shrink-0 flex-col items-end gap-2">
-              <div className="flex items-start gap-2.5">
-                <Button
-                  variant="soft"
-                  onClick={() => onOpenWeek(currentWeek)}
-                  className="rounded-full px-3 py-1.5 text-xs font-medium text-white/76"
-                >
-                  Open week
-                </Button>
-                <div className="group relative self-start rounded-full border border-white/[0.04] bg-white/[0.02] px-2.5 py-1.5">
-                  <div className="flex items-center gap-1.5">
-                  {recentMoodDots.map((dot) => (
-                    <span
-                      key={dot.date}
-                      className="block h-3 w-3 shrink-0 rounded-full"
-                      style={{ backgroundColor: dot.color }}
-                      aria-label={dot.label}
-                      title={dot.label}
-                    />
-                  ))}
-                  </div>
-                  <span className="pointer-events-none absolute right-0 top-[calc(100%+8px)] z-20 hidden whitespace-nowrap rounded-2xl border border-white/[0.08] bg-[#141414]/95 px-3 py-2 text-xs text-white/76 shadow-[0_18px_40px_rgba(0,0,0,0.35)] group-hover:block">
-                    Last 7 days mood
-                  </span>
+            <div className="ml-auto flex shrink-0 items-start gap-2.5">
+              <Button
+                variant="soft"
+                onClick={() => onOpenWeek(currentWeek)}
+                className="rounded-full px-3 py-1.5 text-xs font-medium text-white/76"
+              >
+                Open week
+              </Button>
+              <div className="group relative self-start rounded-full border border-white/[0.04] bg-white/[0.02] px-2.5 py-1.5">
+                <div className="flex items-center gap-1.5">
+                {recentMoodDots.map((dot) => (
+                  <span
+                    key={dot.date}
+                    className="block h-3 w-3 shrink-0 rounded-full"
+                    style={{ backgroundColor: dot.color }}
+                    aria-label={dot.label}
+                    title={dot.label}
+                  />
+                ))}
                 </div>
-              </div>
-              <div className="flex flex-col items-end gap-1">
-                <p className="text-[11px] uppercase tracking-[0.18em] text-white/44">{dashboardHeaderDateLabel}</p>
-                <button
-                  type="button"
-                  onClick={() => setPushedToday((current) => !current)}
-                  className={`rounded-full border px-3 py-1.5 text-xs transition ${
-                    pushedToday
-                      ? 'border-[#4FDC94]/18 bg-[#4FDC94]/10 text-[#CDEFD9] hover:border-[#4FDC94]/24 hover:bg-[#4FDC94]/12'
-                      : 'border-[#D9A26A]/18 bg-[#D9A26A]/10 text-[#E9C7A5] hover:border-[#D9A26A]/24 hover:bg-[#D9A26A]/12'
-                  }`}
-                >
-                  {pushedToday ? '✅ Synced today' : '⚠️ Not pushed today'}
-                </button>
+                <span className="pointer-events-none absolute right-0 top-[calc(100%+8px)] z-20 hidden whitespace-nowrap rounded-2xl border border-white/[0.08] bg-[#141414]/95 px-3 py-2 text-xs text-white/76 shadow-[0_18px_40px_rgba(0,0,0,0.35)] group-hover:block">
+                  Last 7 days mood
+                </span>
               </div>
             </div>
           </div>
@@ -1133,266 +1107,266 @@ export function DashboardPage({
           </Card>
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
-        <div className="grid gap-5">
-          <Card className="overflow-hidden p-5">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <p className="text-xs uppercase tracking-[0.22em] text-mist/70">Goals &amp; Execution</p>
-                <p className="mt-1 text-sm text-mist">One goal. One task. One honest next step.</p>
+      <Card className="overflow-hidden p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-xs uppercase tracking-[0.22em] text-mist/70">Goals &amp; Execution</p>
+            <p className="mt-1 text-sm text-mist">One goal. One task. One honest next step.</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setLowStateModeActive(true)
+                setLowStateTimerSeconds(null)
+              }}
+              className="rounded-full border border-[#78A7FF]/18 bg-[#78A7FF]/10 px-3 py-1.5 text-xs text-[#D8E6FF] transition hover:border-[#78A7FF]/28 hover:bg-[#78A7FF]/14"
+            >
+              I feel off
+            </button>
+            <div className="rounded-full border border-white/[0.06] bg-white/[0.03] px-3 py-1.5 text-xs text-white/72">
+              {executionStatusMeta.label}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(320px,0.9fr)]">
+          <div className="grid gap-4 max-w-[940px]">
+            <div className="grid gap-3 rounded-[24px] border border-white/[0.06] bg-white/[0.03] p-4">
+              <div className="grid gap-3 md:grid-cols-2">
+                <label className="grid gap-2">
+                  <span className="text-[11px] uppercase tracking-[0.2em] text-white/48">Goal</span>
+                  <input
+                    value={dashboardExecution.goal}
+                    onChange={(event) =>
+                      updateDashboardExecution((current) => ({
+                        ...current,
+                        goal: event.target.value,
+                      }))
+                    }
+                    placeholder="What matters most right now?"
+                    className="rounded-2xl border border-white/[0.06] bg-[#1A1A1A] px-3 py-2.5 text-sm text-white/88 outline-none transition placeholder:text-white/34 focus:border-white/[0.12] focus:bg-[#202020]"
+                  />
+                </label>
+                <label className="grid gap-2">
+                  <span className="text-[11px] uppercase tracking-[0.2em] text-white/48">Why it matters</span>
+                  <input
+                    value={dashboardExecution.whyItMatters}
+                    onChange={(event) =>
+                      updateDashboardExecution((current) => ({
+                        ...current,
+                        whyItMatters: event.target.value,
+                      }))
+                    }
+                    placeholder="Keep the reason simple and sharp"
+                    className="rounded-2xl border border-white/[0.06] bg-[#1A1A1A] px-3 py-2.5 text-sm text-white/88 outline-none transition placeholder:text-white/34 focus:border-white/[0.12] focus:bg-[#202020]"
+                  />
+                </label>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLowStateModeActive(true)
-                    setLowStateTimerSeconds(null)
-                  }}
-                  className="rounded-full border border-[#78A7FF]/18 bg-[#78A7FF]/10 px-3 py-1.5 text-xs text-[#D8E6FF] transition hover:border-[#78A7FF]/28 hover:bg-[#78A7FF]/14"
-                >
-                  I feel off
-                </button>
-                <div className="rounded-full border border-white/[0.06] bg-white/[0.03] px-3 py-1.5 text-xs text-white/72">
-                  {executionStatusMeta.label}
+            </div>
+
+            <div className="rounded-[28px] border border-[#78A7FF]/16 bg-[linear-gradient(180deg,rgba(120,167,255,0.1),rgba(255,255,255,0.025))] p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.24em] text-[#9EC1FF]">Today&apos;s 1 Task</p>
+                  <p className="mt-1 text-sm text-white/58">Strip the work down until starting feels obvious.</p>
+                </div>
+                <span className="rounded-full border border-white/[0.08] bg-white/[0.04] px-3 py-1 text-xs text-white/72">
+                  Done &gt; perfect
+                </span>
+              </div>
+
+              <div className="mt-4 grid gap-3">
+                <label className="grid gap-2">
+                  <span className="text-[11px] uppercase tracking-[0.2em] text-white/48">Task title</span>
+                  <input
+                    value={dashboardExecution.todayTask}
+                    onChange={(event) =>
+                      updateDashboardExecution((current) => ({
+                        ...current,
+                        todayTask: event.target.value,
+                      }))
+                    }
+                    placeholder="The one thing that moves the goal"
+                    className="rounded-2xl border border-white/[0.06] bg-[#171A21] px-3 py-3 text-base text-white outline-none transition placeholder:text-white/30 focus:border-[#78A7FF]/28 focus:bg-[#1C2029]"
+                  />
+                </label>
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  <label className="grid gap-2">
+                    <span className="text-[11px] uppercase tracking-[0.2em] text-white/48">Next action</span>
+                    <textarea
+                      rows={2}
+                      value={dashboardExecution.nextAction}
+                      onChange={(event) =>
+                        updateDashboardExecution((current) => ({
+                          ...current,
+                          nextAction: event.target.value,
+                        }))
+                      }
+                      placeholder="The smallest possible first move"
+                      className="min-h-[82px] rounded-2xl border border-white/[0.06] bg-[#171A21] px-3 py-2.5 text-sm leading-6 text-white/88 outline-none transition placeholder:text-white/30 focus:border-[#78A7FF]/28 focus:bg-[#1C2029]"
+                    />
+                  </label>
+                  <label className="grid gap-2">
+                    <span className="text-[11px] uppercase tracking-[0.2em] text-white/48">Minimum version</span>
+                    <textarea
+                      rows={2}
+                      value={dashboardExecution.minimumVersion}
+                      onChange={(event) =>
+                        updateDashboardExecution((current) => ({
+                          ...current,
+                          minimumVersion: event.target.value,
+                        }))
+                      }
+                      placeholder="What counts in 5-15 minutes if energy is low?"
+                      className="min-h-[82px] rounded-2xl border border-white/[0.06] bg-[#171A21] px-3 py-2.5 text-sm leading-6 text-white/88 outline-none transition placeholder:text-white/30 focus:border-[#78A7FF]/28 focus:bg-[#1C2029]"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                {executionActions.map((action) => {
+                  const active = dashboardExecution.status === action.status
+                  return (
+                    <button
+                      key={action.status}
+                      type="button"
+                      onClick={() =>
+                        updateDashboardExecution((current) => ({
+                          ...current,
+                          status: action.status,
+                        }))
+                      }
+                      className={`rounded-full border px-3.5 py-2 text-sm transition ${
+                        active
+                          ? 'border-[#78A7FF]/34 bg-[#78A7FF]/14 text-[#D8E6FF]'
+                          : 'border-white/[0.08] bg-white/[0.03] text-white/74 hover:border-white/[0.12] hover:bg-white/[0.05] hover:text-white'
+                      }`}
+                    >
+                      {action.label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-4 xl:max-w-[420px] xl:justify-self-end">
+            <div className="rounded-[24px] border border-white/[0.06] bg-white/[0.025] p-4">
+              <p className="text-[11px] uppercase tracking-[0.22em] text-white/52">Excuse killer</p>
+              <div className="mt-3 space-y-3 text-sm leading-6 text-white/78">
+                <div>
+                  <p className="text-white/42">&ldquo;I need more clarity first.&rdquo;</p>
+                  <p>Start small. Start now.</p>
+                </div>
+                <div>
+                  <p className="text-white/42">&ldquo;I don&apos;t have enough time.&rdquo;</p>
+                  <p>Do the minimum version and keep momentum alive.</p>
+                </div>
+                <div>
+                  <p className="text-white/42">&ldquo;I should do it properly later.&rdquo;</p>
+                  <p>Done &gt; perfect.</p>
                 </div>
               </div>
             </div>
 
-            <div className="mt-4 grid gap-4 xl:grid-cols-[1.35fr_0.9fr]">
-              <div className="grid gap-4">
-                <div className="grid gap-3 rounded-[24px] border border-white/[0.06] bg-white/[0.03] p-4">
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <label className="grid gap-2">
-                      <span className="text-[11px] uppercase tracking-[0.2em] text-white/48">Goal</span>
-                      <input
-                        value={dashboardExecution.goal}
-                        onChange={(event) =>
-                          updateDashboardExecution((current) => ({
-                            ...current,
-                            goal: event.target.value,
-                          }))
-                        }
-                        placeholder="What matters most right now?"
-                        className="rounded-2xl border border-white/[0.06] bg-[#1A1A1A] px-3 py-2.5 text-sm text-white/88 outline-none transition placeholder:text-white/34 focus:border-white/[0.12] focus:bg-[#202020]"
-                      />
-                    </label>
-                    <label className="grid gap-2">
-                      <span className="text-[11px] uppercase tracking-[0.2em] text-white/48">Why it matters</span>
-                      <input
-                        value={dashboardExecution.whyItMatters}
-                        onChange={(event) =>
-                          updateDashboardExecution((current) => ({
-                            ...current,
-                            whyItMatters: event.target.value,
-                          }))
-                        }
-                        placeholder="Keep the reason simple and sharp"
-                        className="rounded-2xl border border-white/[0.06] bg-[#1A1A1A] px-3 py-2.5 text-sm text-white/88 outline-none transition placeholder:text-white/34 focus:border-white/[0.12] focus:bg-[#202020]"
-                      />
-                    </label>
-                  </div>
-                </div>
+            <div className="grid gap-3 rounded-[24px] border border-white/[0.06] bg-white/[0.025] p-4">
+              <p className="text-[11px] uppercase tracking-[0.22em] text-white/52">Supporting blocks</p>
 
-                <div className="rounded-[28px] border border-[#78A7FF]/16 bg-[linear-gradient(180deg,rgba(120,167,255,0.1),rgba(255,255,255,0.025))] p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <p className="text-[11px] uppercase tracking-[0.24em] text-[#9EC1FF]">Today&apos;s 1 Task</p>
-                      <p className="mt-1 text-sm text-white/58">Strip the work down until starting feels obvious.</p>
-                    </div>
-                    <span className="rounded-full border border-white/[0.08] bg-white/[0.04] px-3 py-1 text-xs text-white/72">
-                      Done &gt; perfect
-                    </span>
-                  </div>
-
-                  <div className="mt-4 grid gap-3">
-                    <label className="grid gap-2">
-                      <span className="text-[11px] uppercase tracking-[0.2em] text-white/48">Task title</span>
-                      <input
-                        value={dashboardExecution.todayTask}
-                        onChange={(event) =>
-                          updateDashboardExecution((current) => ({
-                            ...current,
-                            todayTask: event.target.value,
-                          }))
-                        }
-                        placeholder="The one thing that moves the goal"
-                        className="rounded-2xl border border-white/[0.06] bg-[#171A21] px-3 py-3 text-base text-white outline-none transition placeholder:text-white/30 focus:border-[#78A7FF]/28 focus:bg-[#1C2029]"
-                      />
-                    </label>
-
-                    <div className="grid gap-3 md:grid-cols-2">
-                      <label className="grid gap-2">
-                        <span className="text-[11px] uppercase tracking-[0.2em] text-white/48">Next action</span>
-                        <textarea
-                          rows={2}
-                          value={dashboardExecution.nextAction}
-                          onChange={(event) =>
-                            updateDashboardExecution((current) => ({
-                              ...current,
-                              nextAction: event.target.value,
-                            }))
-                          }
-                          placeholder="The smallest possible first move"
-                          className="min-h-[82px] rounded-2xl border border-white/[0.06] bg-[#171A21] px-3 py-2.5 text-sm leading-6 text-white/88 outline-none transition placeholder:text-white/30 focus:border-[#78A7FF]/28 focus:bg-[#1C2029]"
-                        />
-                      </label>
-                      <label className="grid gap-2">
-                        <span className="text-[11px] uppercase tracking-[0.2em] text-white/48">Minimum version</span>
-                        <textarea
-                          rows={2}
-                          value={dashboardExecution.minimumVersion}
-                          onChange={(event) =>
-                            updateDashboardExecution((current) => ({
-                              ...current,
-                              minimumVersion: event.target.value,
-                            }))
-                          }
-                          placeholder="What counts in 5-15 minutes if energy is low?"
-                          className="min-h-[82px] rounded-2xl border border-white/[0.06] bg-[#171A21] px-3 py-2.5 text-sm leading-6 text-white/88 outline-none transition placeholder:text-white/30 focus:border-[#78A7FF]/28 focus:bg-[#1C2029]"
-                        />
-                      </label>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    {executionActions.map((action) => {
-                      const active = dashboardExecution.status === action.status
-                      return (
-                        <button
-                          key={action.status}
-                          type="button"
-                          onClick={() =>
-                            updateDashboardExecution((current) => ({
-                              ...current,
-                              status: action.status,
-                            }))
-                          }
-                          className={`rounded-full border px-3.5 py-2 text-sm transition ${
-                            active
-                              ? 'border-[#78A7FF]/34 bg-[#78A7FF]/14 text-[#D8E6FF]'
-                              : 'border-white/[0.08] bg-white/[0.03] text-white/74 hover:border-white/[0.12] hover:bg-white/[0.05] hover:text-white'
-                          }`}
-                        >
-                          {action.label}
-                        </button>
-                      )
-                    })}
-                  </div>
+              <div className="grid gap-2">
+                <span className="text-[11px] uppercase tracking-[0.2em] text-white/42">Deep work</span>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateDashboardExecution((current) => ({
+                        ...current,
+                        deepWorkDone: !current.deepWorkDone,
+                      }))
+                    }
+                    className={`rounded-full border px-3 py-2 text-sm transition ${
+                      dashboardExecution.deepWorkDone
+                        ? 'border-[#4FDC94]/28 bg-[#4FDC94]/12 text-[#CFF8DE]'
+                        : 'border-white/[0.08] bg-white/[0.03] text-white/74 hover:border-white/[0.12] hover:bg-white/[0.05] hover:text-white'
+                    }`}
+                  >
+                    {dashboardExecution.deepWorkDone ? 'Deep work done' : 'Mark deep work done'}
+                  </button>
                 </div>
               </div>
 
-              <div className="grid gap-4">
-                <div className="rounded-[24px] border border-white/[0.06] bg-white/[0.025] p-4">
-                  <p className="text-[11px] uppercase tracking-[0.22em] text-white/52">Excuse killer</p>
-                  <div className="mt-3 space-y-3 text-sm leading-6 text-white/78">
-                    <div>
-                      <p className="text-white/42">&ldquo;I need more clarity first.&rdquo;</p>
-                      <p>Start small. Start now.</p>
-                    </div>
-                    <div>
-                      <p className="text-white/42">&ldquo;I don&apos;t have enough time.&rdquo;</p>
-                      <p>Do the minimum version and keep momentum alive.</p>
-                    </div>
-                    <div>
-                      <p className="text-white/42">&ldquo;I should do it properly later.&rdquo;</p>
-                      <p>Done &gt; perfect.</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid gap-3 rounded-[24px] border border-white/[0.06] bg-white/[0.025] p-4">
-                  <p className="text-[11px] uppercase tracking-[0.22em] text-white/52">Supporting blocks</p>
-
-                  <div className="grid gap-2">
-                    <span className="text-[11px] uppercase tracking-[0.2em] text-white/42">Deep work</span>
-                    <div className="flex flex-wrap gap-2">
+              <div className="grid gap-2">
+                <span className="text-[11px] uppercase tracking-[0.2em] text-white/42">Movement</span>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { value: false, label: 'Not done' },
+                    { value: true, label: 'Done' },
+                  ].map((option) => {
+                    const active = dashboardExecution.movementDone === option.value
+                    return (
                       <button
+                        key={option.label}
                         type="button"
                         onClick={() =>
                           updateDashboardExecution((current) => ({
                             ...current,
-                            deepWorkDone: !current.deepWorkDone,
+                            movementDone: option.value,
                           }))
                         }
                         className={`rounded-full border px-3 py-2 text-sm transition ${
-                          dashboardExecution.deepWorkDone
-                            ? 'border-[#4FDC94]/28 bg-[#4FDC94]/12 text-[#CFF8DE]'
-                            : 'border-white/[0.08] bg-white/[0.03] text-white/74 hover:border-white/[0.12] hover:bg-white/[0.05] hover:text-white'
+                          active
+                            ? 'border-[#78A7FF]/28 bg-[#78A7FF]/12 text-[#D8E6FF]'
+                            : 'border-white/[0.08] bg-white/[0.03] text-white/72 hover:border-white/[0.12] hover:bg-white/[0.05] hover:text-white'
                         }`}
                       >
-                        {dashboardExecution.deepWorkDone ? 'Deep work done' : 'Mark deep work done'}
+                        {option.label}
                       </button>
-                    </div>
-                  </div>
-
-                  <div className="grid gap-2">
-                    <span className="text-[11px] uppercase tracking-[0.2em] text-white/42">Movement</span>
-                    <div className="flex flex-wrap gap-2">
-                      {[
-                        { value: false, label: 'Not done' },
-                        { value: true, label: 'Done' },
-                      ].map((option) => {
-                        const active = dashboardExecution.movementDone === option.value
-                        return (
-                          <button
-                            key={option.label}
-                            type="button"
-                            onClick={() =>
-                              updateDashboardExecution((current) => ({
-                                ...current,
-                                movementDone: option.value,
-                              }))
-                            }
-                            className={`rounded-full border px-3 py-2 text-sm transition ${
-                              active
-                                ? 'border-[#78A7FF]/28 bg-[#78A7FF]/12 text-[#D8E6FF]'
-                                : 'border-white/[0.08] bg-white/[0.03] text-white/72 hover:border-white/[0.12] hover:bg-white/[0.05] hover:text-white'
-                            }`}
-                          >
-                            {option.label}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-
-                  <div className="grid gap-3">
-                    <span className="text-[11px] uppercase tracking-[0.2em] text-white/42">Night reset</span>
-                    <label className="grid gap-2">
-                      <span className="text-xs text-white/42">Short reflection</span>
-                      <textarea
-                        rows={2}
-                        value={dashboardExecution.nightResetReflection}
-                        onChange={(event) =>
-                          updateDashboardExecution((current) => ({
-                            ...current,
-                            nightResetReflection: event.target.value,
-                          }))
-                        }
-                        placeholder="What needs to be honest tonight?"
-                        className="min-h-[72px] rounded-2xl border border-white/[0.06] bg-[#171717] px-3 py-2.5 text-sm leading-6 text-white/86 outline-none transition placeholder:text-white/30 focus:border-white/[0.12] focus:bg-[#1D1D1D]"
-                      />
-                    </label>
-                    <label className="grid gap-2">
-                      <span className="text-xs text-white/42">Next task for tomorrow</span>
-                      <input
-                        value={dashboardExecution.nightResetNextTask}
-                        onChange={(event) =>
-                          updateDashboardExecution((current) => ({
-                            ...current,
-                            nightResetNextTask: event.target.value,
-                          }))
-                        }
-                        placeholder="Leave tomorrow one obvious next step"
-                        className="rounded-2xl border border-white/[0.06] bg-[#171717] px-3 py-2.5 text-sm text-white/88 outline-none transition placeholder:text-white/30 focus:border-white/[0.12] focus:bg-[#1D1D1D]"
-                      />
-                    </label>
-                  </div>
+                    )
+                  })}
                 </div>
               </div>
-            </div>
-          </Card>
 
+              <div className="grid gap-3">
+                <span className="text-[11px] uppercase tracking-[0.2em] text-white/42">Night reset</span>
+                <label className="grid gap-2">
+                  <span className="text-xs text-white/42">Short reflection</span>
+                  <textarea
+                    rows={2}
+                    value={dashboardExecution.nightResetReflection}
+                    onChange={(event) =>
+                      updateDashboardExecution((current) => ({
+                        ...current,
+                        nightResetReflection: event.target.value,
+                      }))
+                    }
+                    placeholder="What needs to be honest tonight?"
+                    className="min-h-[72px] rounded-2xl border border-white/[0.06] bg-[#171717] px-3 py-2.5 text-sm leading-6 text-white/86 outline-none transition placeholder:text-white/30 focus:border-white/[0.12] focus:bg-[#1D1D1D]"
+                  />
+                </label>
+                <label className="grid gap-2">
+                  <span className="text-xs text-white/42">Next task for tomorrow</span>
+                  <input
+                    value={dashboardExecution.nightResetNextTask}
+                    onChange={(event) =>
+                      updateDashboardExecution((current) => ({
+                        ...current,
+                        nightResetNextTask: event.target.value,
+                      }))
+                    }
+                    placeholder="Leave tomorrow one obvious next step"
+                    className="rounded-2xl border border-white/[0.06] bg-[#171717] px-3 py-2.5 text-sm text-white/88 outline-none transition placeholder:text-white/30 focus:border-white/[0.12] focus:bg-[#1D1D1D]"
+                  />
+                </label>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      <div className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
+        <div className="grid gap-5">
           <Card className="p-5">
             <div className="flex items-center justify-between gap-3">
               <div>

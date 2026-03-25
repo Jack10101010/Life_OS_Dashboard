@@ -4,6 +4,7 @@ import { Card } from './Card'
 const pageLabels: Record<PageId, string> = {
   dashboard: 'Dashboard',
   tracker: 'Tracker',
+  'habit-maps': 'Habit Maps',
   'your-days': 'Your Days',
   'journal-recordings': 'Journal',
   gratitude: 'Journal',

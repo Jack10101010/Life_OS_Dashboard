@@ -16,6 +16,7 @@ import { useSettingsState } from './hooks/useSettingsState'
 import { useTrackerState } from './hooks/useTrackerState'
 import { DashboardPage } from './features/dashboard/DashboardPage'
 import { GoalsPage } from './features/goals/GoalsPage'
+import { HabitMapsPage } from './features/habit-maps/HabitMapsPage'
 import { JournalPage } from './features/journal/JournalPage'
 import { PlaceholderPage } from './features/placeholder/PlaceholderPage'
 import { SettingsPage } from './features/settings/SettingsPage'
@@ -452,6 +453,46 @@ export default function App() {
       )
     }
 
+    if (page === 'habit-maps') {
+      return (
+        <HabitMapsPage
+          tags={tags}
+          heatmapLayout={heatmapLayout}
+          year={filters.year}
+          habitTrackers={habitTrackers}
+          badHabitOccurredDates={badHabitDates}
+          enableBadHabitTracking={settings.enableBadHabitTracking}
+          habitTrackerPeriodView={habitTrackerPeriodView}
+          habitTrackerFocusDate={habitTrackerFocusDate}
+          habitTrackerCalendarRangeByTracker={habitTrackerCalendarRangeByTracker}
+          habitEntryDraft={habitEntryDraft}
+          collapsedTrackers={collapsedTrackers}
+          onCreateTracker={createTracker}
+          onPeriodViewChange={setHabitTrackerPeriodView}
+          onToggleCollapse={(trackerId) =>
+            setCollapsedTrackers((current) => ({ ...current, [trackerId]: !current[trackerId] }))
+          }
+          onShiftPeriod={setHabitTrackerFocusDate}
+          onCalendarRangeChange={(trackerId, next) =>
+            setHabitTrackerCalendarRangeByTracker((current) => ({ ...current, [trackerId]: next }))
+          }
+          onSelectDate={(tracker, date) => {
+            const entry = tracker.entries[date]
+            setHabitTrackerFocusDate(date)
+            setHabitEntryDraft({
+              trackerId: tracker.id,
+              date,
+              completed: entry?.completed ?? false,
+              value: entry?.value ?? null,
+              note: entry?.note ?? '',
+            })
+          }}
+          onOpenSettings={setEditingTracker}
+          onOpenGoalSetup={setGoalEditingTracker}
+        />
+      )
+    }
+
     if (page === 'your-days') {
       return (
         <YourDaysPage
@@ -504,7 +545,7 @@ export default function App() {
     }
 
     const placeholderMap: Record<
-      Exclude<PageId, 'dashboard' | 'tracker' | 'your-days' | 'settings' | 'journal-recordings' | 'gratitude' | 'vision-board' | 'goals'>,
+      Exclude<PageId, 'dashboard' | 'tracker' | 'habit-maps' | 'your-days' | 'settings' | 'journal-recordings' | 'gratitude' | 'vision-board' | 'goals'>,
       { title: string; description: string; highlights: string[] }
     > = {
       tasks: {
@@ -530,7 +571,7 @@ export default function App() {
     }
 
     const placeholder = placeholderMap[
-      page as Exclude<PageId, 'dashboard' | 'tracker' | 'your-days' | 'settings' | 'journal-recordings' | 'gratitude' | 'vision-board' | 'goals'>
+      page as Exclude<PageId, 'dashboard' | 'tracker' | 'habit-maps' | 'your-days' | 'settings' | 'journal-recordings' | 'gratitude' | 'vision-board' | 'goals'>
     ]
     return <PlaceholderPage {...placeholder} />
   }
@@ -564,7 +605,12 @@ export default function App() {
           <main className="py-5 sm:py-6">
             <PageContainer width="wide" className={sidebarCollapsed ? 'lg:pl-16' : ''}>
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.28 }}>
-              {page !== 'dashboard' && page !== 'tracker' && page !== 'journal-recordings' && page !== 'gratitude' && page !== 'vision-board' ? (
+              {page !== 'dashboard' &&
+              page !== 'tracker' &&
+              page !== 'habit-maps' &&
+              page !== 'journal-recordings' &&
+              page !== 'gratitude' &&
+              page !== 'vision-board' ? (
                 <DevNotesCard
                   page={page}
                   value={pageDevNotes[page] ?? ''}

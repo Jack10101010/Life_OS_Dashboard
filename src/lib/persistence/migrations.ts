@@ -95,6 +95,7 @@ export function getDefaultPersistedAppState(currentYear: number): PersistedAppSt
     pageDevNotes: {
       dashboard: '',
       tracker: '',
+      'habit-maps': '',
       'your-days': '',
       'journal-recordings': '',
       gratitude: '',

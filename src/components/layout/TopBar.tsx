@@ -1,10 +1,11 @@
-import { ReactNode } from 'react'
+import { ReactNode, useState } from 'react'
 import { PageContainer } from './LayoutPrimitives'
 import { PageId } from '../../types'
 
 const labels: Record<PageId, string> = {
   dashboard: 'Dashboard',
   tracker: 'Tracker',
+  'habit-maps': 'Habit Maps',
   'your-days': 'Your Days',
   'journal-recordings': 'Journal',
   gratitude: 'Journal',
@@ -25,6 +26,7 @@ const descriptions: Record<PageId, ReactNode> = {
     </>
   ),
   tracker: 'Heatmap-first tracking for days, weeks, and the year at a glance.',
+  'habit-maps': 'A dedicated space for custom habit heatmaps, controls, and pattern review without crowding the mood tracker.',
   'your-days': 'A quieter read-only view for browsing previous days, revisiting what happened, and reopening any day in the Daily Log.',
   'journal-recordings': 'A quieter space for daily reflections, gratitude, and longer-range vision in one place.',
   gratitude: 'A quieter space for daily reflections, gratitude, and longer-range vision in one place.',
@@ -38,6 +40,8 @@ const descriptions: Record<PageId, ReactNode> = {
 }
 
 export function TopBar({ page, onOpenToday, sidebarCollapsed }: { page: PageId; onOpenToday: () => void; sidebarCollapsed: boolean }) {
+  const [pushedToday, setPushedToday] = useState(false)
+
   return (
     <div className="border-b border-[#222] py-5 sm:py-6">
       <PageContainer width="wide" className={sidebarCollapsed ? 'lg:pl-16' : ''}>
@@ -54,21 +58,36 @@ export function TopBar({ page, onOpenToday, sidebarCollapsed }: { page: PageId; 
               {descriptions[page]}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onOpenToday}
-            className="self-start rounded-2xl border border-[#2A2A2A] bg-[#171717] px-4 py-3 text-left shadow-[inset_0_0_0_1px_rgba(255,255,255,0.02)] transition hover:border-white/10 hover:bg-[#1D1D1D] lg:text-right"
-          >
-            <p className="text-xs uppercase tracking-[0.22em] text-[#8E8E8E]">Today</p>
-            <p className="mt-2 text-sm font-semibold text-white">
-              {new Date().toLocaleDateString('en-IE', {
-                weekday: 'short',
-                day: 'numeric',
-                month: 'short',
-                year: 'numeric',
-              })}
-            </p>
-          </button>
+          <div className="flex flex-col items-start gap-2 lg:items-end">
+            <button
+              type="button"
+              onClick={onOpenToday}
+              className="self-start rounded-2xl border border-[#2A2A2A] bg-[#171717] px-4 py-3 text-left shadow-[inset_0_0_0_1px_rgba(255,255,255,0.02)] transition hover:border-white/10 hover:bg-[#1D1D1D] lg:text-right"
+            >
+              <p className="text-xs uppercase tracking-[0.22em] text-[#8E8E8E]">Today</p>
+              <p className="mt-2 text-sm font-semibold text-white">
+                {new Date().toLocaleDateString('en-IE', {
+                  weekday: 'short',
+                  day: 'numeric',
+                  month: 'short',
+                  year: 'numeric',
+                })}
+              </p>
+            </button>
+            {page === 'dashboard' ? (
+              <button
+                type="button"
+                onClick={() => setPushedToday((current) => !current)}
+                className={`rounded-full border px-3 py-1.5 text-xs transition ${
+                  pushedToday
+                    ? 'border-[#4FDC94]/18 bg-[#4FDC94]/10 text-[#CDEFD9] hover:border-[#4FDC94]/24 hover:bg-[#4FDC94]/12'
+                    : 'border-[#D9A26A]/18 bg-[#D9A26A]/10 text-[#E9C7A5] hover:border-[#D9A26A]/24 hover:bg-[#D9A26A]/12'
+                }`}
+              >
+                {pushedToday ? '✅ Synced today' : '⚠️ Not pushed today'}
+              </button>
+            ) : null}
+          </div>
         </div>
       </PageContainer>
     </div>
