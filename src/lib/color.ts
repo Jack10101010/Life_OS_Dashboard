@@ -101,6 +101,19 @@ export function getResolvedDayColorBadgeTone(day: DayEntry) {
   return day.cellColor
 }
 
+export function getResolvedDayColorSwatch(day: DayEntry, mode: ColorMode = 'mood') {
+  return getResolvedDayColor(day, mode) ?? '#5B5B5B'
+}
+
+export function getResolvedDayColorBadgeClassName(day: DayEntry) {
+  const tone = getResolvedDayColorBadgeTone(day)
+  if (tone === 'green') return 'border-[rgba(34,197,94,0.2)] bg-[rgba(34,197,94,0.08)] text-[#DDFBE7]'
+  if (tone === 'yellow') return 'border-[rgba(250,204,21,0.2)] bg-[rgba(250,204,21,0.08)] text-[#FDF3C6]'
+  if (tone === 'orange') return 'border-[rgba(245,158,11,0.2)] bg-[rgba(245,158,11,0.08)] text-[#FCE7C2]'
+  if (tone === 'red') return 'border-[rgba(239,68,68,0.2)] bg-[rgba(239,68,68,0.08)] text-[#F7D6D3]'
+  return 'border-white/[0.08] bg-white/[0.03] text-white/72'
+}
+
 export function getDayColor(day: DayEntry, mode: ColorMode) {
   const resolvedColor = getResolvedDayColor(day, mode)
   if (resolvedColor) {

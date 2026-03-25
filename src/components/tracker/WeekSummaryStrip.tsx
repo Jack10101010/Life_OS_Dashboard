@@ -1,6 +1,7 @@
 import { ReactNode, useEffect, useMemo, useState } from 'react'
 import { DayEntry, Tag, WeekEntry } from '../../types'
 import { getResolvedDayColorLabel } from '../../lib/color'
+import { formatReviewDayEventLine, formatReviewMedicationLine, formatReviewScore } from '../../lib/dayReview'
 import { formatShortDate } from '../../lib/date'
 import { TagPill } from '../ui/TagPill'
 
@@ -242,23 +243,23 @@ function DailyReviewPanel({ day, visibleTags }: { day: DayEntry; visibleTags: Ta
         <ReadOnlyGroup title="Sleep">
           <ReadOnlyItem label="Bedtime" value={day.bedtime || 'Not logged'} />
           <ReadOnlyItem label="Wake time" value={day.wakeTime || 'Not logged'} />
-          <ReadOnlyItem label="Sleep quality" value={day.sleepQuality != null ? `${day.sleepQuality}/10` : 'Not logged'} />
+          <ReadOnlyItem label="Sleep quality" value={formatReviewScore(day.sleepQuality)} />
           <ReadOnlyItem label="Woke during night" value={day.wokeDuringNight == null ? 'Not logged' : day.wokeDuringNight ? 'Yes' : 'No'} />
         </ReadOnlyGroup>
 
         <ReadOnlyGroup title="Morning">
-          <ReadOnlyItem label="Mood" value={formatScore(day.mood)} />
-          <ReadOnlyItem label="Motivation" value={formatScore(day.motivation)} />
-          <ReadOnlyItem label="Clarity" value={formatScore(day.clarity)} />
-          <ReadOnlyItem label="Energy" value={formatScore(day.energy)} />
+          <ReadOnlyItem label="Mood" value={formatReviewScore(day.mood)} />
+          <ReadOnlyItem label="Motivation" value={formatReviewScore(day.motivation)} />
+          <ReadOnlyItem label="Clarity" value={formatReviewScore(day.clarity)} />
+          <ReadOnlyItem label="Energy" value={formatReviewScore(day.energy)} />
           <ReadOnlyText label="Morning intention" value={day.morningIntention} empty="No intention logged." />
         </ReadOnlyGroup>
 
         <ReadOnlyGroup title="Day">
           <ReadOnlyList label="Tasks" items={day.tasks} empty="No tasks logged." />
           <ReadOnlyList label="Habits" items={getHabitLines(day)} empty="No habits logged." />
-          <ReadOnlyList label="Medications & supplements" items={day.medications.map(formatMedicationLine)} empty="Nothing logged." />
-          <ReadOnlyList label="Day events" items={day.dailyActions.map(formatDayEventLine)} empty="No day events logged." />
+          <ReadOnlyList label="Medications & supplements" items={day.medications.map(formatReviewMedicationLine)} empty="Nothing logged." />
+          <ReadOnlyList label="Day events" items={day.dailyActions.map(formatReviewDayEventLine)} empty="No day events logged." />
         </ReadOnlyGroup>
       </div>
 
@@ -645,19 +646,6 @@ function getHabitLines(day: DayEntry) {
     return [`${day.habitsCompleted} habits completed`]
   }
   return []
-}
-
-function formatScore(value: number | null) {
-  return value != null ? `${value}/10` : 'Not logged'
-}
-
-function formatMedicationLine(item: DayEntry['medications'][number]) {
-  const dose = item.dose.trim() ? `${item.dose.trim()}${item.unit.trim()}` : item.unit.trim()
-  return [item.name.trim(), dose || null, item.timeTaken || null].filter(Boolean).join(' · ')
-}
-
-function formatDayEventLine(item: DayEntry['dailyActions'][number]) {
-  return [item.time || null, item.title, item.description.trim() || null].filter(Boolean).join(' · ')
 }
 
 function getPolarityColor(polarity: Tag['polarity']) {

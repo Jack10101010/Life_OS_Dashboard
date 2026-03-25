@@ -2,7 +2,8 @@ import { type ReactNode, useMemo, useState } from 'react'
 import { ResponsiveGrid, SectionCard } from '../../components/layout/LayoutPrimitives'
 import { TagPill } from '../../components/ui/TagPill'
 import { DayEntry, Tag } from '../../types'
-import { getResolvedDayColor, getResolvedDayColorBadgeTone, getResolvedDayColorLabel } from '../../lib/color'
+import { getResolvedDayColorBadgeClassName, getResolvedDayColorLabel, getResolvedDayColorSwatch } from '../../lib/color'
+import { formatReviewDayEventLine, formatReviewMedicationLine, formatReviewScore } from '../../lib/dayReview'
 import { formatLongDate } from '../../lib/date'
 
 export function YourDaysPage({
@@ -50,8 +51,8 @@ export function YourDaysPage({
                     <div className="min-w-0 space-y-3">
                       <div className="flex flex-wrap items-center gap-3">
                         <p className="text-lg font-semibold text-white">{formatLongDate(`${day.date}T00:00:00Z`)}</p>
-                        <span className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs ${getDayColorBadge(day)}`}>
-                          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: getCellColorSwatch(day) }} />
+                        <span className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs ${getResolvedDayColorBadgeClassName(day)}`}>
+                          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: getResolvedDayColorSwatch(day) }} />
                           {getResolvedDayColorLabel(day)}
                         </span>
                       </div>
@@ -118,22 +119,22 @@ export function YourDaysPage({
                       <ReadOnlyGroup title="Sleep">
                         <ReadOnlyItem label="Bedtime" value={day.bedtime || 'Not logged'} />
                         <ReadOnlyItem label="Wake time" value={day.wakeTime || 'Not logged'} />
-                        <ReadOnlyItem label="Sleep quality" value={day.sleepQuality != null ? `${day.sleepQuality}/10` : 'Not logged'} />
+                        <ReadOnlyItem label="Sleep quality" value={formatReviewScore(day.sleepQuality)} />
                         <ReadOnlyItem label="Woke during night" value={day.wokeDuringNight === null ? 'Not logged' : day.wokeDuringNight ? 'Yes' : 'No'} />
                       </ReadOnlyGroup>
 
                       <ReadOnlyGroup title="Morning">
-                        <ReadOnlyItem label="Mood" value={formatScore(day.mood)} />
-                        <ReadOnlyItem label="Motivation" value={formatScore(day.motivation)} />
-                        <ReadOnlyItem label="Clarity" value={formatScore(day.clarity)} />
-                        <ReadOnlyItem label="Energy" value={formatScore(day.energy)} />
+                        <ReadOnlyItem label="Mood" value={formatReviewScore(day.mood)} />
+                        <ReadOnlyItem label="Motivation" value={formatReviewScore(day.motivation)} />
+                        <ReadOnlyItem label="Clarity" value={formatReviewScore(day.clarity)} />
+                        <ReadOnlyItem label="Energy" value={formatReviewScore(day.energy)} />
                         <ReadOnlyText label="Intention" value={day.morningIntention} empty="No intention logged." />
                       </ReadOnlyGroup>
 
                       <ReadOnlyGroup title="Day">
                         <ReadOnlyList label="Tasks" items={day.tasks} empty="No tasks logged." />
-                        <ReadOnlyList label="Medications & supplements" items={day.medications.map(formatMedicationLine)} empty="Nothing logged." />
-                        <ReadOnlyList label="Day Events" items={day.dailyActions.map(formatDayEventLine)} empty="No day events logged." />
+                        <ReadOnlyList label="Medications & supplements" items={day.medications.map(formatReviewMedicationLine)} empty="Nothing logged." />
+                        <ReadOnlyList label="Day Events" items={day.dailyActions.map(formatReviewDayEventLine)} empty="No day events logged." />
                       </ReadOnlyGroup>
 
                       <ReadOnlyGroup title="Signals">
@@ -272,32 +273,6 @@ function getSleepSummary(day: DayEntry) {
   const parts = [day.bedtime || null, day.wakeTime || null].filter(Boolean)
   if (day.sleepQuality != null) parts.push(`Sleep ${day.sleepQuality}/10`)
   return parts.join(' · ')
-}
-
-function getCellColorSwatch(day: DayEntry) {
-  return getResolvedDayColor(day, 'mood') ?? '#5B5B5B'
-}
-
-function getDayColorBadge(day: DayEntry) {
-  const tone = getResolvedDayColorBadgeTone(day)
-  if (tone === 'green') return 'border-[rgba(34,197,94,0.2)] bg-[rgba(34,197,94,0.08)] text-[#DDFBE7]'
-  if (tone === 'yellow') return 'border-[rgba(250,204,21,0.2)] bg-[rgba(250,204,21,0.08)] text-[#FDF3C6]'
-  if (tone === 'orange') return 'border-[rgba(245,158,11,0.2)] bg-[rgba(245,158,11,0.08)] text-[#FCE7C2]'
-  if (tone === 'red') return 'border-[rgba(239,68,68,0.2)] bg-[rgba(239,68,68,0.08)] text-[#F7D6D3]'
-  return 'border-white/[0.08] bg-white/[0.03] text-white/72'
-}
-
-function formatScore(value: number | null) {
-  return value != null ? `${value}/10` : 'Not logged'
-}
-
-function formatMedicationLine(item: DayEntry['medications'][number]) {
-  const dose = item.dose.trim() ? `${item.dose.trim()}${item.unit.trim()}` : item.unit.trim()
-  return [item.name.trim(), dose || null, item.timeTaken || null].filter(Boolean).join(' · ')
-}
-
-function formatDayEventLine(item: DayEntry['dailyActions'][number]) {
-  return [item.time || null, item.title, item.description.trim() || null].filter(Boolean).join(' · ')
 }
 
 function getPolarityColor(polarity: Tag['polarity']) {
