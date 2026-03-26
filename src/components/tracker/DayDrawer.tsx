@@ -109,6 +109,9 @@ export function DayDrawer({
   const [dayEventDraft, setDayEventDraft] = useState(createDayEventDraft())
   const [dayEventSelectedTagIds, setDayEventSelectedTagIds] = useState<string[]>([])
   const [dayEventCustomTags, setDayEventCustomTags] = useState<DayEventEntry['tags']>([])
+  const [dayEventInlineCreateSection, setDayEventInlineCreateSection] = useState<TagSection | null>(null)
+  const [dayEventInlineTagName, setDayEventInlineTagName] = useState('')
+  const [dayEventInlineTagPolarity, setDayEventInlineTagPolarity] = useState<TagPolarity>('positive')
   const [dayEventTagPickerOpen, setDayEventTagPickerOpen] = useState(false)
   const [sleepTagPickerOpen, setSleepTagPickerOpen] = useState(false)
   const [morningTagPickerOpen, setMorningTagPickerOpen] = useState(false)
@@ -178,6 +181,9 @@ export function DayDrawer({
     setDayEventDraft(createDayEventDraft())
     setDayEventSelectedTagIds([])
     setDayEventCustomTags([])
+    setDayEventInlineCreateSection(null)
+    setDayEventInlineTagName('')
+    setDayEventInlineTagPolarity('positive')
     setDayEventTagPickerOpen(false)
     setSleepTagPickerOpen(false)
     setMorningTagPickerOpen(false)
@@ -450,6 +456,36 @@ export function DayDrawer({
   const dayActionTags = tags.filter((tag) => tag.isActive && tag.section === 'actions' && isTagAvailableInSection(tag, 'day'))
   const eveningActionTags = tags.filter((tag) => tag.isActive && tag.section === 'actions' && isTagAvailableInSection(tag, 'evening'))
   const dayEventTags = tags.filter((tag) => tag.isActive && tag.section === 'events' && isTagAvailableInSection(tag, 'day'))
+  const dayEventFeelingCustomItems = dayEventCustomTags
+    .filter((entry) => entry.section === 'feelings')
+    .map((entry) => getDisplayTagForDayEventTag(entry, tags))
+    .filter((item): item is NonNullable<ReturnType<typeof getDisplayTagForDayEventTag>> => item != null)
+    .map((item) => ({
+      entryId: item.id,
+      active: true,
+      oneOff: item.oneOff,
+      tag: item.tag,
+    }))
+  const dayEventActionCustomItems = dayEventCustomTags
+    .filter((entry) => entry.section === 'actions')
+    .map((entry) => getDisplayTagForDayEventTag(entry, tags))
+    .filter((item): item is NonNullable<ReturnType<typeof getDisplayTagForDayEventTag>> => item != null)
+    .map((item) => ({
+      entryId: item.id,
+      active: true,
+      oneOff: item.oneOff,
+      tag: item.tag,
+    }))
+  const dayEventSectionCustomItems = dayEventCustomTags
+    .filter((entry) => entry.section === 'events')
+    .map((entry) => getDisplayTagForDayEventTag(entry, tags))
+    .filter((item): item is NonNullable<ReturnType<typeof getDisplayTagForDayEventTag>> => item != null)
+    .map((item) => ({
+      entryId: item.id,
+      active: true,
+      oneOff: item.oneOff,
+      tag: item.tag,
+    }))
   const customTags = tags.filter((tag) => tag.isCustom)
   const morningSummary = useMemo(
     () => getMorningSummary(day, selectedTagEntries, tags),
@@ -604,15 +640,68 @@ export function DayDrawer({
     setDayEventDraft(createDayEventDraft())
     setDayEventSelectedTagIds([])
     setDayEventCustomTags([])
+    setDayEventInlineCreateSection(null)
+    setDayEventInlineTagName('')
+    setDayEventInlineTagPolarity('positive')
     setDayEventTagPickerOpen(false)
     setEditingDayEventId(null)
     setPendingDeleteDayEventId(null)
+  }
+
+  const handleOpenDayEventInlineCreate = (section: TagSection) => {
+    setDayEventInlineCreateSection((current) => (current === section ? null : section))
+    setDayEventInlineTagName('')
+    setDayEventInlineTagPolarity('positive')
+  }
+
+  const handleAddInlineDayEventTag = (section: Extract<TagSection, 'feelings' | 'actions' | 'events'>) => {
+    const trimmedLabel = dayEventInlineTagName.trim()
+    if (!trimmedLabel) return
+
+    setDayEventCustomTags((current) => {
+      const existingIndex = current.findIndex(
+        (entry) =>
+          !entry.tagId &&
+          entry.customLabel?.toLowerCase() === trimmedLabel.toLowerCase() &&
+          entry.section === section,
+      )
+
+      if (existingIndex >= 0) {
+        return current.map((entry, index) =>
+          index === existingIndex
+            ? {
+                ...entry,
+                customLabel: trimmedLabel,
+                section,
+                kind: getDefaultKindForSection(section),
+                polarity: dayEventInlineTagPolarity,
+              }
+            : entry,
+        )
+      }
+
+      return [
+        ...current,
+        {
+          id: `day-event-tag-custom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+          customLabel: trimmedLabel,
+          section,
+          kind: getDefaultKindForSection(section),
+          polarity: dayEventInlineTagPolarity,
+        },
+      ]
+    })
+
+    setDayEventInlineCreateSection(null)
+    setDayEventInlineTagName('')
+    setDayEventInlineTagPolarity('positive')
   }
 
   const handleSaveDayEvent = () => {
     const trimmedTitle = dayEventDraft.title.trim()
     const trimmedDescription = dayEventDraft.description.trim()
     if (!trimmedTitle) return
+    const targetEventId = editingDayEventId ?? createDayEventId()
 
     const selectedEventTags = dayEventSelectedTagIds
       .map((tagId) => tags.find((tag) => tag.id === tagId))
@@ -629,7 +718,7 @@ export function DayDrawer({
 
     onUpdateDay(day.id, (current) => {
       const nextEntry = {
-        id: editingDayEventId ?? createDayEventId(),
+        id: targetEventId,
         title: trimmedTitle,
         description: trimmedDescription,
         time: dayEventDraft.time,
@@ -645,6 +734,7 @@ export function DayDrawer({
       }
     })
     resetDayEventComposer()
+    setExpandedDayEventIds([targetEventId])
     setEventComposerOpen(false)
   }
 
@@ -659,8 +749,19 @@ export function DayDrawer({
     setDayEventSelectedTagIds(entry.tags.map((tag) => tag.tagId).filter((tagId): tagId is string => typeof tagId === 'string'))
     setDayEventCustomTags(entry.tags.filter((tag) => !tag.tagId))
     setDayEventTagPickerOpen(entry.tags.length > 0)
-    setEventComposerOpen(true)
-    setExpandedDayEventIds((current) => (current.includes(entry.id) ? current : [...current, entry.id]))
+    setEventComposerOpen(false)
+    setExpandedDayEventIds([entry.id])
+  }
+
+  const handleCancelDayEventEdit = () => {
+    const currentEditingDayEventId = editingDayEventId
+    resetDayEventComposer()
+    setExpandedDayEventIds(currentEditingDayEventId ? [currentEditingDayEventId] : [])
+  }
+
+  const handleToggleExpandedDayEvent = (eventId: string) => {
+    if (editingDayEventId && editingDayEventId !== eventId) return
+    setExpandedDayEventIds((current) => (current.includes(eventId) ? [] : [eventId]))
   }
 
   const handleDeleteDayEvent = (eventId: string) => {
@@ -727,6 +828,162 @@ export function DayDrawer({
       setMedicationsExpanded(false)
     }
   }
+
+  const renderDayEventEditor = (onCancel: () => void, submitLabel: string) => (
+    <div className="space-y-3 rounded-[18px] border border-white/[0.06] bg-[#171717] p-3">
+      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_140px]">
+        <input
+          value={dayEventDraft.title}
+          onChange={(event) => setDayEventDraft((current) => ({ ...current, title: event.target.value }))}
+          placeholder="Event title"
+          className="rounded-2xl border border-white/[0.08] bg-[#1A1A1A] px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-mist/45 focus:border-white/[0.14] focus:bg-[#202020]"
+        />
+        <input
+          type="time"
+          value={dayEventDraft.time}
+          onChange={(event) => setDayEventDraft((current) => ({ ...current, time: event.target.value }))}
+          className="rounded-2xl border border-white/[0.08] bg-[#1A1A1A] px-3 py-2.5 text-sm text-white outline-none transition [color-scheme:dark] focus:border-white/[0.14] focus:bg-[#202020]"
+        />
+      </div>
+      <textarea
+        value={dayEventDraft.description}
+        onChange={(event) => setDayEventDraft((current) => ({ ...current, description: event.target.value }))}
+        placeholder="Description (optional)"
+        className="min-h-[88px] w-full resize-none rounded-2xl border border-white/[0.08] bg-[#1A1A1A] px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-mist/45 focus:border-white/[0.14] focus:bg-[#202020]"
+        style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)' }}
+      />
+      <div className="space-y-2">
+        <button
+          type="button"
+          onClick={() =>
+            setDayEventTagPickerOpen((current) => {
+              const next = !current
+              if (!next && creatingTagHost === 'day') {
+                setCreatingTag(false)
+                setCreatingTagHost(null)
+              }
+              return next
+            })
+          }
+          className="rounded-full border border-dashed border-white/10 px-3 py-1.5 text-xs font-medium text-mist transition hover:border-white/18 hover:text-white"
+        >
+          {dayEventTagPickerOpen ? 'Hide tags' : 'Add tags'}
+        </button>
+        {dayEventTagPickerOpen ? (
+          <div className="dailylog-reveal space-y-3 rounded-[18px] border border-white/[0.06] bg-black/10 p-3">
+            <div className="space-y-2.5">
+              <TagGroup
+                title="Mood"
+                tags={dayFeelingTags}
+                selectedIds={dayEventSelectedTagIds}
+                customItems={dayEventFeelingCustomItems}
+                onToggle={(tagId) =>
+                  setDayEventSelectedTagIds((current) =>
+                    current.includes(tagId) ? current.filter((id) => id !== tagId) : [...current, tagId],
+                  )
+                }
+                onToggleCustom={(entryId) =>
+                  setDayEventCustomTags((current) => current.filter((entry) => entry.id !== entryId))
+                }
+              />
+              <InlineDayEventTagCreator
+                open={dayEventInlineCreateSection === 'feelings'}
+                label="Mood"
+                value={dayEventInlineTagName}
+                polarity={dayEventInlineTagPolarity}
+                onOpen={() => handleOpenDayEventInlineCreate('feelings')}
+                onValueChange={setDayEventInlineTagName}
+                onPolarityChange={setDayEventInlineTagPolarity}
+                onCancel={() => handleOpenDayEventInlineCreate('feelings')}
+                onAdd={() => handleAddInlineDayEventTag('feelings')}
+              />
+            </div>
+            <div className="space-y-2.5">
+              <TagGroup
+                title="Actions"
+                tags={dayActionTags}
+                selectedIds={dayEventSelectedTagIds}
+                customItems={dayEventActionCustomItems}
+                onToggle={(tagId) =>
+                  setDayEventSelectedTagIds((current) =>
+                    current.includes(tagId) ? current.filter((id) => id !== tagId) : [...current, tagId],
+                  )
+                }
+                onToggleCustom={(entryId) =>
+                  setDayEventCustomTags((current) => current.filter((entry) => entry.id !== entryId))
+                }
+              />
+              <InlineDayEventTagCreator
+                open={dayEventInlineCreateSection === 'actions'}
+                label="Actions"
+                value={dayEventInlineTagName}
+                polarity={dayEventInlineTagPolarity}
+                onOpen={() => handleOpenDayEventInlineCreate('actions')}
+                onValueChange={setDayEventInlineTagName}
+                onPolarityChange={setDayEventInlineTagPolarity}
+                onCancel={() => handleOpenDayEventInlineCreate('actions')}
+                onAdd={() => handleAddInlineDayEventTag('actions')}
+              />
+            </div>
+            <div className="space-y-2.5">
+              <TagGroup
+                title="Events"
+                tags={dayEventTags}
+                selectedIds={dayEventSelectedTagIds}
+                customItems={dayEventSectionCustomItems}
+                onToggle={(tagId) =>
+                  setDayEventSelectedTagIds((current) =>
+                    current.includes(tagId) ? current.filter((id) => id !== tagId) : [...current, tagId],
+                  )
+                }
+                onToggleCustom={(entryId) =>
+                  setDayEventCustomTags((current) => current.filter((entry) => entry.id !== entryId))
+                }
+              />
+              <InlineDayEventTagCreator
+                open={dayEventInlineCreateSection === 'events'}
+                label="Events"
+                value={dayEventInlineTagName}
+                polarity={dayEventInlineTagPolarity}
+                onOpen={() => handleOpenDayEventInlineCreate('events')}
+                onValueChange={setDayEventInlineTagName}
+                onPolarityChange={setDayEventInlineTagPolarity}
+                onCancel={() => handleOpenDayEventInlineCreate('events')}
+                onAdd={() => handleAddInlineDayEventTag('events')}
+              />
+            </div>
+            <div className="flex justify-end pt-1">
+              <button
+                type="button"
+                onClick={() => openManageTags('day')}
+                className="rounded-full px-2.5 py-1 text-xs text-white/46 transition hover:bg-white/[0.04] hover:text-white/78"
+              >
+                Manage tags
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </div>
+      <div className="flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-2xl bg-white/[0.04] px-3 py-2 text-sm text-mist transition hover:text-white"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={handleSaveDayEvent}
+          className={`rounded-2xl px-3 py-2 text-sm font-medium transition ${
+            dayEventDraft.title.trim() ? 'bg-white text-black hover:bg-white/90' : 'cursor-not-allowed bg-white/8 text-mist/60'
+          }`}
+        >
+          {submitLabel}
+        </button>
+      </div>
+    </div>
+  )
 
   return (
     <>
@@ -1705,7 +1962,13 @@ export function DayDrawer({
               <SectionHeader title="Day events" description="Log what happened during the day without turning it into admin." />
               <button
                 type="button"
-                onClick={() => setEventComposerOpen((current) => !current)}
+                onClick={() => {
+                  if (editingDayEventId) {
+                    resetDayEventComposer()
+                    setExpandedDayEventIds([])
+                  }
+                  setEventComposerOpen((current) => !current)
+                }}
                 className="rounded-full border border-dashed border-white/10 px-3 py-1.5 text-xs font-medium text-mist transition hover:border-white/18 hover:text-white"
               >
                 + Log event
@@ -1715,20 +1978,25 @@ export function DayDrawer({
               <div className="space-y-2">
                 {day.dailyActions.map((entry) => {
                   const expanded = expandedDayEventIds.includes(entry.id)
+                  const editing = editingDayEventId === entry.id
                   const eventTags = entry.tags
                     .map((tagEntry) => getDisplayTagForDayEventTag(tagEntry, tags))
                     .filter((item): item is NonNullable<ReturnType<typeof getDisplayTagForDayEventTag>> => item != null)
 
                   return (
-                    <div key={entry.id} className="group rounded-[18px] border border-white/[0.06] bg-[#171717] px-3 py-2.5">
+                    <div
+                      key={entry.id}
+                      className="group rounded-[18px] border px-3 py-2.5 transition-[background-color,border-color,box-shadow] duration-150 ease-out"
+                      style={{
+                        borderColor: expanded ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.06)',
+                        backgroundColor: expanded ? 'rgba(30,30,30,0.98)' : '#171717',
+                        boxShadow: expanded ? '0 0 0 1px rgba(255,255,255,0.035)' : 'none',
+                      }}
+                    >
                       <div className="flex items-center gap-3">
                         <button
                           type="button"
-                          onClick={() =>
-                            setExpandedDayEventIds((current) =>
-                              current.includes(entry.id) ? current.filter((id) => id !== entry.id) : [...current, entry.id],
-                            )
-                          }
+                          onClick={() => handleToggleExpandedDayEvent(entry.id)}
                           className="flex min-w-0 flex-1 items-center justify-between gap-3 text-left"
                         >
                           <span className="min-w-0 truncate text-sm font-medium text-white/88">{entry.title}</span>
@@ -1738,7 +2006,11 @@ export function DayDrawer({
                             </span>
                           ) : null}
                         </button>
-                        <div className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+                        <div
+                          className={`flex shrink-0 items-center gap-1 transition-opacity duration-150 ${
+                            editing ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
+                          }`}
+                        >
                           <button
                             type="button"
                             onClick={() => handleEditDayEvent(entry)}
@@ -1759,14 +2031,18 @@ export function DayDrawer({
                           </button>
                         </div>
                       </div>
-                      {expanded ? (
-                        <div className="mt-3 space-y-3 border-t border-white/[0.06] pt-3">
+                      {editing ? (
+                        <div className="mt-3 border-t border-white/[0.06] pt-3">
+                          {renderDayEventEditor(handleCancelDayEventEdit, 'Save changes')}
+                        </div>
+                      ) : expanded ? (
+                        <div className="mt-2.5 space-y-2.5 border-t border-white/[0.06] pt-2.5">
                           {entry.description ? <p className="text-sm leading-6 text-white/68">{entry.description}</p> : null}
                           {entry.time ? (
-                            <p className="text-[12px] font-medium uppercase tracking-[0.08em] text-[#9A9A9A]">Time · {entry.time}</p>
+                            <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-white/38">Time · {entry.time}</p>
                           ) : null}
                           {eventTags.length > 0 ? (
-                            <div className="flex flex-wrap gap-2">
+                            <div className="flex flex-wrap gap-1.5 pt-0.5">
                               {eventTags.map((tagItem) => (
                                 <TagPill
                                   key={tagItem.id}
@@ -1807,211 +2083,15 @@ export function DayDrawer({
                 })}
               </div>
             ) : null}
-            {eventComposerOpen ? (
-              <div className="space-y-3 rounded-[18px] border border-white/[0.06] bg-[#171717] p-3">
-                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_140px]">
-                  <input
-                    value={dayEventDraft.title}
-                    onChange={(event) => setDayEventDraft((current) => ({ ...current, title: event.target.value }))}
-                    placeholder="Event title"
-                    className="rounded-2xl border border-white/[0.08] bg-[#1A1A1A] px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-mist/45 focus:border-white/[0.14] focus:bg-[#202020]"
-                  />
-                  <input
-                    type="time"
-                    value={dayEventDraft.time}
-                    onChange={(event) => setDayEventDraft((current) => ({ ...current, time: event.target.value }))}
-                    className="rounded-2xl border border-white/[0.08] bg-[#1A1A1A] px-3 py-2.5 text-sm text-white outline-none transition [color-scheme:dark] focus:border-white/[0.14] focus:bg-[#202020]"
-                  />
-                </div>
-                <textarea
-                  value={dayEventDraft.description}
-                  onChange={(event) => setDayEventDraft((current) => ({ ...current, description: event.target.value }))}
-                  placeholder="Description (optional)"
-                  className="min-h-[88px] w-full resize-none rounded-2xl border border-white/[0.08] bg-[#1A1A1A] px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-mist/45 focus:border-white/[0.14] focus:bg-[#202020]"
-                  style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)' }}
-                />
-                <div className="space-y-2">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setDayEventTagPickerOpen((current) => {
-                        const next = !current
-                        if (!next && creatingTagHost === 'day') {
-                          setCreatingTag(false)
-                          setCreatingTagHost(null)
-                        }
-                        return next
-                      })
-                    }
-                    className="rounded-full border border-dashed border-white/10 px-3 py-1.5 text-xs font-medium text-mist transition hover:border-white/18 hover:text-white"
-                  >
-                    {dayEventTagPickerOpen ? 'Hide tags' : 'Add tags'}
-                  </button>
-                  {dayEventTagPickerOpen ? (
-                      <div className="dailylog-reveal space-y-3 rounded-[18px] border border-white/[0.06] bg-black/10 p-3">
-                      <TagGroup
-                        title="Mood"
-                        tags={dayFeelingTags}
-                        selectedIds={dayEventSelectedTagIds}
-                        onToggle={(tagId) =>
-                          setDayEventSelectedTagIds((current) =>
-                            current.includes(tagId) ? current.filter((id) => id !== tagId) : [...current, tagId],
-                          )
-                        }
-                        onToggleCustom={() => undefined}
-                      />
-                      <TagGroup
-                        title="Actions"
-                        tags={dayActionTags}
-                      selectedIds={dayEventSelectedTagIds}
-                      onToggle={(tagId) =>
-                        setDayEventSelectedTagIds((current) =>
-                          current.includes(tagId) ? current.filter((id) => id !== tagId) : [...current, tagId],
-                        )
-                      }
-                      onToggleCustom={() => undefined}
-                    />
-                      <TagGroup
-                        title="Events"
-                        tags={dayEventTags}
-                        selectedIds={dayEventSelectedTagIds}
-                        customItems={dayEventCustomTags
-                          .map((entry) => getDisplayTagForDayEventTag(entry, tags))
-                          .filter((item): item is NonNullable<ReturnType<typeof getDisplayTagForDayEventTag>> => item != null)
-                          .map((item) => ({
-                            entryId: item.id,
-                            active: true,
-                            oneOff: item.oneOff,
-                            tag: item.tag,
-                          }))}
-                        onToggle={(tagId) =>
-                          setDayEventSelectedTagIds((current) =>
-                            current.includes(tagId) ? current.filter((id) => id !== tagId) : [...current, tagId],
-                          )
-                        }
-                        onToggleCustom={(entryId) =>
-                          setDayEventCustomTags((current) => current.filter((entry) => entry.id !== entryId))
-                        }
-                      />
-                      <TagSectionFooterActions
-                        onCreate={() => {
-                          setCreatingTag((current) => !(current && creatingTagHost === 'day'))
-                          setCreatingTagHost((current) => (current === 'day' ? null : 'day'))
-                          setCustomTagSection('events')
-                          setCustomTagTimeSection('day')
-                        }}
-                        onManage={() => openManageTags('day')}
-                      />
-                      {creatingTag && creatingTagHost === 'day' ? (
-                        <CustomTagComposer
-                          customTagName={customTagName}
-                          onCustomTagNameChange={setCustomTagName}
-                          customTagSaveMode={customTagSaveMode}
-                          onCustomTagSaveModeChange={setCustomTagSaveMode}
-                          customTagSection={customTagSection}
-                          onCustomTagSectionChange={setCustomTagSection}
-                          customTagTimeSection={customTagTimeSection}
-                          onCustomTagTimeSectionChange={setCustomTagTimeSection}
-                          customTagPolarity={customTagPolarity}
-                          onCustomTagPolarityChange={setCustomTagPolarity}
-                          onCancel={() => {
-                            setCreatingTag(false)
-                            setCreatingTagHost(null)
-                            setCustomTagName('')
-                            setCustomTagSaveMode('reusable')
-                            setCustomTagSection('actions')
-                            setCustomTagPolarity('positive')
-                            setCustomTagTimeSection('day')
-                          }}
-                          onSubmit={() => {
-                            const resolvedSection = resolveCustomTagSection(customTagSection, customTagTimeSection)
-                            const resolvedKind = getDefaultKindForSection(resolvedSection)
-                            const resolvedPolarity = customTagPolarity
-
-                            if (customTagSaveMode === 'reusable') {
-                              const created = onCreateTag({
-                                name: customTagName.trim(),
-                                section: resolvedSection,
-                                kind: resolvedKind,
-                                polarity: resolvedPolarity,
-                                availableIn: getAvailabilityForCustomTagTimeContext(customTagTimeSection),
-                              })
-                              setDayEventSelectedTagIds((current) => (current.includes(created.id) ? current : [...current, created.id]))
-                            } else {
-                              const trimmedLabel = customTagName.trim()
-                              setDayEventCustomTags((current) => {
-                                const existingIndex = current.findIndex(
-                                  (entry) =>
-                                    !entry.tagId &&
-                                    entry.customLabel?.toLowerCase() === trimmedLabel.toLowerCase() &&
-                                    entry.section === resolvedSection,
-                                )
-
-                                if (existingIndex >= 0) {
-                                  return current.map((entry, index) =>
-                                    index === existingIndex
-                                      ? {
-                                          ...entry,
-                                          customLabel: trimmedLabel,
-                                          section: resolvedSection,
-                                          kind: resolvedKind,
-                                          polarity: resolvedPolarity,
-                                        }
-                                      : entry,
-                                  )
-                                }
-
-                                return [
-                                  ...current,
-                                  {
-                                    id: `day-event-tag-custom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
-                                    customLabel: trimmedLabel,
-                                    section: resolvedSection,
-                                    kind: resolvedKind,
-                                    polarity: resolvedPolarity,
-                                  },
-                                ]
-                              })
-                            }
-
-                            setCreatingTag(false)
-                            setCreatingTagHost(null)
-                            setCustomTagName('')
-                            setCustomTagSaveMode('reusable')
-                            setCustomTagSection('actions')
-                            setCustomTagPolarity('positive')
-                            setCustomTagTimeSection('day')
-                          }}
-                        />
-                      ) : null}
-                    </div>
-                  ) : null}
-                </div>
-                <div className="flex justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      resetDayEventComposer()
-                      setEventComposerOpen(false)
-                    }}
-                    className="rounded-2xl bg-white/[0.04] px-3 py-2 text-sm text-mist transition hover:text-white"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleSaveDayEvent}
-                    className={`rounded-2xl px-3 py-2 text-sm font-medium transition ${
-                      dayEventDraft.title.trim()
-                        ? 'bg-white text-black hover:bg-white/90'
-                        : 'cursor-not-allowed bg-white/8 text-mist/60'
-                    }`}
-                  >
-                    {editingDayEventId ? 'Save changes' : 'Add event'}
-                  </button>
-                </div>
-              </div>
-            ) : null}
+            {eventComposerOpen && !editingDayEventId
+              ? renderDayEventEditor(
+                  () => {
+                    resetDayEventComposer()
+                    setEventComposerOpen(false)
+                  },
+                  'Add event',
+                )
+              : null}
           </div>
 
           <div ref={daySignalsRef} className="space-y-4 rounded-[20px] border border-white/[0.03] bg-[rgba(255,255,255,0.032)] px-3.5 py-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.012),0_12px_28px_rgba(0,0,0,0.12)]">
@@ -3780,6 +3860,105 @@ function TagGroup({
         ))}
       </div>
     </div>
+  )
+}
+
+function InlineDayEventTagCreator({
+  open,
+  label,
+  value,
+  polarity,
+  onOpen,
+  onValueChange,
+  onPolarityChange,
+  onCancel,
+  onAdd,
+}: {
+  open: boolean
+  label: string
+  value: string
+  polarity: TagPolarity
+  onOpen: () => void
+  onValueChange: (value: string) => void
+  onPolarityChange: (value: TagPolarity) => void
+  onCancel: () => void
+  onAdd: () => void
+}) {
+  return open ? (
+    <div className="space-y-2 rounded-[16px] border border-white/[0.045] bg-white/[0.02] px-2.5 py-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          value={value}
+          onChange={(event) => onValueChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault()
+              onAdd()
+            }
+            if (event.key === 'Escape') {
+              event.preventDefault()
+              onCancel()
+            }
+          }}
+          placeholder={`Add ${label.toLowerCase()} tag`}
+          className="min-w-0 flex-1 rounded-2xl border border-white/[0.06] bg-[#1A1A1A] px-3 py-2 text-sm text-white outline-none transition placeholder:text-mist/45 focus:border-white/[0.12] focus:bg-[#202020]"
+        />
+        <button
+          type="button"
+          onClick={onAdd}
+          disabled={!value.trim()}
+          className={`rounded-2xl px-3 py-2 text-sm font-medium transition ${
+            value.trim() ? 'bg-white text-black hover:bg-white/90' : 'cursor-not-allowed bg-white/8 text-mist/60'
+          }`}
+        >
+          Add
+        </button>
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {([
+            { label: 'Positive', value: 'positive' },
+            { label: 'Neutral', value: 'neutral' },
+            { label: 'Negative', value: 'negative' },
+          ] as const).map((option) => {
+            const selected = option.value === polarity
+            return (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => onPolarityChange(option.value)}
+                className={`rounded-full border px-2 py-1 text-[11px] transition ${
+                  selected
+                    ? option.value === 'negative'
+                      ? 'border-[#B35A65]/48 bg-[#B35A65]/14 text-[#F2C2C8]'
+                      : option.value === 'neutral'
+                        ? 'border-[rgba(96,165,250,0.46)] bg-[rgba(96,165,250,0.14)] text-[#D7E9FF]'
+                        : 'border-[#22C55E]/46 bg-[#22C55E]/14 text-[#CFF8DE]'
+                    : 'border-white/[0.06] bg-transparent text-white/52 hover:border-white/[0.1] hover:text-white/76'
+                }`}
+              >
+                {option.label}
+              </button>
+            )
+          })}
+        </div>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="text-xs text-white/46 transition hover:text-white/74"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  ) : (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="rounded-full border border-dashed border-white/[0.08] px-3 py-1.5 text-xs font-medium text-white/54 transition hover:border-white/[0.14] hover:text-white/78"
+    >
+      + Add tag
+    </button>
   )
 }
 

@@ -87,7 +87,6 @@ export default function App() {
     selectedWeek,
     selectedWeekDays,
     selectedDay,
-    momentumScore,
     updateDay,
     toggleBadHabit,
     handleSelectTag,
@@ -290,7 +289,6 @@ export default function App() {
           year={filters.year}
           badHabitStreaks={visibleBadHabitStreaks}
           showBadHabitTracking={settings.enableBadHabitTracking}
-          momentumScore={momentumScore}
           onUpdateDay={updateDay}
           onAddTask={(text) =>
             setTasks((current) => [

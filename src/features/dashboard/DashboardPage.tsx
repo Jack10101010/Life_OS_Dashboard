@@ -19,6 +19,7 @@ import {
   saveWorkspaceRecord,
 } from '../../lib/persistence/workspace'
 import { readJsonStorage, writeJsonStorage } from '../../lib/persistence/storage'
+import { getRollingMomentumMetrics, type RollingMomentumMetrics } from '../../lib/momentum'
 import { BadHabitDefinition, DashboardFinanceSheet, DashboardScratchpad, DayEntry, DayEventEntry, DayEventTagEntry, HabitTracker, ScratchpadFreeNote, ScratchpadLineItem, Tag, Task, WeekEntry } from '../../types'
 import { useDashboardState } from '../../hooks/useDashboardState'
 
@@ -34,7 +35,6 @@ export function DashboardPage({
   year,
   badHabitStreaks,
   showBadHabitTracking,
-  momentumScore,
   onUpdateDay,
   onAddTask,
   onToggleTaskStarred,
@@ -57,7 +57,6 @@ export function DashboardPage({
   year: number
   badHabitStreaks: Array<{ habit: BadHabitDefinition; streak: number; startsToday?: boolean; brokenToday?: boolean }>
   showBadHabitTracking: boolean
-  momentumScore: number
   onUpdateDay: (dayId: string, updater: (day: DayEntry) => DayEntry, options?: { skipCanonicalSave?: boolean }) => void
   onAddTask: (text: string) => void
   onToggleTaskStarred: (taskId: string) => void
@@ -395,6 +394,10 @@ export function DashboardPage({
   const weeklyHabitMetrics = useMemo(
     () => getDashboardWeeklyHabitMetrics(habitTrackers, currentWeek.startDate, currentWeek.endDate, days),
     [currentWeek.endDate, currentWeek.startDate, days, habitTrackers],
+  )
+  const rollingMomentum = useMemo(
+    () => getRollingMomentumMetrics(days, habitTrackers, todayEntry.date),
+    [days, habitTrackers, todayEntry.date],
   )
   const weeklyHabitCounts = useMemo(
     () =>
@@ -870,7 +873,7 @@ export function DashboardPage({
                   value={`${weeklyHabitMetrics.loggedDaysCount}/7`}
                 />
                 <StatPill className="min-w-[158px] rounded-[18px] px-2.5 py-1.5" label="Habit completion" value={`${weeklyHabitMetrics.completionPercent}%`} />
-                <StatPill className="min-w-[132px] rounded-[18px] px-2.5 py-1.5" label="Momentum" value={weeklyHabitMetrics.momentumLabel} />
+                <StatPill className="min-w-[132px] rounded-[18px] px-2.5 py-1.5" label="Momentum" value={rollingMomentum.label} />
               </div>
               <div className="mt-2.5">
                 <div className="max-w-[440px] rounded-[20px] bg-white/[0.02] px-3 py-2">
@@ -961,6 +964,15 @@ export function DashboardPage({
                     month: 'long',
                   })}
                 </h3>
+                <button
+                  type="button"
+                  onClick={onOpenToday}
+                  className="mt-2.5 inline-flex w-full max-w-[540px] min-w-0 items-center rounded-2xl border border-white/[0.05] bg-white/[0.025] px-3 py-2 text-left transition hover:border-white/[0.08] hover:bg-white/[0.04] sm:w-auto"
+                >
+                  <span className={`block min-w-0 flex-1 truncate text-[14px] font-medium text-white/82 ${todayEntry.morningIntention.trim() ? '' : 'text-mist/52'}`}>
+                    {formatDayStripFocus(todayEntry.morningIntention)}
+                  </span>
+                </button>
                 <div className="mt-2.5 flex flex-wrap gap-2">
                   {todayStatus.filter((item) => showBadHabitTracking || !item.toLowerCase().includes('alcohol')).map((item) => (
                     <span key={item} className="rounded-full border border-white/6 bg-white/[0.03] px-3 py-1.5 text-xs text-white">
@@ -968,12 +980,6 @@ export function DashboardPage({
                     </span>
                   ))}
                 </div>
-              </div>
-
-              <div className="min-w-0 lg:flex-[0.7] lg:px-6">
-                <p className="text-sm text-white/46">
-                  Still building signal
-                </p>
               </div>
 
               <div className="flex w-full flex-col gap-2.5 lg:w-auto lg:min-w-[248px] lg:flex-[0.95] lg:items-end">
@@ -1037,6 +1043,51 @@ export function DashboardPage({
             </div>
           </Card>
       </div>
+
+      <Card className="max-w-[540px] p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-xs uppercase tracking-[0.22em] text-mist/70">Momentum — Last 7 Days</p>
+          <span className={`rounded-full border px-3 py-1.5 text-xs ${getMomentumStatusPillClassName(rollingMomentum.label)}`}>
+            {rollingMomentum.label}
+          </span>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-4">
+          <MomentumRing score={rollingMomentum.score} />
+          <div className="min-w-0 flex-1 space-y-1.5 self-center">
+            <p className="text-sm leading-[1.35] text-white/84">Consistency is building over the last 7 days.</p>
+            <p className="text-xs leading-[1.3] text-mist/56">Keep stacking solid days to strengthen momentum.</p>
+            {rollingMomentum.strongDayRun >= 2 ? (
+              <span className="inline-flex rounded-full border border-[rgba(255,164,75,0.18)] bg-[rgba(255,164,75,0.1)] px-3 py-1 text-xs text-[#F7DEC0]">
+                🔥 {rollingMomentum.strongDayRun}-day run
+              </span>
+            ) : null}
+          </div>
+        </div>
+        <div className="mt-4 grid gap-2.5 sm:grid-cols-3">
+          <MomentumMicroMetric
+            label="Consistency"
+            tooltip="Days where 60% or more of habits were completed over the last 7 completed days."
+            value={`${rollingMomentum.consistencyDays}/7`}
+          />
+          <MomentumMicroMetric
+            label="Completion"
+            tooltip="Average habit completion across the last 7 completed days."
+            value={`${rollingMomentum.completionPercent}%`}
+          />
+          <MomentumMicroMetric
+            label="Trend"
+            tooltip="Direction based on recent momentum change across the last 7 completed days."
+            value={rollingMomentum.trend}
+            tone={
+              rollingMomentum.trend === 'Improving'
+                ? 'positive'
+                : rollingMomentum.trend === 'Declining'
+                  ? 'negative'
+                  : 'neutral'
+            }
+          />
+        </div>
+      </Card>
 
       <Card className="overflow-hidden p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -1448,8 +1499,8 @@ export function DashboardPage({
         </div>
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-[1fr_0.95fr]">
-        <Card className="p-4">
+        <div className="grid gap-5 xl:grid-cols-[1fr_0.95fr]">
+          <Card className="p-4">
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-xs uppercase tracking-[0.22em] text-mist/70">Year in weeks</p>
@@ -1479,30 +1530,20 @@ export function DashboardPage({
 
         <div className="grid gap-5">
           <Card className="p-5">
-            <p className="text-xs uppercase tracking-[0.22em] text-mist/70">Performance</p>
-            <div className="mt-4 grid gap-4 md:grid-cols-[0.72fr_1fr]">
-              <div>
-                <p className="text-sm text-mist">Momentum</p>
-                <p className="mt-2 text-5xl font-semibold text-white">{momentumScore}</p>
-                <p className="mt-3 text-sm text-mist">Use it as orientation, then return to today&apos;s actual entry.</p>
-              </div>
-              <div>
-                <p className="text-sm text-mist">Bad habit streaks</p>
-                <div className="mt-3 space-y-3">
-                  {showBadHabitTracking && badHabitStreaks.length > 0 ? (
-                    badHabitStreaks.map(({ habit, streak, startsToday, brokenToday }) => (
-                      <div key={habit.id} className="flex items-end justify-between gap-3 border-b border-white/[0.05] pb-2 last:border-b-0 last:pb-0">
-                        <p className="text-sm text-white/84">{habit.name}</p>
-                        <p className="text-sm font-semibold text-white">
-                          {startsToday ? 'Starts today' : brokenToday ? '0 days' : `${streak} days`}
-                        </p>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-sm text-mist">No streaks visible yet.</p>
-                  )}
-                </div>
-              </div>
+            <p className="text-xs uppercase tracking-[0.22em] text-mist/70">Bad habit streaks</p>
+            <div className="mt-4 space-y-3">
+              {showBadHabitTracking && badHabitStreaks.length > 0 ? (
+                badHabitStreaks.map(({ habit, streak, startsToday, brokenToday }) => (
+                  <div key={habit.id} className="flex items-end justify-between gap-3 border-b border-white/[0.05] pb-2 last:border-b-0 last:pb-0">
+                    <p className="text-sm text-white/84">{habit.name}</p>
+                    <p className="text-sm font-semibold text-white">
+                      {startsToday ? 'Starts today' : brokenToday ? '0 days' : `${streak} days`}
+                    </p>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-mist">No streaks visible yet.</p>
+              )}
             </div>
           </Card>
 
@@ -2436,13 +2477,10 @@ function getDashboardWeeklyHabitMetrics(
 
   const completionPercent =
     totals.expectedActions > 0 ? Math.round((totals.completedActions / totals.expectedActions) * 100) : 0
-  const loggedRatio = Math.round((loggedDaysCount / Math.max(weekDates.length, 1)) * 100)
-  const momentumScore = Math.round(completionPercent * 0.7 + loggedRatio * 0.3)
 
   return {
     loggedDaysCount,
     completionPercent,
-    momentumLabel: getDashboardMomentumLabel(momentumScore, completionPercent, loggedDaysCount),
   }
 }
 
@@ -2522,14 +2560,6 @@ function isWeekendDate(date: string) {
   return day === 0 || day === 6
 }
 
-function getDashboardMomentumLabel(momentumScore: number, completionPercent: number, loggedDaysCount: number) {
-  if (completionPercent === 0 && loggedDaysCount === 0) return 'Starting'
-  if (completionPercent < 25 || loggedDaysCount <= 1) return 'Low'
-  if (momentumScore >= 75) return 'Strong'
-  if (momentumScore >= 45) return 'Building'
-  return 'Low'
-}
-
 function getRecentMoodDots(days: DayEntry[], todayDate: string) {
   return days
     .filter((day) => day.date <= todayDate)
@@ -2564,6 +2594,117 @@ function getLatestWinEntry(days: DayEntry[], weekStartDate: string, weekEndDate:
       timeZone: 'UTC',
     })}`,
   }
+}
+
+function getMomentumStatusPillClassName(label: RollingMomentumMetrics['label']) {
+  if (label === 'High Momentum') return 'border-[rgba(47,163,107,0.3)] bg-[rgba(47,163,107,0.12)] text-[#D8F7E8]'
+  if (label === 'Strong') return 'border-[rgba(95,143,78,0.28)] bg-[rgba(95,143,78,0.12)] text-[#E0F0DA]'
+  if (label === 'Building') return 'border-[rgba(217,164,65,0.28)] bg-[rgba(217,164,65,0.12)] text-[#F6E8C2]'
+  return 'border-[rgba(201,106,43,0.28)] bg-[rgba(201,106,43,0.12)] text-[#F4D6C0]'
+}
+
+function MomentumMicroMetric({
+  label,
+  tooltip,
+  value,
+  tone = 'neutral',
+}: {
+  label: string
+  tooltip: string
+  value: string
+  tone?: 'neutral' | 'positive' | 'negative'
+}) {
+  const valueClassName =
+    tone === 'positive'
+      ? 'text-[#D9F0E1]'
+      : tone === 'negative'
+        ? 'text-[#F0D0CB]'
+        : 'text-white/[0.94]'
+
+  return (
+    <div className="rounded-[18px] border border-white/[0.03] bg-white/[0.012] px-3 py-[9px]">
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-[10px] uppercase tracking-[0.18em] text-white/62">{label}</p>
+        <MetricInfoTooltip text={tooltip} />
+      </div>
+      <p className={`mt-1.5 text-[15px] font-medium leading-none ${valueClassName}`}>{value}</p>
+    </div>
+  )
+}
+
+function MetricInfoTooltip({ text }: { text: string }) {
+  return (
+    <span className="group relative inline-flex">
+      <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/[0.06] text-[10px] text-white/32 transition hover:border-white/[0.1] hover:text-white/54">
+        i
+      </span>
+      <span className="pointer-events-none absolute left-1/2 top-[calc(100%+8px)] z-20 hidden w-[220px] -translate-x-1/2 rounded-2xl border border-white/[0.08] bg-[#141414]/95 px-3 py-2 text-[11px] leading-5 text-white/76 shadow-[0_18px_40px_rgba(0,0,0,0.35)] group-hover:block">
+        {text}
+      </span>
+    </span>
+  )
+}
+
+function MomentumRing({ score }: { score: number }) {
+  const radius = 34
+  const circumference = 2 * Math.PI * radius
+  const progress = Math.max(0, Math.min(100, score))
+  const offset = circumference - (progress / 100) * circumference
+  const color = getMomentumRingColor(progress)
+
+  return (
+    <div className="flex shrink-0 flex-col items-center">
+      <div className="relative flex h-[92px] w-[92px] items-center justify-center">
+        <svg className="h-[90px] w-[90px] -rotate-90" viewBox="0 0 92 92" aria-hidden="true">
+          <circle cx="46" cy="46" r={radius} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="8.25" />
+          <circle
+            cx="46"
+            cy="46"
+            r={radius}
+            fill="none"
+            stroke={color}
+            strokeWidth="8.25"
+            strokeLinecap="round"
+            strokeDasharray={circumference}
+            strokeDashoffset={offset}
+          />
+        </svg>
+        <div className="absolute inset-0 flex items-center justify-center -translate-y-[1px]">
+          <span className="text-[20px] font-semibold tracking-[-0.02em] text-white">{progress}%</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function getMomentumRingColor(score: number) {
+  if (score < 40) return '#D7263D'
+  if (score < 70) return '#D9A441'
+  return '#2FA36B'
+}
+
+function formatDayStripFocus(intention: string) {
+  const trimmed = intention.trim()
+  if (!trimmed) return 'Focus · Add morning intention'
+
+  const normalized = trimmed
+    .replace(/^i will\s+/i, '')
+    .replace(/^i'?m going to\s+/i, '')
+    .replace(/^im going to\s+/i, '')
+    .trim()
+
+  const displayBase = normalized || trimmed
+  const prefix = 'Focus · '
+  const maxLength = 56
+
+  if (`${prefix}${displayBase}`.length <= maxLength) return `${prefix}${displayBase}`
+
+  const availableLength = maxLength - prefix.length - 3
+  const truncated = displayBase.slice(0, availableLength)
+  const lastSpace = truncated.lastIndexOf(' ')
+  const safeCut = lastSpace >= Math.max(16, Math.floor(availableLength * 0.5)) ? truncated.slice(0, lastSpace) : truncated
+
+  return `${prefix}${safeCut.trim()}...`
 }
 
 function getCompactWeekDayMarkers(startDate: string, endDate: string, days: DayEntry[], todayDate: string) {
