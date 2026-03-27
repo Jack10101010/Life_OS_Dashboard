@@ -33,8 +33,34 @@ function endOfIsoWeek(date: Date) {
   return addDays(startOfIsoWeek(date), 6)
 }
 
+function isWeekendIso(date: string) {
+  const day = new Date(`${date}T00:00:00Z`).getUTCDay()
+  return day === 0 || day === 6
+}
+
 export function getTodayIsoDate() {
   return toIsoDate(new Date())
+}
+
+export function isHabitTrackerActiveOnDate(tracker: HabitTracker, date: string) {
+  if (!isWeekendIso(date)) return true
+  return tracker.weekendVisibility === 'show'
+}
+
+export function getHabitTrackerActiveDatesInRange(tracker: HabitTracker, startIso: string, endIso: string) {
+  const dates: string[] = []
+  const cursor = new Date(`${startIso}T00:00:00Z`)
+  const end = new Date(`${endIso}T00:00:00Z`)
+
+  while (cursor <= end) {
+    const date = toIsoDate(cursor)
+    if (isHabitTrackerActiveOnDate(tracker, date)) {
+      dates.push(date)
+    }
+    cursor.setUTCDate(cursor.getUTCDate() + 1)
+  }
+
+  return dates
 }
 
 function diffDaysInclusive(startIso: string, endIso: string) {
@@ -121,10 +147,7 @@ function computeStreakAchievements(tracker: HabitTracker, target: number, startD
       streak = 1
       streakStart = date
     } else {
-      const prev = new Date(`${previousDate}T00:00:00Z`)
-      const current = new Date(`${date}T00:00:00Z`)
-      const dayDelta = Math.round((current.getTime() - prev.getTime()) / 86400000)
-      if (dayDelta === 1) {
+      if (isNextActiveCompletion(tracker, previousDate, date, startDate)) {
         streak += 1
       } else {
         streak = 1
@@ -293,15 +316,26 @@ function getCompletedTrackerDatesFrom(tracker: HabitTracker, startDate: string) 
 export function getLiveTrackerStreak(tracker: HabitTracker, year: number) {
   const completedSet = new Set(getCompletedTrackerDates(tracker))
   let cursor = getDateRangeEndForYear(year)
-  const todayIso = toIsoDate(cursor)
 
-  if (!completedSet.has(todayIso)) {
+  while (cursor.getUTCFullYear() === year && !isHabitTrackerActiveOnDate(tracker, toIsoDate(cursor))) {
+    cursor = addDays(cursor, -1)
+  }
+
+  if (cursor.getUTCFullYear() !== year) {
+    return 0
+  }
+
+  if (!completedSet.has(toIsoDate(cursor))) {
     cursor = addDays(cursor, -1)
   }
 
   let streak = 0
   while (cursor.getUTCFullYear() === year) {
     const iso = toIsoDate(cursor)
+    if (!isHabitTrackerActiveOnDate(tracker, iso)) {
+      cursor = addDays(cursor, -1)
+      continue
+    }
     if (!completedSet.has(iso)) break
     streak += 1
     cursor = addDays(cursor, -1)
@@ -311,7 +345,7 @@ export function getLiveTrackerStreak(tracker: HabitTracker, year: number) {
 }
 
 export function getTrackerStreakEndingOn(tracker: HabitTracker, isoDate: string) {
-  if (!tracker.entries[isoDate]?.completed) return 0
+  if (!isHabitTrackerActiveOnDate(tracker, isoDate) || !tracker.entries[isoDate]?.completed) return 0
 
   const completedSet = new Set(getCompletedTrackerDates(tracker))
   let cursor = new Date(`${isoDate}T00:00:00Z`)
@@ -319,6 +353,10 @@ export function getTrackerStreakEndingOn(tracker: HabitTracker, isoDate: string)
 
   while (true) {
     const value = toIsoDate(cursor)
+    if (!isHabitTrackerActiveOnDate(tracker, value)) {
+      cursor = addDays(cursor, -1)
+      continue
+    }
     if (!completedSet.has(value)) break
     streak += 1
     cursor = addDays(cursor, -1)
@@ -328,7 +366,7 @@ export function getTrackerStreakEndingOn(tracker: HabitTracker, isoDate: string)
 }
 
 function getTrackerStreakEndingOnFrom(tracker: HabitTracker, isoDate: string, startDate: string) {
-  if (isoDate < startDate || !tracker.entries[isoDate]?.completed) return 0
+  if (isoDate < startDate || !isHabitTrackerActiveOnDate(tracker, isoDate) || !tracker.entries[isoDate]?.completed) return 0
 
   const completedSet = new Set(getCompletedTrackerDatesFrom(tracker, startDate))
   let cursor = new Date(`${isoDate}T00:00:00Z`)
@@ -336,12 +374,32 @@ function getTrackerStreakEndingOnFrom(tracker: HabitTracker, isoDate: string, st
 
   while (true) {
     const value = toIsoDate(cursor)
-    if (value < startDate || !completedSet.has(value)) break
+    if (value < startDate) break
+    if (!isHabitTrackerActiveOnDate(tracker, value)) {
+      cursor = addDays(cursor, -1)
+      continue
+    }
+    if (!completedSet.has(value)) break
     streak += 1
     cursor = addDays(cursor, -1)
   }
 
   return streak
+}
+
+function isNextActiveCompletion(tracker: HabitTracker, previousDate: string, nextDate: string, startDate: string) {
+  let cursor = addDays(new Date(`${previousDate}T00:00:00Z`), 1)
+  const end = new Date(`${nextDate}T00:00:00Z`)
+
+  while (cursor < end) {
+    const iso = toIsoDate(cursor)
+    if (iso >= startDate && isHabitTrackerActiveOnDate(tracker, iso)) {
+      return false
+    }
+    cursor = addDays(cursor, 1)
+  }
+
+  return true
 }
 
 function getWeekCompletionCount(tracker: HabitTracker, baseDate: Date, startDate?: string) {

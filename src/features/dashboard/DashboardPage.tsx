@@ -5,9 +5,8 @@ import { Card } from '../../components/ui/Card'
 import { StatPill } from '../../components/ui/StatPill'
 import { TagPill } from '../../components/ui/TagPill'
 import { WeekHeatmap } from '../../components/tracker/WeekHeatmap'
-import { getLiveTrackerStreak } from '../../lib/habitTrackerGoals'
+import { getHabitTrackerActiveDatesInRange, getLiveTrackerStreak, getTrackerGoalProgress, isHabitTrackerActiveOnDate } from '../../lib/habitTrackerGoals'
 import { getDayColor } from '../../lib/color'
-import { getTrackerGoalProgress } from '../../lib/habitTrackerGoals'
 import {
   WORKSPACE_RECORD_VERSION,
   WORKSPACE_STORAGE_KEY,
@@ -71,7 +70,7 @@ export function DashboardPage({
   onOpenGoals: () => void
   onOpenDay: (day: DayEntry) => void
 }) {
-  const { currentWeek, todayEntry, moodTrend, topHabits, journalHighlights, recentWins, todayStatus } = useDashboardState({
+  const { currentWeek, todayEntry, moodTrend, topHabits, journalHighlights, recentWins } = useDashboardState({
     days,
     weeks,
   })
@@ -96,9 +95,12 @@ export function DashboardPage({
   const [quickAddEventOpen, setQuickAddEventOpen] = useState(false)
   const [quickAddEventDraft, setQuickAddEventDraft] = useState(() => createDashboardDayEventDraft())
   const [quickAddEventSelectedTagIds, setQuickAddEventSelectedTagIds] = useState<string[]>([])
+  const [focusEditing, setFocusEditing] = useState(false)
+  const [focusDraft, setFocusDraft] = useState('')
   const [lowStateModeActive, setLowStateModeActive] = useState(false)
   const [lowStateTimerSeconds, setLowStateTimerSeconds] = useState<number | null>(null)
   const quickNotesRef = useRef<HTMLTextAreaElement | null>(null)
+  const focusInputRef = useRef<HTMLInputElement | null>(null)
   const scratchpadTextRef = useRef<HTMLTextAreaElement | null>(null)
   const scratchpadNotesRef = useRef<HTMLTextAreaElement | null>(null)
   const scratchpadContentRef = useRef<HTMLDivElement | null>(null)
@@ -205,6 +207,32 @@ export function DashboardPage({
     [tags],
   )
   const lowStateNextAction = dashboardExecution.nextAction.trim() || dashboardExecution.minimumVersion.trim() || dashboardExecution.todayTask.trim()
+
+  useEffect(() => {
+    if (!focusEditing || !focusInputRef.current) return
+    focusInputRef.current.focus()
+    focusInputRef.current.select()
+  }, [focusEditing])
+
+  const startFocusEditing = () => {
+    setFocusDraft(todayEntry.morningIntention)
+    setFocusEditing(true)
+  }
+
+  const cancelFocusEditing = () => {
+    setFocusEditing(false)
+    setFocusDraft('')
+  }
+
+  const saveFocusEditing = () => {
+    onUpdateDay(todayEntry.id, (current) => ({
+      ...current,
+      isLogged: true,
+      morningIntention: focusDraft,
+    }))
+    setFocusEditing(false)
+    setFocusDraft('')
+  }
 
   const updateDashboardExecution = (updater: (current: DayEntry['dashboardExecution']) => DayEntry['dashboardExecution']) => {
     onUpdateDay(todayEntry.id, (current) => ({
@@ -399,6 +427,14 @@ export function DashboardPage({
     () => getRollingMomentumMetrics(days, habitTrackers, todayEntry.date),
     [days, habitTrackers, todayEntry.date],
   )
+  const todayHabitProgress = useMemo(
+    () => getDashboardDayHabitMetrics(habitTrackers, todayEntry.date),
+    [habitTrackers, todayEntry.date],
+  )
+  const momentumGuidance = useMemo(
+    () => getMomentumGuidance(rollingMomentum),
+    [rollingMomentum],
+  )
   const weeklyHabitCounts = useMemo(
     () =>
       habitTrackers.map((tracker) => ({
@@ -417,8 +453,7 @@ export function DashboardPage({
     () => getWeeklyInsightMessage(habitTrackers, currentWeek.startDate, currentWeek.endDate, todayEntry.date),
     [currentWeek.endDate, currentWeek.startDate, habitTrackers, todayEntry.date],
   )
-  const visibleWeeklyHabits = useMemo(() => weeklyHabitCounts.slice(0, 5), [weeklyHabitCounts])
-  const hiddenWeeklyHabits = useMemo(() => weeklyHabitCounts.slice(5), [weeklyHabitCounts])
+  const visibleWeeklyHabits = useMemo(() => weeklyHabitCounts.slice(0, 6), [weeklyHabitCounts])
   const recentMoodDots = useMemo(() => getRecentMoodDots(days, todayEntry.date), [days, todayEntry.date])
   const compactWeekDays = useMemo(
     () => getCompactWeekDayMarkers(currentWeek.startDate, currentWeek.endDate, days, todayEntry.date),
@@ -862,7 +897,7 @@ export function DashboardPage({
             </div>
           </div>
 
-          <div className="grid gap-2 xl:grid-cols-[minmax(0,1fr)_520px] xl:items-start">
+          <div className="grid gap-2 xl:gap-x-5 xl:grid-cols-[minmax(0,1fr)_minmax(560px,620px)] xl:items-start">
             <div className="min-w-0">
               <div className="flex flex-wrap gap-2">
                 <StatPill
@@ -879,7 +914,7 @@ export function DashboardPage({
                 <div className="max-w-[440px] rounded-[20px] bg-white/[0.02] px-3 py-2">
                   <div className="flex items-center justify-between gap-3">
                     <p className="text-[10px] uppercase tracking-[0.22em]" style={{ color: '#34D399' }}>Last win</p>
-                    <span className="text-[11px] text-white/34">{lastBigWin?.dateLabel ?? ''}</span>
+                    <span className="text-[11px] text-mist/70">{lastBigWin?.dateLabel ?? ''}</span>
                   </div>
                   <p className="mt-1.5 line-clamp-2 text-[13px] leading-5 text-white/56">
                     {lastBigWin?.text || 'No win logged yet'}
@@ -891,8 +926,8 @@ export function DashboardPage({
                 </div>
               </div>
             </div>
-            <div className="min-w-0 xl:-ml-[43px] xl:w-[610px]">
-              <div className="grid auto-rows-fr gap-2 sm:grid-cols-[370px_minmax(0,1fr)]">
+            <div className="min-w-0 xl:w-full xl:max-w-[620px] xl:justify-self-end">
+              <div className="grid auto-rows-fr gap-2 sm:grid-cols-[minmax(0,1fr)_232px]">
                 <div className="min-w-0 rounded-[20px] bg-white/[0.02] px-3.5 py-2.5">
                   <p className="text-[10px] uppercase tracking-[0.24em]" style={{ color: '#34D399' }}>Habits completed this week</p>
                   <div className="mt-2.5 space-y-1.5">
@@ -906,6 +941,8 @@ export function DashboardPage({
                               className={`block h-[7px] w-[7px] rounded-full ${
                                 dot.state === 'completed'
                                   ? 'bg-[#22C55E]'
+                                  : dot.state === 'inactive'
+                                    ? 'bg-white/[0.06]'
                                   : dot.state === 'future'
                                     ? 'bg-[#4A4A4A]'
                                     : 'bg-[#7A7A7A]'
@@ -916,7 +953,8 @@ export function DashboardPage({
                         <span className="h-4 w-px bg-white/[0.08]" aria-hidden="true" />
                         <span className="group relative shrink-0 text-right">
                           <span
-                            className="cursor-default text-[13px] tabular-nums text-white/24"
+                            className={`cursor-default text-[13px] tabular-nums ${getHabitStreakClassName(habit.streak)}`}
+                            style={getHabitStreakStyle(habit.streak)}
                             aria-label={`${habit.streak} day streak`}
                           >
                             {habit.streak}d
@@ -927,19 +965,26 @@ export function DashboardPage({
                         </span>
                       </div>
                     ))}
-                    {hiddenWeeklyHabits.length > 0 ? (
-                      <p className="pt-1 text-[15px] text-white/34">+{hiddenWeeklyHabits.length} more</p>
-                    ) : null}
                   </div>
                 </div>
-                <div className="min-w-0 rounded-[20px] bg-white/[0.02] px-3.5 py-2.5 pr-4">
+                <div className="min-w-0 sm:min-w-[232px] rounded-[20px] bg-white/[0.02] px-3.5 py-2.5 pr-4">
                   <p className="text-[10px] uppercase tracking-[0.24em]" style={{ color: '#34D399' }}>Active goals</p>
                   <div className="mt-2.5 space-y-1.5">
                     {visibleWeeklyGoals.length > 0 ? (
                       visibleWeeklyGoals.map((goal) => (
-                        <div key={goal.id} className="grid grid-cols-[minmax(0,1fr)_56px] items-center gap-3 text-[15px] leading-6">
+                        <div key={goal.id} className="grid grid-cols-[minmax(0,1fr)_72px] items-center gap-3 text-[15px] leading-6">
                           <span className="min-w-0 flex-1 truncate whitespace-nowrap text-white/70">{goal.title}</span>
-                          <span className="shrink-0 text-right tabular-nums text-white/34">{goal.percent}%</span>
+                          <span className="flex shrink-0 items-center justify-end gap-1.5 text-right">
+                            <span className="tabular-nums text-white/34">{goal.percent}%</span>
+                            <span
+                              className={goal.percent >= 100 ? 'text-[#D6B25E]' : 'text-white/[0.2]'}
+                              aria-hidden="true"
+                            >
+                              <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="currentColor">
+                                <path d="M4 2.5a.75.75 0 0 1 .75-.75h6.5a.75.75 0 0 1 .75.75V4h1a1 1 0 0 1 1 1c0 2.29-1.28 3.86-3.28 4.18A4.27 4.27 0 0 1 8.75 11v1.25h1.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5h1.5V11a4.27 4.27 0 0 1-2.97-1.82C2.28 8.86 1 7.29 1 5a1 1 0 0 1 1-1h1V2.5ZM2.5 5c0 1.45.67 2.35 1.78 2.63A4.34 4.34 0 0 1 4 6.1V5H2.5Zm9.5 0v1.1c0 .54-.1 1.05-.28 1.53 1.11-.28 1.78-1.18 1.78-2.63H12Z" />
+                              </svg>
+                            </span>
+                          </span>
                         </div>
                       ))
                     ) : (
@@ -964,26 +1009,41 @@ export function DashboardPage({
                     month: 'long',
                   })}
                 </h3>
-                <button
-                  type="button"
-                  onClick={onOpenToday}
-                  className="mt-2.5 inline-flex w-full max-w-[540px] min-w-0 items-center rounded-2xl border border-white/[0.05] bg-white/[0.025] px-3 py-2 text-left transition hover:border-white/[0.08] hover:bg-white/[0.04] sm:w-auto"
-                >
-                  <span className={`block min-w-0 flex-1 truncate text-[14px] font-medium text-white/82 ${todayEntry.morningIntention.trim() ? '' : 'text-mist/52'}`}>
-                    {formatDayStripFocus(todayEntry.morningIntention)}
-                  </span>
-                </button>
-                <div className="mt-2.5 flex flex-wrap gap-2">
-                  {todayStatus.filter((item) => showBadHabitTracking || !item.toLowerCase().includes('alcohol')).map((item) => (
-                    <span key={item} className="rounded-full border border-white/6 bg-white/[0.03] px-3 py-1.5 text-xs text-white">
-                      {item}
+                {focusEditing ? (
+                  <input
+                    ref={focusInputRef}
+                    value={focusDraft}
+                    onChange={(event) => setFocusDraft(event.target.value)}
+                    onBlur={cancelFocusEditing}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+                        saveFocusEditing()
+                      }
+                      if (event.key === 'Escape') {
+                        event.preventDefault()
+                        cancelFocusEditing()
+                      }
+                    }}
+                    placeholder="Set one clear intention for today."
+                    className="mt-2 block w-full max-w-[620px] min-w-0 rounded-[10px] border border-white/[0.08] bg-white/[0.03] px-2.5 py-1.5 text-[18px] font-medium leading-[1.45] text-white/94 outline-none placeholder:text-mist/56 focus:border-white/[0.14] focus:bg-white/[0.045]"
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    onClick={startFocusEditing}
+                    className="mt-2 inline-flex w-full max-w-[620px] min-w-0 cursor-pointer items-center text-left transition duration-150 hover:text-white/98 hover:underline hover:decoration-white/18 hover:underline-offset-[5px] sm:w-auto"
+                  >
+                    <span className={`block min-w-0 flex-1 truncate text-[18px] font-semibold leading-[1.42] ${todayEntry.morningIntention.trim() ? 'text-white/94' : 'text-mist/58'}`}>
+                      {formatDayStripFocus(todayEntry.morningIntention)}
                     </span>
-                  ))}
-                </div>
+                  </button>
+                )}
+                <p className="mt-2.5 text-[12px] text-mist/68">{getDayStripMetaLine(todayEntry, todayHabitProgress, showBadHabitTracking)}</p>
               </div>
 
               <div className="flex w-full flex-col gap-2.5 lg:w-auto lg:min-w-[248px] lg:flex-[0.95] lg:items-end">
-                <div className="flex flex-wrap gap-2.5 lg:justify-end">
+                <div className="flex flex-wrap items-center gap-1.5 lg:justify-end">
                   <Button
                     variant="primary"
                     onClick={onOpenToday}
@@ -1004,41 +1064,20 @@ export function DashboardPage({
                     {todayEntry.isLogged ? 'Open Today' : 'Open Today'}
                   </Button>
                   <Button onClick={onOpenTracker}>Go to Tracker</Button>
+                  <div className="group relative">
+                    <button
+                      type="button"
+                      onClick={() => setQuickAddEventOpen(true)}
+                      className="flex h-10 w-10 items-center justify-center rounded-full border border-white/[0.11] bg-white/[0.035] text-[18px] leading-none text-white/74 transition hover:border-white/[0.16] hover:bg-white/[0.06] hover:text-white"
+                      aria-label="Quick add event"
+                    >
+                      +
+                    </button>
+                    <span className="pointer-events-none absolute right-0 top-[calc(100%+8px)] z-20 hidden whitespace-nowrap rounded-2xl border border-white/[0.08] bg-[#141414]/95 px-3 py-2 text-xs text-white/76 shadow-[0_18px_40px_rgba(0,0,0,0.35)] group-hover:block">
+                      Quick add event
+                    </span>
+                  </div>
                 </div>
-
-                <button
-                  type="button"
-                  onClick={() => setQuickAddEventOpen(true)}
-                  className="self-start rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-xs text-white/76 transition hover:border-white/[0.12] hover:bg-white/[0.05] hover:text-white lg:self-end"
-                >
-                  + Quick Add Event
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    onUpdateDay(todayEntry.id, (current) => ({
-                      ...current,
-                      dailyIntentCompleteOneTask: !current.dailyIntentCompleteOneTask,
-                    }))
-                  }
-                  className={`flex items-center gap-2 self-start rounded-full border px-3 py-1.5 text-xs transition lg:self-end ${
-                    todayEntry.dailyIntentCompleteOneTask
-                      ? 'border-[#22C55E]/35 bg-[#22C55E]/10 text-[#CFF8DE]'
-                      : 'border-white/[0.06] bg-white/[0.02] text-white/74 hover:border-white/[0.1] hover:bg-white/[0.03]'
-                  }`}
-                >
-                  <span
-                    className={`flex h-4.5 w-4.5 items-center justify-center rounded-full border text-[10px] ${
-                      todayEntry.dailyIntentCompleteOneTask
-                        ? 'border-[#22C55E]/55 bg-[#22C55E]/20 text-[#CFF8DE]'
-                        : 'border-white/14 text-white/40'
-                    }`}
-                  >
-                    {todayEntry.dailyIntentCompleteOneTask ? '✓' : ''}
-                  </span>
-                  <span>Complete one task today</span>
-                </button>
               </div>
             </div>
           </Card>
@@ -1051,13 +1090,26 @@ export function DashboardPage({
             {rollingMomentum.label}
           </span>
         </div>
-        <div className="mt-4 flex flex-wrap items-center gap-4">
+        <div className="mt-4 flex flex-wrap items-center gap-4 sm:gap-5">
           <MomentumRing score={rollingMomentum.score} />
-          <div className="min-w-0 flex-1 space-y-1.5 self-center">
-            <p className="text-sm leading-[1.35] text-white/84">Consistency is building over the last 7 days.</p>
-            <p className="text-xs leading-[1.3] text-mist/56">Keep stacking solid days to strengthen momentum.</p>
+          <div className="min-w-0 max-w-[500px] flex-1 self-center">
+            <div className="space-y-1">
+              <div className="space-y-0.5">
+                <p className="text-sm leading-[1.32] text-white/84">{momentumGuidance.messagePrimary}</p>
+                {momentumGuidance.messageSecondary ? (
+                  <p className="text-sm leading-[1.3] text-white/68">{momentumGuidance.messageSecondary}</p>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                onClick={onOpenToday}
+                className="cursor-pointer text-left text-xs leading-[1.28] text-mist/56 transition duration-150 hover:text-white/72 hover:underline hover:decoration-white/14 hover:underline-offset-[4px]"
+              >
+                {momentumGuidance.action}
+              </button>
+            </div>
             {rollingMomentum.strongDayRun >= 2 ? (
-              <span className="inline-flex rounded-full border border-[rgba(255,164,75,0.18)] bg-[rgba(255,164,75,0.1)] px-3 py-1 text-xs text-[#F7DEC0]">
+              <span className="mt-2 inline-flex rounded-full border border-[rgba(255,164,75,0.18)] bg-[rgba(255,164,75,0.1)] px-3 py-1 text-xs text-[#F7DEC0]">
                 🔥 {rollingMomentum.strongDayRun}-day run
               </span>
             ) : null}
@@ -1067,7 +1119,7 @@ export function DashboardPage({
           <MomentumMicroMetric
             label="Consistency"
             tooltip="Days where 60% or more of habits were completed over the last 7 completed days."
-            value={`${rollingMomentum.consistencyDays}/7`}
+            value={`${rollingMomentum.consistencyDays}/${rollingMomentum.consistencyWindowDays}`}
           />
           <MomentumMicroMetric
             label="Completion"
@@ -2441,12 +2493,14 @@ function countCompletedEntriesWithinRange(tracker: HabitTracker, startDate: stri
 }
 
 function getTrackerWeekDots(tracker: HabitTracker, startDate: string, endDate: string, todayDate: string) {
+  const activeDateSet = new Set(getHabitTrackerActiveDatesInRange(tracker, startDate, endDate))
   return getDateRangeInclusive(startDate, endDate).map((date) => {
     const entry = tracker.entries[date]
-    const isExpected = isTrackerExpectedOnDate(tracker, date)
+    const isActive = activeDateSet.has(date)
 
-    let state: 'completed' | 'missed' | 'future' = 'missed'
-    if (date > todayDate || !isExpected) state = 'future'
+    let state: 'completed' | 'missed' | 'future' | 'inactive' = 'missed'
+    if (!isActive) state = 'inactive'
+    else if (date > todayDate) state = 'future'
     else if (entry?.completed) state = 'completed'
 
     return { date, state }
@@ -2459,12 +2513,11 @@ function getDashboardWeeklyHabitMetrics(
   endDate: string,
   days: DayEntry[],
 ) {
-  const weekDates = getDateRangeInclusive(startDate, endDate)
   const loggedDaysCount = days.filter((day) => day.date >= startDate && day.date <= endDate && day.isLogged).length
 
   const totals = habitTrackers.reduce(
     (sum, tracker) => {
-      const eligibleDates = weekDates.filter((date) => isTrackerExpectedOnDate(tracker, date))
+      const eligibleDates = getHabitTrackerActiveDatesInRange(tracker, startDate, endDate)
       const completedCount = eligibleDates.reduce((count, date) => (tracker.entries[date]?.completed ? count + 1 : count), 0)
 
       return {
@@ -2484,6 +2537,22 @@ function getDashboardWeeklyHabitMetrics(
   }
 }
 
+function getDashboardDayHabitMetrics(habitTrackers: HabitTracker[], date: string) {
+  return habitTrackers.reduce(
+    (totals, tracker) => {
+      if (!isHabitTrackerActiveOnDate(tracker, date)) {
+        return totals
+      }
+
+      return {
+        total: totals.total + 1,
+        completed: totals.completed + (tracker.entries[date]?.completed ? 1 : 0),
+      }
+    },
+    { completed: 0, total: 0 },
+  )
+}
+
 function getWeeklyInsightMessage(
   habitTrackers: HabitTracker[],
   startDate: string,
@@ -2497,7 +2566,8 @@ function getWeeklyInsightMessage(
   }
 
   const laggingHabit = habitTrackers.find((tracker) => {
-    const eligibleElapsedDates = elapsedDates.filter((date) => isTrackerExpectedOnDate(tracker, date))
+    const eligibleDateSet = new Set(getHabitTrackerActiveDatesInRange(tracker, startDate, endDate))
+    const eligibleElapsedDates = elapsedDates.filter((date) => eligibleDateSet.has(date))
     if (eligibleElapsedDates.length < 3) return false
 
     const completedCount = eligibleElapsedDates.reduce((count, date) => (tracker.entries[date]?.completed ? count + 1 : count), 0)
@@ -2509,7 +2579,8 @@ function getWeeklyInsightMessage(
   }
 
   const allOnTrack = habitTrackers.every((tracker) => {
-    const eligibleElapsedDates = elapsedDates.filter((date) => isTrackerExpectedOnDate(tracker, date))
+    const eligibleDateSet = new Set(getHabitTrackerActiveDatesInRange(tracker, startDate, endDate))
+    const eligibleElapsedDates = elapsedDates.filter((date) => eligibleDateSet.has(date))
     if (eligibleElapsedDates.length === 0) return true
     return eligibleElapsedDates.every((date) => tracker.entries[date]?.completed)
   })
@@ -2537,6 +2608,22 @@ function formatDashboardWeekRange(startDate: string, endDate: string) {
   })}`
 }
 
+function getHabitStreakClassName(streak: number) {
+  if (streak >= 21) return 'font-semibold text-[#BEECCF]'
+  if (streak >= 14) return 'font-medium text-[#C9E9D4]'
+  return 'font-normal text-white/24'
+}
+
+function getHabitStreakStyle(streak: number) {
+  if (streak >= 21) {
+    return {
+      textShadow: '0 0 10px rgba(47,163,107,0.14)',
+    }
+  }
+
+  return undefined
+}
+
 function getDateRangeInclusive(startDate: string, endDate: string) {
   const dates: string[] = []
   const cursor = new Date(`${startDate}T00:00:00Z`)
@@ -2548,16 +2635,6 @@ function getDateRangeInclusive(startDate: string, endDate: string) {
   }
 
   return dates
-}
-
-function isTrackerExpectedOnDate(tracker: HabitTracker, date: string) {
-  if (!isWeekendDate(date)) return true
-  return tracker.weekendVisibility === 'show'
-}
-
-function isWeekendDate(date: string) {
-  const day = new Date(`${date}T00:00:00Z`).getUTCDay()
-  return day === 0 || day === 6
 }
 
 function getRecentMoodDots(days: DayEntry[], todayDate: string) {
@@ -2587,12 +2664,12 @@ function getLatestWinEntry(days: DayEntry[], weekStartDate: string, weekEndDate:
 
   return {
     text: winner.bigWin.trim(),
-    dateLabel: `Logged ${new Date(`${winner.date}T00:00:00Z`).toLocaleDateString('en-IE', {
+    dateLabel: new Date(`${winner.date}T00:00:00Z`).toLocaleDateString('en-IE', {
       weekday: 'short',
       day: 'numeric',
       month: 'short',
       timeZone: 'UTC',
-    })}`,
+    }),
   }
 }
 
@@ -2683,9 +2760,49 @@ function getMomentumRingColor(score: number) {
   return '#2FA36B'
 }
 
+function getMomentumGuidance(metrics: RollingMomentumMetrics) {
+  if (metrics.trend === 'Declining' || metrics.label === 'Low') {
+    return {
+      messagePrimary: 'Momentum is low.',
+      messageSecondary: 'Keep it simple — focus on one solid win today.',
+      action: metrics.completionPercent < 35 ? '→ Start with your easiest win' : '→ Lock in one clean day',
+    }
+  }
+
+  if (metrics.label === 'Building' && metrics.trend === 'Improving') {
+    return {
+      messagePrimary: "You're building momentum.",
+      messageSecondary: "Stay consistent — you're closer than you think.",
+      action: metrics.completionPercent >= 55 ? '→ Complete your first habit now' : '→ Start with your easiest win',
+    }
+  }
+
+  if (metrics.label === 'Building') {
+    return {
+      messagePrimary: "You're hovering.",
+      messageSecondary: 'One focused day today will move this forward.',
+      action: '→ Complete your first habit now',
+    }
+  }
+
+  if (metrics.label === 'Strong' || metrics.label === 'High Momentum') {
+    return {
+      messagePrimary: "You're in form.",
+      messageSecondary: "Take advantage of it — protect the chain.",
+      action: metrics.strongDayRun >= 2 ? '→ Protect the run with one clean day' : '→ Lean into your strongest habit first',
+    }
+  }
+
+  return {
+    messagePrimary: 'Momentum is steady.',
+    messageSecondary: 'Keep the basics tight and let the score follow.',
+    action: '→ Complete your first habit now',
+  }
+}
+
 function formatDayStripFocus(intention: string) {
   const trimmed = intention.trim()
-  if (!trimmed) return 'Focus · Add morning intention'
+  if (!trimmed) return 'Set one clear intention for today.'
 
   const normalized = trimmed
     .replace(/^i will\s+/i, '')
@@ -2694,17 +2811,29 @@ function formatDayStripFocus(intention: string) {
     .trim()
 
   const displayBase = normalized || trimmed
-  const prefix = 'Focus · '
-  const maxLength = 56
+  const maxLength = 72
 
-  if (`${prefix}${displayBase}`.length <= maxLength) return `${prefix}${displayBase}`
+  if (displayBase.length <= maxLength) return displayBase
 
-  const availableLength = maxLength - prefix.length - 3
-  const truncated = displayBase.slice(0, availableLength)
+  const truncated = displayBase.slice(0, maxLength - 3)
   const lastSpace = truncated.lastIndexOf(' ')
-  const safeCut = lastSpace >= Math.max(16, Math.floor(availableLength * 0.5)) ? truncated.slice(0, lastSpace) : truncated
+  const safeCut = lastSpace >= Math.max(20, Math.floor((maxLength - 3) * 0.55)) ? truncated.slice(0, lastSpace) : truncated
 
-  return `${prefix}${safeCut.trim()}...`
+  return `${safeCut.trim()}...`
+}
+
+function getDayStripMetaLine(
+  day: DayEntry,
+  habitProgress: { completed: number; total: number },
+  showBadHabitTracking: boolean,
+) {
+  const parts = [
+    showBadHabitTracking ? (day.drank ? 'alcohol logged' : 'clean day') : null,
+    `${habitProgress.completed}/${habitProgress.total} habits`,
+    day.isLogged ? 'logged' : 'not logged yet',
+  ].filter((value): value is string => Boolean(value))
+
+  return parts.join(' • ')
 }
 
 function getCompactWeekDayMarkers(startDate: string, endDate: string, days: DayEntry[], todayDate: string) {

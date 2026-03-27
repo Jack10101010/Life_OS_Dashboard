@@ -1,9 +1,11 @@
 import { DayEntry, HabitTracker } from '../types'
+import { isHabitTrackerActiveOnDate } from './habitTrackerGoals'
 
 export type RollingMomentumMetrics = {
   score: number
   label: 'Low' | 'Building' | 'Strong' | 'High Momentum'
   consistencyDays: number
+  consistencyWindowDays: number
   completionPercent: number
   trend: 'Improving' | 'Stable' | 'Declining'
   strongDayRun: number
@@ -12,28 +14,44 @@ export type RollingMomentumMetrics = {
 export function getRollingMomentumMetrics(days: DayEntry[], habitTrackers: HabitTracker[], todayDate: string): RollingMomentumMetrics {
   const windowDates = getLastCompletedWindowDates(todayDate, 7)
   const dayMap = new Map(days.map((day) => [day.date, day]))
-  const dailySnapshots = windowDates.map((date) => {
-    const expectedActions = habitTrackers.reduce((count, tracker) => count + (isTrackerExpectedOnDate(tracker, date) ? 1 : 0), 0)
-    const completedActions = habitTrackers.reduce(
-      (count, tracker) => count + (isTrackerExpectedOnDate(tracker, date) && tracker.entries[date]?.completed ? 1 : 0),
-      0,
+  const dailySnapshots = windowDates
+    .map((date) => {
+      const expectedActions = habitTrackers.reduce((count, tracker) => count + (isHabitTrackerActiveOnDate(tracker, date) ? 1 : 0), 0)
+      if (expectedActions === 0) return null
+
+      const completedActions = habitTrackers.reduce(
+        (count, tracker) => count + (isHabitTrackerActiveOnDate(tracker, date) && tracker.entries[date]?.completed ? 1 : 0),
+        0,
+      )
+      const completionRate = completedActions / expectedActions
+      const day = dayMap.get(date) ?? null
+      return {
+        date,
+        day,
+        completionRate,
+        completionPercent: Math.round(completionRate * 100),
+        isConsistent: completionRate >= 0.6,
+        isStrong: completionRate >= 0.7 && !(day?.drank ?? false),
+      }
+    })
+    .filter(
+      (
+        snapshot,
+      ): snapshot is {
+        date: string
+        day: DayEntry | null
+        completionRate: number
+        completionPercent: number
+        isConsistent: boolean
+        isStrong: boolean
+      } => snapshot != null,
     )
-    const completionRate = expectedActions > 0 ? completedActions / expectedActions : 0
-    const day = dayMap.get(date) ?? null
-    return {
-      date,
-      day,
-      completionRate,
-      completionPercent: Math.round(completionRate * 100),
-      isConsistent: completionRate >= 0.6,
-      isStrong: completionRate >= 0.7 && !(day?.drank ?? false),
-    }
-  })
 
   const consistencyDays = dailySnapshots.filter((snapshot) => snapshot.isConsistent).length
+  const consistencyWindowDays = dailySnapshots.length
   const averageCompletionRate =
     dailySnapshots.reduce((sum, snapshot) => sum + snapshot.completionRate, 0) / Math.max(dailySnapshots.length, 1)
-  const consistencyScore = (consistencyDays / 7) * 40
+  const consistencyScore = (consistencyDays / Math.max(consistencyWindowDays, 1)) * 40
   const executionScore = averageCompletionRate * 40
   const trendResult = getTrend(dailySnapshots.map((snapshot) => snapshot.completionPercent))
   const score = Math.round(clamp(consistencyScore + executionScore + trendResult.points, 0, 100))
@@ -42,6 +60,7 @@ export function getRollingMomentumMetrics(days: DayEntry[], habitTrackers: Habit
     score,
     label: getMomentumLabel(score),
     consistencyDays,
+    consistencyWindowDays,
     completionPercent: Math.round(averageCompletionRate * 100),
     trend: trendResult.label,
     strongDayRun: getStrongDayRun(dailySnapshots),
@@ -108,14 +127,4 @@ function getMomentumLabel(score: number): RollingMomentumMetrics['label'] {
   if (score <= 60) return 'Building'
   if (score <= 80) return 'Strong'
   return 'High Momentum'
-}
-
-function isTrackerExpectedOnDate(tracker: HabitTracker, date: string) {
-  if (!isWeekendDate(date)) return true
-  return tracker.weekendVisibility === 'show'
-}
-
-function isWeekendDate(date: string) {
-  const day = new Date(`${date}T00:00:00Z`).getUTCDay()
-  return day === 0 || day === 6
 }

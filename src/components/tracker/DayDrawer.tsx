@@ -13,7 +13,7 @@ import {
   TagSection,
   WeekEntry,
 } from '../../types'
-import { getTrackerGoalProgress } from '../../lib/habitTrackerGoals'
+import { getTrackerGoalProgress, isHabitTrackerActiveOnDate } from '../../lib/habitTrackerGoals'
 import { DetailDrawer } from '../layout/DetailDrawer'
 import { Button } from '../ui/Button'
 import { Card } from '../ui/Card'
@@ -357,10 +357,7 @@ export function DayDrawer({
   const innerFieldPanelClassName =
     'rounded-[24px] border border-white/[0.028] bg-[rgba(255,255,255,0.036)] shadow-[inset_0_1px_0_rgba(255,255,255,0.014),0_14px_30px_rgba(0,0,0,0.12)] transition-[background-color,border-color,box-shadow,filter] duration-200 ease-out'
 
-  const activeHabits = useMemo(
-    () => habitTrackers.filter((tracker) => isHabitAvailableOnDate(tracker, day.date)),
-    [day.date, habitTrackers],
-  )
+  const activeHabits = useMemo(() => habitTrackers.filter((tracker) => isHabitTrackerActiveOnDate(tracker, day.date)), [day.date, habitTrackers])
   const occurredBadHabits = badHabitDateMap.get(day.date) ?? []
   const occurredBadHabitIds = new Set(occurredBadHabits.map((habit) => habit.id))
   const alcoholBadHabitId = badHabits.find((habit) => habit.id === 'alcohol')?.id ?? null
@@ -3220,16 +3217,6 @@ function getTimeSortValue(value: string) {
   const [hours, minutes] = value.split(':').map(Number)
   if (Number.isNaN(hours) || Number.isNaN(minutes)) return Number.MAX_SAFE_INTEGER
   return hours * 60 + minutes
-}
-
-function isWeekendIso(date: string) {
-  const day = new Date(`${date}T00:00:00Z`).getUTCDay()
-  return day === 0 || day === 6
-}
-
-function isHabitAvailableOnDate(tracker: HabitTracker, date: string) {
-  if (!isWeekendIso(date)) return true
-  return tracker.weekendVisibility === 'show'
 }
 
 function TimePickerField({
