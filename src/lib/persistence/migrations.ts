@@ -226,7 +226,13 @@ export function normalizePersistedAppState(parsed: Partial<PersistedAppState>, c
     tags: Array.isArray(parsed.tags) ? parsed.tags.map(normalizeTag) : defaults.tags,
     tasks: Array.isArray(parsed.tasks) ? parsed.tasks.map(normalizeTask).filter((task) => task.text) : defaults.tasks,
     lifeGoals: Array.isArray(parsed.lifeGoals) ? parsed.lifeGoals.map(normalizeLifeGoal).filter((goal) => goal.title) : defaults.lifeGoals,
-    settings: parsed.settings ? { ...defaults.settings, ...parsed.settings } : defaults.settings,
+    settings: parsed.settings
+      ? {
+          ...defaults.settings,
+          ...parsed.settings,
+          theme: parsed.settings.theme === 'light' ? 'light' : 'dark',
+        }
+      : defaults.settings,
     filters: parsed.filters
       ? {
           year: normalizedFilterYear,

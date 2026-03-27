@@ -29,38 +29,38 @@ export function DetailDrawer({
       {open ? (
         <>
           <motion.div
-            className="fixed inset-0 z-20 bg-black/78 backdrop-blur-sm"
+            className="fixed inset-0 z-20 bg-black/55 backdrop-blur-sm"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
           />
           <motion.aside
-            className={`fixed left-1/2 top-[7vh] z-30 max-h-[86vh] -translate-x-1/2 overflow-hidden rounded-[32px] border border-[#2B2B2B] bg-[#0D0D0D] shadow-[0_35px_100px_rgba(0,0,0,0.62)] ${widthClassName}`}
+            className={`theme-popover fixed left-1/2 top-[7vh] z-30 max-h-[86vh] -translate-x-1/2 overflow-hidden rounded-[32px] border shadow-[0_35px_100px_rgba(15,23,42,0.22)] ${widthClassName}`}
             initial={{ y: 28, x: '-50%', opacity: 0.82, scale: 0.98 }}
             animate={{ y: 0, x: '-50%', opacity: 1, scale: 1 }}
             exit={{ y: 20, x: '-50%', opacity: 0, scale: 0.98 }}
             transition={{ type: 'spring', stiffness: 250, damping: 28 }}
           >
-            <div className="border-b border-[#232323] px-7 py-5">
+            <div className="theme-border-subtle border-b px-7 py-5">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-xs uppercase tracking-[0.22em] text-[#8B8B8B]">{subtitle}</p>
-                  <h3 className="mt-2 text-2xl font-semibold text-white">{title}</h3>
-                  {description ? <p className="mt-2 max-w-[680px] text-sm leading-6 text-[#A7A7A7]">{description}</p> : null}
+                  <p className="theme-text-faint text-xs uppercase tracking-[0.22em]">{subtitle}</p>
+                  <h3 className="theme-text-primary mt-2 text-2xl font-semibold">{title}</h3>
+                  {description ? <p className="theme-text-muted mt-2 max-w-[680px] text-sm leading-6">{description}</p> : null}
                 </div>
                 <div className="flex items-center gap-2">
                   {headerActions}
                   <button
                     onClick={onClose}
-                    className="rounded-full border border-[#333] bg-[#191919] px-3 py-1.5 text-sm text-[#B0B0B0] transition hover:bg-[#222] hover:text-white"
+                    className="theme-button-secondary rounded-full border px-3 py-1.5 text-sm transition"
                   >
                     Close
                   </button>
                 </div>
               </div>
             </div>
-            <div ref={bodyRef} className="max-h-[calc(86vh-92px)] overflow-y-auto overscroll-contain bg-[#0D0D0D] px-7 py-5">
+            <div ref={bodyRef} className="max-h-[calc(86vh-92px)] overflow-y-auto overscroll-contain px-7 py-5">
               {children}
             </div>
           </motion.aside>

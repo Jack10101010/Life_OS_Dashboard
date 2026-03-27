@@ -311,15 +311,15 @@ function TrackerCellButton({
         backgroundColor={
           hovered
             ? cell.paused
-              ? '#4A4037'
-              : '#595959'
+              ? 'rgb(var(--theme-heatmap-paused-rgb) / 0.94)'
+              : 'rgb(var(--theme-border-strong-rgb))'
             : disabled
-              ? '#0E0E0E'
+              ? 'rgb(var(--theme-heatmap-inactive-rgb))'
               : cell.completed
                 ? getTrackerColor(color, colorIntensity)
                 : cell.paused
-                  ? '#312A24'
-                  : '#262626'
+                  ? 'rgb(var(--theme-heatmap-paused-rgb))'
+                  : 'rgb(var(--theme-heatmap-empty-rgb))'
         }
         active={active}
         currentWeek={today}
@@ -329,13 +329,13 @@ function TrackerCellButton({
       />
       {cell.paused ? (
         <span className="pointer-events-none absolute left-1/2 top-1/2 z-20 flex h-[68%] w-[42%] -translate-x-1/2 -translate-y-1/2 items-center justify-center gap-[18%]">
-          <span className="h-full w-[22%] rounded-full bg-[rgba(248,244,238,0.88)]" />
-          <span className="h-full w-[22%] rounded-full bg-[rgba(248,244,238,0.88)]" />
+          <span className="h-full w-[22%] rounded-full bg-[rgb(var(--theme-text-primary-rgb)/0.88)]" />
+          <span className="h-full w-[22%] rounded-full bg-[rgb(var(--theme-text-primary-rgb)/0.88)]" />
         </span>
       ) : null}
       {badHabitMarkerColor ? (
         <span
-          className="pointer-events-none absolute left-1/2 top-1/2 z-20 h-[7px] w-[7px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-[#1B1B1B]"
+          className="pointer-events-none absolute left-1/2 top-1/2 z-20 h-[7px] w-[7px] -translate-x-1/2 -translate-y-1/2 rounded-full border theme-border-strong"
           style={{
             backgroundColor: badHabitMarkerColor,
             boxShadow: `0 0 0 1px ${badHabitMarkerColor}29`,
@@ -343,7 +343,7 @@ function TrackerCellButton({
         />
       ) : null}
       {achievement ? (
-        <span className="pointer-events-none absolute right-0.5 top-0.5 z-20 inline-flex h-3 w-3 items-center justify-center rounded-full bg-[#2A2316] text-[8px] leading-none text-[#F3C56B] shadow-[0_0_0_1px_rgba(243,197,107,0.18)]">
+        <span className="pointer-events-none absolute right-0.5 top-0.5 z-20 inline-flex h-3 w-3 items-center justify-center rounded-full border border-[rgb(var(--theme-warning-rgb)/0.18)] bg-[rgb(var(--theme-warning-rgb)/0.12)] text-[8px] leading-none text-[rgb(var(--theme-warning-rgb))]">
           ★
         </span>
       ) : null}
@@ -619,7 +619,7 @@ export function CustomHabitTrackerCard({
                       className="relative z-10 aspect-square w-full"
                     />
                   ) : (
-                    <div key={`empty-${columnIndex}-${visibleRowIndex}`} className="aspect-square w-full rounded-[4px] border border-white/[0.04] bg-[#242424]" />
+                    <div key={`empty-${columnIndex}-${visibleRowIndex}`} className="theme-border-subtle theme-inactive-tile aspect-square w-full rounded-[4px] border" />
                   ),
                 )}
               </div>
@@ -664,7 +664,7 @@ export function CustomHabitTrackerCard({
                   />
                   <p
                     className={`pointer-events-none absolute inset-x-0 top-1/2 z-20 -translate-y-1/2 text-center text-[12px] font-medium ${
-                      isTodayIso(cell.date) ? 'text-[#78A7FF]' : cell.inCurrentMonth ? 'text-[#D0D0D0]' : 'text-[#636363]'
+                      isTodayIso(cell.date) ? 'text-[rgb(var(--theme-info-rgb))]' : cell.inCurrentMonth ? 'theme-text-secondary' : 'theme-text-faint'
                     }`}
                   >
                     {cell.dayNumber}
@@ -785,18 +785,18 @@ export function CustomHabitTrackerCard({
         </AnimatePresence>
         <div className={`min-w-0 ${compactMode ? 'flex-1' : 'flex-[0_1_360px]'}`}>
           <div className="flex items-center gap-2">
-            <h3 className={`${compactMode ? 'text-[18px] leading-tight' : 'text-2xl'} font-semibold text-white`}>{tracker.title}</h3>
+            <h3 className={`${compactMode ? 'text-[18px] leading-tight' : 'text-2xl'} font-semibold theme-text-primary`}>{tracker.title}</h3>
             {!trackerData.goal ? (
               <div className="group relative shrink-0">
                 <button
                   type="button"
                   onClick={onOpenGoalSetup}
                   aria-label={`Create goal for ${tracker.title}`}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[#2F2F2F] bg-[#151515] text-lg text-[#BEBEBE] transition hover:border-[#3A3A3A] hover:bg-[#1D1D1D] hover:text-white"
+                  className="theme-icon-button inline-flex h-8 w-8 items-center justify-center rounded-full border text-lg transition"
                 >
                   +
                 </button>
-                <div className="pointer-events-none absolute left-1/2 top-[calc(100%+8px)] z-20 -translate-x-1/2 whitespace-nowrap rounded-xl border border-[#2C2C2C] bg-[#191919] px-2.5 py-1 text-[11px] font-medium text-[#E2E2E2] opacity-0 shadow-[0_12px_30px_rgba(0,0,0,0.28)] transition duration-150 group-hover:opacity-100">
+                <div className="theme-tooltip pointer-events-none absolute left-1/2 top-[calc(100%+8px)] z-20 -translate-x-1/2 whitespace-nowrap rounded-xl border px-2.5 py-1 text-[11px] font-medium opacity-0 shadow-[0_12px_30px_rgba(15,23,42,0.16)] transition duration-150 group-hover:opacity-100">
                   Create goal
                 </div>
               </div>
@@ -816,14 +816,14 @@ export function CustomHabitTrackerCard({
               <button
                 type="button"
                 onClick={onOpenGoalSetup}
-                className={`min-w-0 w-full rounded-2xl border border-[#242424] bg-[#141414] transition hover:border-[#333333] hover:bg-[#181818] ${
+                className={`theme-surface-soft min-w-0 w-full rounded-2xl border transition hover:border-[rgb(var(--theme-border-strong-rgb))] hover:bg-[rgb(var(--theme-surface-elevated-rgb))] ${
                   compactMode ? 'px-3 py-2' : 'px-4 py-3'
                 }`}
               >
                 <div className="flex items-center justify-between gap-3">
-                  <p className="truncate text-[11px] uppercase tracking-[0.14em] text-[#8E8E8E]">{getTrackerGoalLabel(trackerData.goal)}</p>
+                  <p className="truncate text-[11px] uppercase tracking-[0.14em] theme-text-faint">{getTrackerGoalLabel(trackerData.goal)}</p>
                   <div className="flex shrink-0 items-center gap-2">
-                    <p className="text-[13px] font-semibold text-white">{goalProgress?.progressText ?? '0 / 0'}</p>
+                    <p className="text-[13px] font-semibold theme-text-primary">{goalProgress?.progressText ?? '0 / 0'}</p>
                     {showPauseControl ? (
                       <span
                         title={
@@ -845,8 +845,8 @@ export function CustomHabitTrackerCard({
                           streakPauseState?.pausedToday
                             ? 'cursor-pointer border-[#4A4132] bg-[#1C1814] text-[#D3C1A1]'
                             : streakPauseState?.canUseToday
-                              ? 'cursor-pointer border-[#343434] bg-[#181818] text-[#D8D8D8] hover:border-[#454545] hover:bg-[#1D1D1D] hover:text-white'
-                              : 'cursor-not-allowed border-[#262626] bg-[#141414] text-[#666666]'
+                              ? 'cursor-pointer theme-border-subtle theme-surface-soft theme-text-secondary hover:border-[rgb(var(--theme-border-strong-rgb))] hover:text-[rgb(var(--theme-text-primary-rgb))]'
+                              : 'cursor-not-allowed theme-border-subtle bg-[rgb(var(--theme-heatmap-inactive-rgb))] theme-text-faint'
                         }`}
                       >
                         ⏸
@@ -861,7 +861,7 @@ export function CustomHabitTrackerCard({
                     return (
                       <div
                         key={index}
-                        className={`h-2 flex-1 rounded-full ${isMissed ? 'bg-[#8D3D37]' : !isFilled ? 'bg-[#262626]' : ''}`}
+                        className={`h-2 flex-1 rounded-full ${isMissed ? 'bg-[rgb(var(--theme-negative-rgb)/0.7)]' : !isFilled ? 'theme-progress-track' : ''}`}
                         style={isFilled ? { backgroundColor: trackerColor } : undefined}
                       />
                     )
@@ -869,25 +869,25 @@ export function CustomHabitTrackerCard({
                 </div>
               </button>
               {showPauseControl && isPauseOpen('pause') ? (
-                <div className="absolute right-0 top-[calc(100%+8px)] z-30 w-[235px] rounded-2xl border border-[#2F2F2F] bg-[#171717] p-3 shadow-[0_16px_40px_rgba(0,0,0,0.35)]">
+                <div className="theme-popover absolute right-0 top-[calc(100%+8px)] z-30 w-[235px] rounded-2xl border p-3 shadow-[0_16px_40px_rgba(15,23,42,0.18)]">
                   {streakPauseState?.pausedToday ? (
                     <>
-                      <p className="text-sm font-semibold text-white">Today is paused</p>
-                      <p className="mt-1 text-[12px] leading-5 text-[#A9A9A9]">Your streak is protected. This does not count as completion.</p>
-                      <p className="mt-2 text-[12px] text-[#8F8F8F]">Pauses left this week: {streakPauseState.remaining}</p>
+                      <p className="text-sm font-semibold theme-text-primary">Today is paused</p>
+                      <p className="mt-1 text-[12px] leading-5 theme-text-muted">Your streak is protected. This does not count as completion.</p>
+                      <p className="mt-2 text-[12px] theme-text-faint">Pauses left this week: {streakPauseState.remaining}</p>
                     </>
                   ) : streakPauseState?.canUseToday ? (
                     <>
-                      <p className="text-sm font-semibold text-white">Use pause for today?</p>
-                      <p className="mt-1 text-[12px] leading-5 text-[#A9A9A9]">Preserves your streak. Does not count as completion.</p>
-                      <p className="mt-2 text-[12px] text-[#8F8F8F]">Pauses left this week: {streakPauseState.remaining}</p>
+                      <p className="text-sm font-semibold theme-text-primary">Use pause for today?</p>
+                      <p className="mt-1 text-[12px] leading-5 theme-text-muted">Preserves your streak. Does not count as completion.</p>
+                      <p className="mt-2 text-[12px] theme-text-faint">Pauses left this week: {streakPauseState.remaining}</p>
                       <button
                         type="button"
                         onClick={() => {
                           onUseStreakPause(todayIso)
                           closePauseMenu()
                         }}
-                        className="mt-3 rounded-full border border-[#3A3A3A] bg-[#1E1E1E] px-3 py-1.5 text-[12px] font-semibold text-white transition hover:bg-[#252525]"
+                        className="theme-button-secondary mt-3 rounded-full border px-3 py-1.5 text-[12px] font-semibold transition"
                       >
                         Use pause
                       </button>
@@ -915,7 +915,7 @@ export function CustomHabitTrackerCard({
             <div className="relative">
               <HeatmapMenuButton label="View" onClick={() => toggleMenu('view')} />
               {isOpen('view') ? (
-                <div className="absolute right-0 top-[calc(100%+8px)] z-30 min-w-[210px] rounded-2xl border border-[#2F2F2F] bg-[#171717] p-1.5 shadow-[0_16px_40px_rgba(0,0,0,0.35)]">
+                <div className="theme-popover absolute right-0 top-[calc(100%+8px)] z-30 min-w-[210px] rounded-2xl border p-1.5 shadow-[0_16px_40px_rgba(15,23,42,0.18)]">
                   {([
                     ['full-year', 'Full tile view'],
                     ['first-entry', 'From first entry'],
@@ -929,7 +929,7 @@ export function CustomHabitTrackerCard({
                         closeMenu()
                       }}
                       className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-[13px] transition ${
-                        calendarRange === value ? 'bg-[#2B2B2B] text-white' : 'text-[#B0B0B0] hover:bg-[#202020] hover:text-white'
+                        calendarRange === value ? 'theme-surface-soft theme-text-primary' : 'theme-text-muted hover:bg-[rgb(var(--theme-surface-soft-rgb))] hover:text-[rgb(var(--theme-text-primary-rgb))]'
                       }`}
                     >
                       <span>{label}</span>
@@ -940,8 +940,8 @@ export function CustomHabitTrackerCard({
               ) : null}
             </div>
           ) : null}
-          <HeatmapIconButton onClick={onToggleCollapse} ariaLabel={collapsed ? 'Expand tracker' : 'Collapse tracker'} compact={compactMode}>
-            <span className={`inline-block text-[15px] text-[#8E8E8E] transition-transform ${collapsed ? 'rotate-180' : ''}`}>⌃</span>
+            <HeatmapIconButton onClick={onToggleCollapse} ariaLabel={collapsed ? 'Expand tracker' : 'Collapse tracker'} compact={compactMode}>
+            <span className={`theme-text-faint inline-block text-[15px] transition-transform ${collapsed ? 'rotate-180' : ''}`}>⌃</span>
           </HeatmapIconButton>
           <HeatmapIconButton onClick={onOpenSettings} ariaLabel="Tracker settings" compact={compactMode}>
             ⚙
@@ -953,7 +953,7 @@ export function CustomHabitTrackerCard({
       {!collapsed ? (
         <div
           ref={containerRef}
-          className={`relative overflow-visible rounded-[28px] border border-[#2A2A2A] bg-[#161616] ${
+          className={`theme-surface-elevated relative overflow-visible rounded-[28px] border ${
             compactMode ? 'px-4 py-4' : 'px-5 py-5'
           }`}
         >
@@ -982,16 +982,16 @@ export function CustomHabitTrackerCard({
         </div>
       ) : null}
 
-      <div className={`flex items-end justify-between gap-4 ${compactMode ? 'text-[13px]' : 'text-sm'} text-[#A0A0A0]`}>
+      <div className={`theme-text-muted flex items-end justify-between gap-4 ${compactMode ? 'text-[13px]' : 'text-sm'}`}>
         <div className={`flex flex-wrap items-center ${compactMode ? 'gap-4' : 'gap-6'}`}>
           <p>
-            Streak: <span className="font-semibold text-white">{liveStreak || streak}</span>
+            Streak: <span className="font-semibold theme-text-primary">{liveStreak || streak}</span>
           </p>
           <p>
-            Total done ({year}): <span className="font-semibold text-white">{totalTracked}</span>
+            Total done ({year}): <span className="font-semibold theme-text-primary">{totalTracked}</span>
           </p>
           <p>
-            Completion rate ({year}): <span className="font-semibold text-white">{completionRate}%</span>
+            Completion rate ({year}): <span className="font-semibold theme-text-primary">{completionRate}%</span>
           </p>
         </div>
         {compactMode ? (

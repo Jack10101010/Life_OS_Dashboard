@@ -27,16 +27,16 @@ export function HeatmapTile({
     <div
       className={`heat-cell relative border ${roundedClassName} ${
         active
-          ? 'border-white shadow-[0_0_0_1px_rgba(255,255,255,0.22)]'
+          ? 'shadow-[0_0_0_1px_rgba(255,255,255,0.22)]'
           : currentWeek
-            ? 'border-[#78A7FF] shadow-[0_0_0_1px_rgba(120,167,255,0.18)]'
-            : 'border-white/[0.04]'
-      } ${hoverOutline && !active ? 'group-hover:border-[#78A7FF] group-hover:shadow-[0_0_0_1px_rgba(120,167,255,0.34)]' : ''} ${
+            ? 'shadow-[0_0_0_1px_rgba(120,167,255,0.18)]'
+            : ''
+      } ${hoverOutline && !active ? 'group-hover:shadow-[0_0_0_1px_rgba(120,167,255,0.34)]' : ''} ${
         dimmed && !disabled ? 'opacity-55' : ''
       } ${className}`}
       style={{
         backgroundColor,
-        borderColor: disabled ? 'rgba(255,255,255,0.03)' : borderColorOverride,
+        borderColor: borderColorOverride ?? (active ? 'rgb(var(--theme-text-primary-rgb))' : currentWeek ? 'rgb(var(--theme-info-rgb))' : disabled ? 'rgb(var(--theme-heatmap-inactive-rgb))' : 'rgb(var(--theme-border-subtle-rgb) / 0.5)'),
       }}
     >
       {children}

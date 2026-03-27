@@ -7,8 +7,8 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 export function Button({ className = '', variant = 'ghost', ...props }: ButtonProps) {
   const styles = {
     primary: 'text-[var(--button-primary-text)]',
-    ghost: 'text-white',
-    soft: 'text-white',
+    ghost: 'text-[rgb(var(--theme-button-ghost-text-rgb))]',
+    soft: 'text-[rgb(var(--theme-button-secondary-text-rgb))]',
   }
 
   return (

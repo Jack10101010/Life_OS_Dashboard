@@ -47,7 +47,7 @@ export function Sidebar({
       <aside className="relative h-0 shrink-0 lg:h-screen lg:w-0">
         <button
           onClick={onToggleCollapsed}
-          className="fixed left-4 top-5 z-30 flex h-10 w-10 items-center justify-center rounded-xl border border-[#2A2A2A] bg-[#171717] text-sm text-[#B0B0B0] shadow-[0_10px_30px_rgba(0,0,0,0.35)] transition hover:bg-[#242424] hover:text-white lg:absolute lg:left-4 lg:top-6"
+          className="theme-button-secondary fixed left-4 top-5 z-30 flex h-10 w-10 items-center justify-center rounded-xl border text-sm shadow-[0_10px_30px_rgba(15,23,42,0.14)] transition lg:absolute lg:left-4 lg:top-6"
           aria-label="Expand sidebar"
         >
           &gt;
@@ -57,22 +57,22 @@ export function Sidebar({
   }
 
   return (
-      <aside className="flex h-auto w-full shrink-0 flex-col border-b border-[#262626] bg-[#171717] px-3.5 py-5 transition-[width] duration-200 sm:px-5 lg:sticky lg:top-0 lg:h-screen lg:max-h-screen lg:w-[224px] lg:self-start lg:overflow-y-auto lg:overscroll-contain lg:border-b-0 lg:border-r xl:w-[236px] 2xl:w-[248px]">
-      <div className="mb-7">
+      <aside className="theme-sidebar-surface flex h-auto w-full shrink-0 flex-col border-b px-3.5 py-5 transition-[width] duration-200 sm:px-5 lg:sticky lg:top-0 lg:h-screen lg:max-h-screen lg:w-[224px] lg:self-start lg:overflow-y-auto lg:overscroll-contain lg:border-b-0 lg:border-r xl:w-[236px] 2xl:w-[248px]">
+      <div className="mb-8">
         <div className="flex items-center justify-between">
-          <p className="text-xs uppercase tracking-[0.32em] text-[#A8A8A8]">Life Dashboard</p>
+          <p className="theme-text-faint text-xs uppercase tracking-[0.32em]">Life Dashboard</p>
           <button
             onClick={onToggleCollapsed}
-            className="rounded-xl border border-[#2A2A2A] bg-[#1C1C1C] px-2.5 py-1.5 text-xs text-[#B0B0B0] transition hover:bg-[#242424] hover:text-white"
+            className="theme-button-secondary rounded-xl border px-2.5 py-1.5 text-xs transition"
             aria-label="Collapse sidebar"
           >
             &lt;
           </button>
         </div>
-        <h1 className="mt-2.5 text-[26px] font-semibold leading-[1.1] text-white">Quiet signal, clearer weeks.</h1>
+        <h1 className="theme-text-primary mt-2.5 text-[26px] font-semibold leading-[1.1]">Quiet signal, clearer weeks.</h1>
       </div>
 
-      <nav className="grid gap-1 sm:grid-cols-2 lg:block lg:space-y-1">
+      <nav className="grid gap-2 sm:grid-cols-2 lg:block lg:space-y-2">
         {primaryItems.map((item) => {
           const active = currentPage === item.id
           const isRenaming = renamingPage === item.id
@@ -109,16 +109,16 @@ export function Sidebar({
                   onReorderPages(nextOrder)
                   setDraggedPage(null)
                 }}
-                className={`flex w-full items-center justify-between rounded-2xl px-3 py-2.5 text-left text-sm font-medium transition ${
+                className={`flex w-full items-center justify-between rounded-2xl border px-3.5 py-3 text-left text-sm font-medium transition ${
                   active
-                    ? 'bg-[#232323] text-white shadow-[0_8px_22px_rgba(0,0,0,0.16),inset_0_0_0_1px_rgba(255,255,255,0.035)]'
-                    : 'text-[#8F8F8F] hover:bg-[#1D1D1D] hover:text-[#E6E6E6]'
+                    ? 'theme-nav-item-active'
+                    : 'theme-nav-item border-transparent'
                 } ${draggedPage === item.id ? 'opacity-50' : ''}`}
               >
                 <span className="min-w-0 truncate">{item.label}</span>
                 <span
                   className={`h-1.5 w-1.5 shrink-0 rounded-full transition ${
-                    active ? 'bg-glow opacity-100' : 'bg-white/20 opacity-0'
+                    active ? 'bg-glow opacity-100' : 'bg-line opacity-0'
                   }`}
                 />
               </button>
@@ -126,7 +126,7 @@ export function Sidebar({
               {isRenaming ? (
                 <form
                   onSubmit={handleRenameSubmit}
-                  className="absolute left-[calc(100%+10px)] top-1/2 z-40 flex w-[220px] -translate-y-1/2 items-center gap-2 rounded-2xl border border-[#2A2A2A] bg-[#171717] p-2 shadow-[0_16px_40px_rgba(0,0,0,0.35)]"
+                  className="theme-popover absolute left-[calc(100%+10px)] top-1/2 z-40 flex w-[220px] -translate-y-1/2 items-center gap-2 rounded-2xl border p-2 shadow-[0_16px_40px_rgba(15,23,42,0.16)]"
                 >
                   <input
                     autoFocus
@@ -144,11 +144,11 @@ export function Sidebar({
                         setRenamingPage(null)
                       }
                     }}
-                    className="min-w-0 flex-1 rounded-xl border border-[#2A2A2A] bg-[#1D1D1D] px-3 py-2 text-sm text-white outline-none"
+                    className="theme-input min-w-0 flex-1 rounded-xl border px-3 py-2 text-sm outline-none"
                   />
                   <button
                     type="submit"
-                    className="rounded-xl border border-[#2A2A2A] bg-[#222222] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#2A2A2A]"
+                    className="theme-button-secondary rounded-xl border px-3 py-2 text-xs font-semibold transition"
                   >
                     Save
                   </button>
@@ -169,16 +169,16 @@ export function Sidebar({
                 setRenamingPage(settingsItem.id)
                 setRenameValue(settingsItem.label)
               }}
-              className={`flex w-full items-center justify-between rounded-2xl px-3 py-2.5 text-left text-sm font-medium transition ${
+              className={`flex w-full items-center justify-between rounded-2xl border px-3.5 py-3 text-left text-sm font-medium transition ${
                 currentPage === settingsItem.id
-                  ? 'bg-[#232323] text-white shadow-[0_8px_22px_rgba(0,0,0,0.16),inset_0_0_0_1px_rgba(255,255,255,0.035)]'
-                  : 'text-[#8F8F8F] hover:bg-[#1D1D1D] hover:text-[#E6E6E6]'
+                  ? 'theme-nav-item-active'
+                  : 'theme-nav-item border-transparent'
               }`}
             >
               <span className="min-w-0 truncate">{settingsItem.label}</span>
               <span
                 className={`h-1.5 w-1.5 shrink-0 rounded-full transition ${
-                  currentPage === settingsItem.id ? 'bg-glow opacity-100' : 'bg-white/20 opacity-0'
+                  currentPage === settingsItem.id ? 'bg-glow opacity-100' : 'bg-line opacity-0'
                 }`}
               />
             </button>
@@ -186,11 +186,11 @@ export function Sidebar({
         ) : null}
 
         {showBadHabitTracking ? (
-          <div className="space-y-3 rounded-3xl border border-[#2A2A2A] bg-[#181818] p-4">
+          <div className="theme-surface-soft space-y-3 rounded-3xl border p-4">
             {badHabitStreaks.map(({ habit, streak, startsToday, brokenToday }) => (
               <div key={habit.id}>
-                <p className="text-[11px] uppercase tracking-[0.22em] text-[#8D8D8D]">{getBadHabitStreakLabel(habit.name)}</p>
-                <p className="mt-2 text-2xl font-semibold text-white">
+                <p className="theme-text-faint text-[11px] uppercase tracking-[0.22em]">{getBadHabitStreakLabel(habit.name)}</p>
+                <p className="theme-text-primary mt-2 text-2xl font-semibold">
                   {startsToday ? 'Starts today' : brokenToday ? '0 days' : `${streak} days`}
                 </p>
               </div>

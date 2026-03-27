@@ -839,30 +839,30 @@ export function DashboardPage({
       ) : (
         <>
       <div className="grid gap-4">
-      <Card className="px-4 py-3.5">
-        <div className="flex flex-col gap-3.5">
+      <Card className="px-5 py-4.5">
+        <div className="flex flex-col gap-4">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0 flex flex-wrap items-end gap-x-5 gap-y-3">
               <div className="flex flex-wrap items-end gap-x-3 gap-y-1">
-                <p className="text-[11px] uppercase tracking-[0.22em] text-mist/60">This Week</p>
-                <span className="text-[13px] text-white/76">Week {currentWeek.weekNumber}/52</span>
-                <span className="text-[13px] text-mist/72">· {currentWeekRangeLabel}</span>
+                <p className="theme-section-title">This Week</p>
+                <span className="theme-metadata">Week {currentWeek.weekNumber}/52</span>
+                <span className="theme-metadata">· {currentWeekRangeLabel}</span>
               </div>
               <div className="flex items-center gap-2">
                 {compactWeekDays.map((day) => (
                   <div key={day.date} className="flex flex-col items-center gap-1">
-                    <span className="text-[10px] uppercase tracking-[0.18em] text-[#727272]">{day.label}</span>
+                    <span className="theme-metadata uppercase tracking-[0.18em]">{day.label}</span>
                     <span
                       className={`h-[10px] w-[22px] rounded-full border transition-colors ${
                         day.state === 'logged'
-                          ? 'border-[#4B4B4B] bg-[#4B4B4B]'
+                          ? 'border-[rgb(var(--theme-border-strong-rgb))] bg-[rgb(var(--theme-text-muted-rgb))]'
                           : day.state === 'current'
-                            ? 'border-[#78A7FF] bg-[#1B1F29]'
-                            : 'border-white/[0.06] bg-[#1D1D1D]'
+                            ? 'border-[rgb(var(--theme-info-rgb))] bg-[rgb(var(--theme-info-rgb)/0.12)]'
+                            : 'theme-border-subtle theme-inactive-tile'
                       }`}
                       style={
                         day.state === 'current'
-                          ? { boxShadow: 'inset 0 0 0 1px rgba(120,167,255,0.38)' }
+                          ? { boxShadow: 'inset 0 0 0 1px rgb(var(--theme-info-rgb) / 0.34)' }
                           : undefined
                       }
                     />
@@ -878,7 +878,7 @@ export function DashboardPage({
               >
                 Open week
               </Button>
-              <div className="group relative self-start rounded-full border border-white/[0.04] bg-white/[0.02] px-2.5 py-1.5">
+              <div className="theme-inner-section group relative self-start rounded-full px-2.5 py-1.5">
                 <div className="flex items-center gap-1.5">
                 {recentMoodDots.map((dot) => (
                   <span
@@ -890,7 +890,7 @@ export function DashboardPage({
                   />
                 ))}
                 </div>
-                <span className="pointer-events-none absolute right-0 top-[calc(100%+8px)] z-20 hidden whitespace-nowrap rounded-2xl border border-white/[0.08] bg-[#141414]/95 px-3 py-2 text-xs text-white/76 shadow-[0_18px_40px_rgba(0,0,0,0.35)] group-hover:block">
+                <span className="theme-chart-tooltip pointer-events-none absolute right-0 top-[calc(100%+8px)] z-20 hidden whitespace-nowrap rounded-2xl px-3 py-2 text-xs group-hover:block">
                   Last 7 days mood
                 </span>
               </div>
@@ -910,17 +910,17 @@ export function DashboardPage({
                 <StatPill className="min-w-[158px] rounded-[18px] px-2.5 py-1.5" label="Habit completion" value={`${weeklyHabitMetrics.completionPercent}%`} />
                 <StatPill className="min-w-[132px] rounded-[18px] px-2.5 py-1.5" label="Momentum" value={rollingMomentum.label} />
               </div>
-              <div className="mt-2.5">
-                <div className="max-w-[440px] rounded-[20px] bg-white/[0.02] px-3 py-2">
+              <div className="mt-3 space-y-2.5">
+                <div className="theme-inner-section max-w-[440px] rounded-[20px] px-3.5 py-3">
                   <div className="flex items-center justify-between gap-3">
                     <p className="text-[10px] uppercase tracking-[0.22em]" style={{ color: '#34D399' }}>Last win</p>
-                    <span className="text-[11px] text-mist/70">{lastBigWin?.dateLabel ?? ''}</span>
+                    <span className="theme-metadata">{lastBigWin?.dateLabel ?? ''}</span>
                   </div>
-                  <p className="mt-1.5 line-clamp-2 text-[13px] leading-5 text-white/56">
+                  <p className="theme-body-secondary mt-2 line-clamp-2">
                     {lastBigWin?.text || 'No win logged yet'}
                   </p>
                 </div>
-                <div className="mt-2.5 max-w-[440px] rounded-[20px] bg-white/[0.02] px-3 py-2">
+                <div className="theme-subtle-block max-w-[440px] rounded-[20px] border px-3.5 py-3">
                   <p className="text-[10px] uppercase tracking-[0.22em]" style={{ color: '#34D399' }}>Reminder for this week</p>
                   <div className="mt-1.5 h-[42px]" aria-hidden="true" />
                 </div>
@@ -928,29 +928,29 @@ export function DashboardPage({
             </div>
             <div className="min-w-0 xl:w-full xl:max-w-[620px] xl:justify-self-end">
               <div className="grid auto-rows-fr gap-2 sm:grid-cols-[minmax(0,1fr)_232px]">
-                <div className="min-w-0 rounded-[20px] bg-white/[0.02] px-3.5 py-2.5">
+                <div className="theme-inner-section min-w-0 rounded-[20px] px-3.5 py-3">
                   <p className="text-[10px] uppercase tracking-[0.24em]" style={{ color: '#34D399' }}>Habits completed this week</p>
                   <div className="mt-2.5 space-y-1.5">
                     {visibleWeeklyHabits.map((habit) => (
                       <div key={habit.id} className="grid grid-cols-[minmax(0,1fr)_112px_1px_34px] items-center gap-3 text-[15px] leading-6">
-                        <span className="min-w-0 truncate whitespace-nowrap text-white/70">{habit.title}</span>
+                        <span className="min-w-0 truncate whitespace-nowrap theme-text-secondary">{habit.title}</span>
                         <span className="grid grid-cols-7 justify-items-center gap-1">
                           {habit.weekDots.map((dot) => (
                             <span
                               key={dot.date}
                               className={`block h-[7px] w-[7px] rounded-full ${
                                 dot.state === 'completed'
-                                  ? 'bg-[#22C55E]'
+                                  ? 'bg-[rgb(var(--theme-heatmap-complete-rgb))]'
                                   : dot.state === 'inactive'
-                                    ? 'bg-white/[0.06]'
+                                    ? 'bg-[rgb(var(--theme-heatmap-inactive-rgb))]'
                                   : dot.state === 'future'
-                                    ? 'bg-[#4A4A4A]'
-                                    : 'bg-[#7A7A7A]'
+                                    ? 'bg-[rgb(var(--theme-text-faint-rgb))]'
+                                    : 'bg-[rgb(var(--theme-heatmap-empty-rgb))]'
                               }`}
                             />
                           ))}
                         </span>
-                        <span className="h-4 w-px bg-white/[0.08]" aria-hidden="true" />
+                        <span className="h-4 w-px bg-[rgb(var(--theme-border-subtle-rgb))]" aria-hidden="true" />
                         <span className="group relative shrink-0 text-right">
                           <span
                             className={`cursor-default text-[13px] tabular-nums ${getHabitStreakClassName(habit.streak)}`}
@@ -959,7 +959,7 @@ export function DashboardPage({
                           >
                             {habit.streak}d
                           </span>
-                          <span className="pointer-events-none absolute right-0 bottom-[calc(100%+8px)] z-20 hidden whitespace-nowrap rounded-2xl border border-white/[0.08] bg-[#141414]/95 px-3.5 py-2.5 text-[13px] text-white/76 shadow-[0_18px_40px_rgba(0,0,0,0.35)] group-hover:block">
+                          <span className="theme-chart-tooltip pointer-events-none absolute right-0 bottom-[calc(100%+8px)] z-20 hidden whitespace-nowrap rounded-2xl px-3.5 py-2.5 text-[13px] group-hover:block">
                             {habit.streak} day streak
                           </span>
                         </span>
@@ -967,15 +967,15 @@ export function DashboardPage({
                     ))}
                   </div>
                 </div>
-                <div className="min-w-0 sm:min-w-[232px] rounded-[20px] bg-white/[0.02] px-3.5 py-2.5 pr-4">
+                <div className="theme-inner-section min-w-0 sm:min-w-[232px] rounded-[20px] px-3.5 py-3 pr-4">
                   <p className="text-[10px] uppercase tracking-[0.24em]" style={{ color: '#34D399' }}>Active goals</p>
                   <div className="mt-2.5 space-y-1.5">
                     {visibleWeeklyGoals.length > 0 ? (
                       visibleWeeklyGoals.map((goal) => (
                         <div key={goal.id} className="grid grid-cols-[minmax(0,1fr)_72px] items-center gap-3 text-[15px] leading-6">
-                          <span className="min-w-0 flex-1 truncate whitespace-nowrap text-white/70">{goal.title}</span>
+                          <span className="min-w-0 flex-1 truncate whitespace-nowrap theme-text-secondary">{goal.title}</span>
                           <span className="flex shrink-0 items-center justify-end gap-1.5 text-right">
-                            <span className="tabular-nums text-white/34">{goal.percent}%</span>
+                            <span className="theme-metadata tabular-nums">{goal.percent}%</span>
                             <span
                               className={goal.percent >= 100 ? 'text-[#D6B25E]' : 'text-white/[0.2]'}
                               aria-hidden="true"
@@ -988,12 +988,12 @@ export function DashboardPage({
                         </div>
                       ))
                     ) : (
-                      <p className="text-[15px] text-white/34">No active goals</p>
+                      <p className="theme-body-secondary">No active goals</p>
                     )}
                   </div>
                 </div>
               </div>
-              {visibleWeeklyInsight ? <p className="mt-2.5 px-1 text-[14px] leading-6 text-white/68">{visibleWeeklyInsight}</p> : null}
+              {visibleWeeklyInsight ? <p className="theme-body-secondary mt-3 px-1">{visibleWeeklyInsight}</p> : null}
             </div>
           </div>
         </div>
@@ -1527,23 +1527,34 @@ export function DashboardPage({
             <p className="text-xs uppercase tracking-[0.22em] text-mist/70">Current signal</p>
             <div className="mt-4 flex items-start justify-between gap-4">
               <div>
-                <h3 className="text-2xl font-semibold text-white">{currentSignal.label}</h3>
+                <h3 className="text-2xl font-semibold theme-text-primary">{currentSignal.label}</h3>
                 <p className="mt-2 max-w-md text-sm text-mist">{currentSignal.copy}</p>
               </div>
-              <div className="rounded-2xl border border-white/6 bg-white/[0.03] px-3 py-2 text-right">
+              <div className="theme-surface-soft rounded-2xl border px-3 py-2 text-right">
                 <p className="text-xs uppercase tracking-[0.2em] text-mist/60">Momentum</p>
-                <p className="mt-2 text-sm font-semibold text-white">{currentSignal.momentumDirection}</p>
+                <p className="mt-2 text-sm font-semibold theme-text-primary">{currentSignal.momentumDirection}</p>
               </div>
             </div>
-            <div className="mt-4 h-32">
+            <div className="theme-chart-panel mt-4 h-32 rounded-[22px] border px-2 py-2">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={moodTrend}>
-                  <CartesianGrid stroke="#243247" vertical={false} />
-                  <XAxis dataKey="name" stroke="#93A4BD" fontSize={12} />
-                  <YAxis stroke="#93A4BD" fontSize={12} domain={[0, 5]} />
-                  <Tooltip />
-                  <Area type="monotone" dataKey="am" stroke="#89B5E3" fill="#89B5E322" />
-                  <Area type="monotone" dataKey="pm" stroke="#D7A6B3" fill="#D7A6B322" />
+                  <CartesianGrid stroke="rgb(var(--theme-chart-grid-rgb))" vertical={false} />
+                  <XAxis dataKey="name" stroke="rgb(var(--theme-chart-axis-rgb))" fontSize={12} tickLine={false} axisLine={false} />
+                  <YAxis stroke="rgb(var(--theme-chart-axis-rgb))" fontSize={12} domain={[0, 5]} tickLine={false} axisLine={false} />
+                  <Tooltip
+                    cursor={{ stroke: 'rgb(var(--theme-chart-grid-rgb))', strokeWidth: 1 }}
+                    contentStyle={{
+                      background: 'rgb(var(--theme-chart-tooltip-bg-rgb))',
+                      border: '1px solid rgb(var(--theme-chart-tooltip-border-rgb))',
+                      color: 'rgb(var(--theme-text-primary-rgb))',
+                      borderRadius: '18px',
+                      boxShadow: '0 16px 34px rgba(15, 23, 42, 0.16)',
+                    }}
+                    itemStyle={{ color: 'rgb(var(--theme-text-secondary-rgb))' }}
+                    labelStyle={{ color: 'rgb(var(--theme-text-primary-rgb))' }}
+                  />
+                  <Area type="monotone" dataKey="am" stroke="rgb(var(--theme-info-rgb))" fill="rgb(var(--theme-info-rgb) / 0.18)" />
+                  <Area type="monotone" dataKey="pm" stroke="rgb(var(--theme-warning-rgb))" fill="rgb(var(--theme-warning-rgb) / 0.18)" />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -2674,10 +2685,10 @@ function getLatestWinEntry(days: DayEntry[], weekStartDate: string, weekEndDate:
 }
 
 function getMomentumStatusPillClassName(label: RollingMomentumMetrics['label']) {
-  if (label === 'High Momentum') return 'border-[rgba(47,163,107,0.3)] bg-[rgba(47,163,107,0.12)] text-[#D8F7E8]'
-  if (label === 'Strong') return 'border-[rgba(95,143,78,0.28)] bg-[rgba(95,143,78,0.12)] text-[#E0F0DA]'
-  if (label === 'Building') return 'border-[rgba(217,164,65,0.28)] bg-[rgba(217,164,65,0.12)] text-[#F6E8C2]'
-  return 'border-[rgba(201,106,43,0.28)] bg-[rgba(201,106,43,0.12)] text-[#F4D6C0]'
+  if (label === 'High Momentum') return 'border-[rgb(var(--theme-accent-rgb)/0.3)] bg-[rgb(var(--theme-accent-rgb)/0.12)] theme-text-primary'
+  if (label === 'Strong') return 'border-[rgb(var(--theme-accent-rgb)/0.22)] bg-[rgb(var(--theme-accent-rgb)/0.1)] theme-text-secondary'
+  if (label === 'Building') return 'border-[rgb(var(--theme-warning-rgb)/0.28)] bg-[rgb(var(--theme-warning-rgb)/0.12)] theme-text-primary'
+  return 'border-[rgb(var(--theme-negative-rgb)/0.24)] bg-[rgb(var(--theme-negative-rgb)/0.1)] theme-text-primary'
 }
 
 function MomentumMicroMetric({
@@ -2693,15 +2704,15 @@ function MomentumMicroMetric({
 }) {
   const valueClassName =
     tone === 'positive'
-      ? 'text-[#D9F0E1]'
+      ? 'text-[rgb(var(--theme-accent-rgb))]'
       : tone === 'negative'
-        ? 'text-[#F0D0CB]'
-        : 'text-white/[0.94]'
+        ? 'text-[rgb(var(--theme-negative-rgb))]'
+        : 'theme-text-primary'
 
   return (
-    <div className="rounded-[18px] border border-white/[0.03] bg-white/[0.012] px-3 py-[9px]">
+    <div className="theme-surface-soft rounded-[18px] border px-3 py-[9px]">
       <div className="flex items-start justify-between gap-3">
-        <p className="text-[10px] uppercase tracking-[0.18em] text-white/62">{label}</p>
+        <p className="text-[10px] uppercase tracking-[0.18em] theme-text-faint">{label}</p>
         <MetricInfoTooltip text={tooltip} />
       </div>
       <p className={`mt-1.5 text-[15px] font-medium leading-none ${valueClassName}`}>{value}</p>
@@ -2712,10 +2723,10 @@ function MomentumMicroMetric({
 function MetricInfoTooltip({ text }: { text: string }) {
   return (
     <span className="group relative inline-flex">
-      <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/[0.06] text-[10px] text-white/32 transition hover:border-white/[0.1] hover:text-white/54">
+      <span className="theme-icon-button inline-flex h-4 w-4 items-center justify-center rounded-full border text-[10px] transition">
         i
       </span>
-      <span className="pointer-events-none absolute left-1/2 top-[calc(100%+8px)] z-20 hidden w-[220px] -translate-x-1/2 rounded-2xl border border-white/[0.08] bg-[#141414]/95 px-3 py-2 text-[11px] leading-5 text-white/76 shadow-[0_18px_40px_rgba(0,0,0,0.35)] group-hover:block">
+      <span className="theme-chart-tooltip pointer-events-none absolute left-1/2 top-[calc(100%+8px)] z-20 hidden w-[220px] -translate-x-1/2 rounded-2xl px-3 py-2 text-[11px] leading-5 group-hover:block">
         {text}
       </span>
     </span>
@@ -2733,7 +2744,7 @@ function MomentumRing({ score }: { score: number }) {
     <div className="flex shrink-0 flex-col items-center">
       <div className="relative flex h-[92px] w-[92px] items-center justify-center">
         <svg className="h-[90px] w-[90px] -rotate-90" viewBox="0 0 92 92" aria-hidden="true">
-          <circle cx="46" cy="46" r={radius} fill="none" stroke="rgba(255,255,255,0.07)" strokeWidth="8.25" />
+          <circle cx="46" cy="46" r={radius} fill="none" stroke="rgb(var(--theme-border-subtle-rgb))" strokeWidth="8.25" />
           <circle
             cx="46"
             cy="46"
@@ -2747,7 +2758,7 @@ function MomentumRing({ score }: { score: number }) {
           />
         </svg>
         <div className="absolute inset-0 flex items-center justify-center -translate-y-[1px]">
-          <span className="text-[20px] font-semibold tracking-[-0.02em] text-white">{progress}%</span>
+          <span className="text-[20px] font-semibold tracking-[-0.02em] theme-text-primary">{progress}%</span>
         </div>
       </div>
     </div>
@@ -2755,9 +2766,9 @@ function MomentumRing({ score }: { score: number }) {
 }
 
 function getMomentumRingColor(score: number) {
-  if (score < 40) return '#D7263D'
-  if (score < 70) return '#D9A441'
-  return '#2FA36B'
+  if (score < 40) return 'rgb(var(--theme-negative-rgb))'
+  if (score < 70) return 'rgb(var(--theme-warning-rgb))'
+  return 'rgb(var(--theme-accent-rgb))'
 }
 
 function getMomentumGuidance(metrics: RollingMomentumMetrics) {

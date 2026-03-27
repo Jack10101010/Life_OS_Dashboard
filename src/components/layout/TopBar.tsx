@@ -43,16 +43,16 @@ export function TopBar({ page, onOpenToday, sidebarCollapsed }: { page: PageId; 
   const [pushedToday, setPushedToday] = useState(false)
 
   return (
-    <div className="border-b border-[#222] py-5 sm:py-6">
+    <div className="theme-border-subtle border-b py-5 sm:py-6">
       <PageContainer width="wide" className={sidebarCollapsed ? 'lg:pl-16' : ''}>
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
-            <p className="text-xs uppercase tracking-[0.26em] text-[#8E8E8E]">Version 1</p>
-            <h2 className="mt-2 text-3xl font-semibold text-white">{labels[page]}</h2>
+            <p className="theme-label theme-text-faint">Version 1</p>
+            <h2 className="theme-page-title mt-2">{labels[page]}</h2>
             <p
-              className="mt-2 max-w-2xl text-[15px]"
+              className="theme-body-secondary mt-2 max-w-2xl"
               style={{
-                color: page === 'dashboard' ? '#FFFFFF' : '#A3A3A3',
+                color: page === 'dashboard' ? 'rgb(var(--theme-text-primary-rgb))' : 'rgb(var(--theme-text-muted-rgb))',
               }}
             >
               {descriptions[page]}
@@ -62,10 +62,10 @@ export function TopBar({ page, onOpenToday, sidebarCollapsed }: { page: PageId; 
             <button
               type="button"
               onClick={onOpenToday}
-              className="self-start rounded-2xl border border-[#2A2A2A] bg-[#171717] px-4 py-3 text-left shadow-[inset_0_0_0_1px_rgba(255,255,255,0.02)] transition hover:border-white/10 hover:bg-[#1D1D1D] lg:text-right"
+              className="theme-surface-elevated self-start rounded-2xl border px-4 py-3 text-left shadow-[inset_0_0_0_1px_rgba(255,255,255,0.02)] transition hover:border-white/10 lg:text-right"
             >
-              <p className="text-xs uppercase tracking-[0.22em] text-[#8E8E8E]">Today</p>
-              <p className="mt-2 text-sm font-semibold text-white">
+              <p className="theme-label theme-text-faint">Today</p>
+              <p className="theme-body-primary mt-2">
                 {new Date().toLocaleDateString('en-IE', {
                   weekday: 'short',
                   day: 'numeric',
@@ -80,8 +80,8 @@ export function TopBar({ page, onOpenToday, sidebarCollapsed }: { page: PageId; 
                 onClick={() => setPushedToday((current) => !current)}
                 className={`rounded-full border px-3 py-1.5 text-xs transition ${
                   pushedToday
-                    ? 'border-[#4FDC94]/18 bg-[#4FDC94]/10 text-[#CDEFD9] hover:border-[#4FDC94]/24 hover:bg-[#4FDC94]/12'
-                    : 'border-[#D9A26A]/18 bg-[#D9A26A]/10 text-[#E9C7A5] hover:border-[#D9A26A]/24 hover:bg-[#D9A26A]/12'
+                    ? 'border-[rgb(var(--theme-accent-rgb)/0.18)] bg-[rgb(var(--theme-accent-rgb)/0.10)] text-[rgb(var(--theme-accent-rgb))]'
+                    : 'border-[rgb(var(--theme-warning-rgb)/0.18)] bg-[rgb(var(--theme-warning-rgb)/0.10)] text-[rgb(var(--theme-warning-rgb))]'
                 }`}
               >
                 {pushedToday ? '✅ Synced today' : '⚠️ Not pushed today'}

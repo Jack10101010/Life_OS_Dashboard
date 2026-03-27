@@ -414,9 +414,9 @@ export function GoalsPage({
       <SectionCard className="space-y-5">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.24em] text-mist/70">Life goals</p>
-            <h2 className="mt-2 text-[30px] font-semibold leading-tight text-white">Meaningful work, kept visible</h2>
-            <p className="mt-2 max-w-[560px] text-sm leading-6 text-mist">
+            <p className="theme-section-title">Life goals</p>
+            <h2 className="theme-page-title mt-2">Meaningful work, kept visible</h2>
+            <p className="theme-body-secondary mt-2 max-w-[560px]">
               A focused planning layer for the goals that matter most, with one clear next move always in view.
             </p>
           </div>
@@ -503,13 +503,13 @@ export function GoalsPage({
         {lifeGoalComposerOpen ? (
           <div className="space-y-5">
             <div>
-              <p className="text-xs uppercase tracking-[0.24em] text-mist/70">New life goal</p>
-              <h3 className="mt-2 text-[28px] font-semibold leading-tight text-white">Create a serious goal, keep it simple</h3>
+              <p className="theme-section-title">New life goal</p>
+              <h3 className="theme-page-title mt-2">Create a serious goal, keep it simple</h3>
             </div>
 
             <div className="grid gap-4">
               <label className="space-y-2">
-                <span className="text-xs uppercase tracking-[0.18em] text-mist/70">Title</span>
+                <span className="theme-label">Title</span>
                 <input
                   value={lifeGoalDraft.title}
                   onChange={(event) => setLifeGoalDraft((current) => ({ ...current, title: event.target.value }))}
@@ -518,7 +518,7 @@ export function GoalsPage({
                 />
               </label>
               <label className="space-y-2">
-                <span className="text-xs uppercase tracking-[0.18em] text-mist/70">Why it matters</span>
+                <span className="theme-label">Why it matters</span>
                 <textarea
                   value={lifeGoalDraft.whyItMatters}
                   onChange={(event) => setLifeGoalDraft((current) => ({ ...current, whyItMatters: event.target.value }))}
@@ -528,7 +528,7 @@ export function GoalsPage({
               </label>
               <div className="grid gap-4 md:grid-cols-2">
                 <label className="space-y-2">
-                  <span className="text-xs uppercase tracking-[0.18em] text-mist/70">Next move</span>
+                  <span className="theme-label">Next move</span>
                   <input
                     value={lifeGoalDraft.nextMove}
                     onChange={(event) => setLifeGoalDraft((current) => ({ ...current, nextMove: event.target.value }))}
@@ -537,7 +537,7 @@ export function GoalsPage({
                   />
                 </label>
                 <label className="space-y-2">
-                  <span className="text-xs uppercase tracking-[0.18em] text-mist/70">Minimum version</span>
+                  <span className="theme-label">Minimum version</span>
                   <input
                     value={lifeGoalDraft.minimumVersion}
                     onChange={(event) => setLifeGoalDraft((current) => ({ ...current, minimumVersion: event.target.value }))}
@@ -548,7 +548,7 @@ export function GoalsPage({
               </div>
               <div className="grid gap-4 md:grid-cols-2">
                 <label className="space-y-2">
-                  <span className="text-xs uppercase tracking-[0.18em] text-mist/70">Target date</span>
+                  <span className="theme-label">Target date</span>
                   <input
                     type="date"
                     value={lifeGoalDraft.targetDate}
@@ -557,7 +557,7 @@ export function GoalsPage({
                   />
                 </label>
                 <label className="space-y-2">
-                  <span className="text-xs uppercase tracking-[0.18em] text-mist/70">Status</span>
+                  <span className="theme-label">Status</span>
                   <select
                     value={lifeGoalDraft.status}
                     onChange={(event) => setLifeGoalDraft((current) => ({ ...current, status: event.target.value as LifeGoalStatus }))}
@@ -570,7 +570,7 @@ export function GoalsPage({
                 </label>
               </div>
               <label className="space-y-2">
-                <span className="text-xs uppercase tracking-[0.18em] text-mist/70">If-Then plan</span>
+                <span className="theme-label">If-Then plan</span>
                 <textarea
                   value={lifeGoalDraft.ifThenPlan}
                   onChange={(event) => setLifeGoalDraft((current) => ({ ...current, ifThenPlan: event.target.value }))}
@@ -595,8 +595,8 @@ export function GoalsPage({
           <div className="space-y-5">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
-                <p className="text-xs uppercase tracking-[0.24em] text-mist/70">Selected goal</p>
-                <h3 className="mt-2 text-[30px] font-semibold leading-tight text-white">{selectedLifeGoal.title}</h3>
+                <p className="theme-section-title">Selected goal</p>
+                <h3 className="theme-page-title mt-2">{selectedLifeGoal.title}</h3>
                 {getLifeGoalAnchorText(selectedLifeGoal.whyItMatters) ? (
                   <p className="mt-2 max-w-[640px] text-sm leading-6 text-white/62">
                     {getLifeGoalAnchorText(selectedLifeGoal.whyItMatters)}
@@ -1189,12 +1189,12 @@ export function GoalsPage({
     <div className="space-y-5">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h2 className="text-[36px] font-semibold tracking-[-0.02em] text-white">Serious goals, cleanly separated</h2>
-          <p className="mt-3 max-w-[720px] text-sm leading-6 text-mist">
+          <h2 className="text-[36px] font-semibold tracking-[-0.02em] theme-text-primary">Serious goals, cleanly separated</h2>
+          <p className="mt-3 max-w-[720px] text-sm leading-6 theme-text-muted">
             Life Goals stay focused on meaningful direction and next moves. Habit Goals stay available as a separate tracking layer.
           </p>
         </div>
-        <div className="inline-flex rounded-full border border-white/[0.06] bg-white/[0.025] p-1">
+        <div className="theme-surface-soft inline-flex rounded-full border p-1">
           {([
             ['life', 'Life Goals'],
             ['habit', 'Habit Goals'],
@@ -1204,7 +1204,9 @@ export function GoalsPage({
               type="button"
               onClick={() => setActiveTab(tabId)}
               className={`rounded-full px-4 py-2 text-sm font-medium transition ${
-                activeTab === tabId ? 'bg-white/[0.09] text-white' : 'text-mist hover:text-white/84'
+                activeTab === tabId
+                  ? 'theme-button-secondary'
+                  : 'theme-text-muted hover:text-[rgb(var(--theme-text-primary-rgb))]'
               }`}
             >
               {label}

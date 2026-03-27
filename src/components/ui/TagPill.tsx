@@ -18,16 +18,17 @@ export function TagPill({
   const neutral = tag.polarity === 'neutral'
   const activeClass = negative
     ? selected
-      ? 'border-[rgba(239,68,68,0.42)] bg-[rgba(239,68,68,0.18)] text-[#FFF1EE]'
-      : 'border-[rgba(239,68,68,0.28)] bg-[rgba(239,68,68,0.11)] text-[#F3D7D4]'
+      ? 'border-[rgb(var(--theme-negative-rgb)/0.42)] bg-[rgb(var(--theme-negative-rgb)/0.18)] theme-text-primary'
+      : 'border-[rgb(var(--theme-negative-rgb)/0.28)] bg-[rgb(var(--theme-negative-rgb)/0.11)] theme-text-secondary'
     : neutral
       ? selected
-        ? 'border-[rgba(96,165,250,0.46)] bg-[rgba(96,165,250,0.18)] text-[#EAF3FF]'
-        : 'border-[rgba(96,165,250,0.3)] bg-[rgba(96,165,250,0.1)] text-[#BFDBFE]'
+        ? 'border-[rgb(var(--theme-info-rgb)/0.46)] bg-[rgb(var(--theme-info-rgb)/0.18)] theme-text-primary'
+        : 'border-[rgb(var(--theme-info-rgb)/0.3)] bg-[rgb(var(--theme-info-rgb)/0.1)] theme-text-secondary'
       : selected
-        ? 'border-[rgba(34,197,94,0.62)] bg-[rgba(34,197,94,0.28)] text-[#F4FFF7]'
-        : 'border-[rgba(34,197,94,0.42)] bg-[rgba(34,197,94,0.18)] text-[#E4FBEA]'
-  const inactiveClass = 'border-[#343434] bg-[#202020] text-[#C8C8C8] hover:border-[#3A3A3A] hover:bg-[#222222]'
+        ? 'border-[rgb(var(--theme-accent-rgb)/0.62)] bg-[rgb(var(--theme-accent-rgb)/0.28)] theme-text-primary'
+        : 'border-[rgb(var(--theme-accent-rgb)/0.42)] bg-[rgb(var(--theme-accent-rgb)/0.18)] theme-text-secondary'
+  const inactiveClass =
+    'theme-border-subtle theme-surface-soft theme-text-muted hover:theme-border-strong hover:theme-text-primary'
 
   return (
     <span

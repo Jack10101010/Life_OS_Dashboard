@@ -2130,7 +2130,7 @@ export function DayDrawer({
                     }))
                   }
                   placeholder="One thing that went well"
-                  className="w-full rounded-2xl border border-white/[0.06] bg-[#171717] px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-mist/50 focus:border-white/[0.12] focus:bg-[#1B1B1B]"
+                  className="theme-input w-full rounded-2xl border px-3 py-2.5 text-sm outline-none transition placeholder:text-mist/50"
                   style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)' }}
                 />
               </div>
@@ -2144,17 +2144,23 @@ export function DayDrawer({
 
         <div ref={eveningSectionRef}>
         <Card
-          className="bg-[#121212] p-5 transition duration-150 ease-out"
+          className="p-5 transition duration-150 ease-out"
           style={{
-            backgroundColor: reflectionFocused ? '#141414' : '#121212',
-            borderColor: reflectionFocused || eveningExpanded ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.035)',
-            backgroundImage: 'linear-gradient(180deg, rgba(255,255,255,0.014) 0%, rgba(255,255,255,0.006) 22%, rgba(255,255,255,0) 100%)',
+            backgroundColor: reflectionFocused
+              ? 'rgb(var(--theme-surface-elevated-rgb))'
+              : 'rgb(var(--theme-surface-rgb))',
+            borderColor:
+              reflectionFocused || eveningExpanded
+                ? 'rgb(var(--theme-border-strong-rgb))'
+                : 'rgb(var(--theme-border-subtle-rgb))',
+            backgroundImage:
+              'linear-gradient(180deg, rgb(var(--theme-text-primary-rgb) / 0.02) 0%, rgb(var(--theme-text-primary-rgb) / 0.008) 22%, transparent 100%)',
             boxShadow:
               activeScrollSection === 'evening'
-                ? '0 0 0 1px rgba(255,255,255,0.03), 0 18px 38px rgba(0,0,0,0.16)'
+                ? '0 0 0 1px rgb(var(--theme-border-strong-rgb) / 0.45), 0 18px 38px rgba(15,23,42,0.14)'
                 : reflectionFocused
-                  ? '0 0 0 1px rgba(255,255,255,0.03), 0 16px 36px rgba(0,0,0,0.14)'
-                  : '0 16px 36px rgba(0,0,0,0.14)',
+                  ? '0 0 0 1px rgb(var(--theme-border-strong-rgb) / 0.45), 0 16px 36px rgba(15,23,42,0.12)'
+                  : '0 16px 36px rgba(15,23,42,0.12)',
             filter: activeScrollSection === 'evening' ? 'brightness(1.018)' : undefined,
           }}
         >
@@ -2524,9 +2530,9 @@ export function DayDrawer({
 
       {showDeleteConfirm ? (
         <>
-          <div className="fixed inset-0 z-40 bg-black/40" onClick={() => setShowDeleteConfirm(false)} />
-          <div className="fixed left-1/2 top-1/2 z-50 w-[min(420px,88vw)] -translate-x-1/2 -translate-y-1/2 rounded-[28px] border border-[#2B2B2B] bg-[#111111] p-5 shadow-[0_24px_70px_rgba(0,0,0,0.55)]">
-            <h4 className="text-xl font-semibold text-white">Clear today&apos;s data?</h4>
+          <div className="theme-overlay fixed inset-0 z-40" onClick={() => setShowDeleteConfirm(false)} />
+          <div className="theme-popover fixed left-1/2 top-1/2 z-50 w-[min(420px,88vw)] -translate-x-1/2 -translate-y-1/2 rounded-[28px] border p-5 shadow-[0_24px_70px_rgba(15,23,42,0.18)]">
+            <h4 className="text-xl font-semibold theme-text-primary">Clear today&apos;s data?</h4>
             <p className="mt-2 text-sm leading-6 text-mist">
               This will remove your mood, habits, notes, signals, and medications for today.
             </p>
@@ -2550,9 +2556,9 @@ export function DayDrawer({
 
       {pendingSectionRemoval ? (
         <>
-          <div className="fixed inset-0 z-[55] bg-black/40" onClick={() => setPendingSectionRemoval(null)} />
-          <div className="fixed left-1/2 top-1/2 z-[60] w-[min(420px,88vw)] -translate-x-1/2 -translate-y-1/2 rounded-[28px] border border-[#2B2B2B] bg-[#111111] p-5 shadow-[0_24px_70px_rgba(0,0,0,0.55)]">
-            <h4 className="text-xl font-semibold text-white">Delete this tag entirely?</h4>
+          <div className="theme-overlay fixed inset-0 z-[55]" onClick={() => setPendingSectionRemoval(null)} />
+          <div className="theme-popover fixed left-1/2 top-1/2 z-[60] w-[min(420px,88vw)] -translate-x-1/2 -translate-y-1/2 rounded-[28px] border p-5 shadow-[0_24px_70px_rgba(15,23,42,0.18)]">
+            <h4 className="text-xl font-semibold theme-text-primary">Delete this tag entirely?</h4>
             <p className="mt-2 text-sm leading-6 text-mist">
               Removing this tag from {getDayLogSectionLabel(pendingSectionRemoval.section)} would leave it with no section
               availability. Delete the tag entirely instead? Past entries will remain unchanged.
@@ -2576,9 +2582,9 @@ export function DayDrawer({
 
       {pendingTagDeleteId ? (
         <>
-          <div className="fixed inset-0 z-[55] bg-black/40" onClick={() => setPendingTagDeleteId(null)} />
-          <div className="fixed left-1/2 top-1/2 z-[60] w-[min(420px,88vw)] -translate-x-1/2 -translate-y-1/2 rounded-[28px] border border-[#2B2B2B] bg-[#111111] p-5 shadow-[0_24px_70px_rgba(0,0,0,0.55)]">
-            <h4 className="text-xl font-semibold text-white">Delete this tag?</h4>
+          <div className="theme-overlay fixed inset-0 z-[55]" onClick={() => setPendingTagDeleteId(null)} />
+          <div className="theme-popover fixed left-1/2 top-1/2 z-[60] w-[min(420px,88vw)] -translate-x-1/2 -translate-y-1/2 rounded-[28px] border p-5 shadow-[0_24px_70px_rgba(15,23,42,0.18)]">
+            <h4 className="text-xl font-semibold theme-text-primary">Delete this tag?</h4>
             <p className="mt-2 text-sm leading-6 text-mist">
               Delete this tag from your tag library? Past entries will remain unchanged.
             </p>
@@ -2601,17 +2607,17 @@ export function DayDrawer({
 
       {managingTags ? (
         <>
-          <div className="fixed inset-0 z-40 bg-black/40" onClick={() => setManagingTags(false)} />
-          <div className="fixed left-1/2 top-1/2 z-50 flex max-h-[82vh] w-[min(520px,92vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[28px] border border-[#2B2B2B] bg-[#111111] p-5 shadow-[0_24px_70px_rgba(0,0,0,0.55)]">
-            <div className="sticky top-0 z-10 flex items-start justify-between gap-4 bg-[#111111] pb-4">
+          <div className="theme-overlay fixed inset-0 z-40" onClick={() => setManagingTags(false)} />
+          <div className="theme-popover fixed left-1/2 top-1/2 z-50 flex max-h-[82vh] w-[min(520px,92vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[28px] border p-5 shadow-[0_24px_70px_rgba(15,23,42,0.18)]">
+            <div className="theme-popover sticky top-0 z-10 flex items-start justify-between gap-4 pb-4">
               <div>
-                <h4 className="text-xl font-semibold text-white">Manage tags</h4>
+                <h4 className="text-xl font-semibold theme-text-primary">Manage tags</h4>
                 <p className="mt-2 text-sm leading-6 text-mist">Rename, classify, or archive custom tags without affecting past entries.</p>
               </div>
               <button
                 type="button"
                 onClick={() => setManagingTags(false)}
-                className="text-sm text-mist transition hover:text-white"
+                className="text-sm theme-text-muted transition hover:text-[rgb(var(--theme-text-primary-rgb))]"
               >
                 Close
               </button>
@@ -3309,37 +3315,37 @@ function TimePickerField({
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
-        className="flex w-full items-center justify-between rounded-2xl border border-white/[0.08] bg-[#1A1A1A] px-3 py-2.5 text-sm text-white outline-none transition hover:border-white/[0.12] hover:bg-[#202020]"
+        className="theme-input flex w-full items-center justify-between rounded-2xl border px-3 py-2.5 text-sm outline-none transition hover:border-[rgb(var(--theme-border-strong-rgb))] hover:bg-[rgb(var(--theme-surface-elevated-rgb))]"
         style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)' }}
       >
-        <span className={value ? 'text-white' : 'text-mist/45'}>{value || placeholder}</span>
-        <span className="text-white/45">▾</span>
+        <span className={value ? 'theme-text-primary' : 'theme-text-faint'}>{value || placeholder}</span>
+        <span className="theme-text-faint">▾</span>
       </button>
 
       {open && panelPosition && typeof document !== 'undefined'
         ? createPortal(
         <div
           ref={panelRef}
-          className="fixed z-[80] rounded-[22px] border border-white/[0.08] bg-[#111111] p-3 shadow-[0_18px_42px_rgba(0,0,0,0.38)] opacity-100 translate-y-0 transition duration-200 ease-out"
+          className="theme-popover fixed z-[80] rounded-[22px] border p-3 opacity-100 translate-y-0 transition duration-200 ease-out"
           style={{
             top: `${panelPosition.top}px`,
             left: `${panelPosition.left}px`,
             width: `${panelPosition.width}px`,
-            boxShadow: '0 20px 46px rgba(0,0,0,0.38)',
+            boxShadow: '0 20px 46px rgba(15,23,42,0.18)',
             animation: 'time-picker-pop 180ms ease-out',
           }}
         >
           <div
-            className="pointer-events-none absolute left-6 top-0 h-3 w-3 -translate-y-1/2 rotate-45 border-l border-t border-white/[0.08] bg-[#111111]"
+            className="theme-popover pointer-events-none absolute left-6 top-0 h-3 w-3 -translate-y-1/2 rotate-45 border-l border-t"
             aria-hidden="true"
           />
           <div className="grid grid-cols-2 gap-2">
-            <div className="rounded-[18px] border border-white/[0.06] bg-[#171717] p-2">
-              <p className="mb-2 px-1 text-[10px] uppercase tracking-[0.18em] text-mist/60">Hour</p>
+            <div className="theme-surface-soft rounded-[18px] border p-2">
+              <p className="mb-2 px-1 text-[10px] uppercase tracking-[0.18em] theme-text-faint">Hour</p>
               <div className="relative">
-                <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-6 bg-gradient-to-b from-[#171717] to-transparent" />
-                <div className="pointer-events-none absolute inset-x-0 top-1/2 z-10 h-9 -translate-y-1/2 rounded-xl border border-white/[0.08] bg-white/[0.04]" />
-                <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-6 bg-gradient-to-t from-[#171717] to-transparent" />
+                <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-6 bg-gradient-to-b from-[rgb(var(--theme-surface-soft-rgb))] to-transparent" />
+                <div className="theme-surface-elevated pointer-events-none absolute inset-x-0 top-1/2 z-10 h-9 -translate-y-1/2 rounded-xl border" />
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-6 bg-gradient-to-t from-[rgb(var(--theme-surface-soft-rgb))] to-transparent" />
                 <div
                   ref={hourListRef}
                   onScroll={updateHourCenterIndex}
@@ -3361,7 +3367,7 @@ function TimePickerField({
                         onClick={() => onChange(`${option}:${minute}`)}
                         data-hour={option}
                         className={`block h-10 w-full snap-center rounded-xl px-2 text-sm transition ${
-                          centered ? 'text-white' : 'text-white/55 hover:text-white/76'
+                          centered ? 'theme-text-primary' : 'theme-text-muted hover:text-[rgb(var(--theme-text-primary-rgb))]'
                         }`}
                         style={{
                           transform: `translateY(${translateY}px) scale(${centered ? Math.max(scale, 1.08) : scale})`,
@@ -3378,8 +3384,8 @@ function TimePickerField({
                 </div>
               </div>
             </div>
-            <div className="rounded-[18px] border border-white/[0.06] bg-[#171717] p-2">
-              <p className="mb-2 px-1 text-[10px] uppercase tracking-[0.18em] text-mist/60">Minute</p>
+            <div className="theme-surface-soft rounded-[18px] border p-2">
+              <p className="mb-2 px-1 text-[10px] uppercase tracking-[0.18em] theme-text-faint">Minute</p>
               <div className="grid max-h-48 grid-cols-2 gap-1 overflow-y-auto overscroll-contain pr-1">
                 {Array.from({ length: 12 }, (_, index) => String(index * 5).padStart(2, '0')).map((option) => (
                   <button
@@ -3387,7 +3393,9 @@ function TimePickerField({
                     type="button"
                     onClick={() => onChange(`${hour}:${option}`)}
                     className={`rounded-xl px-2 py-1.5 text-xs transition ${
-                      option === minute ? 'bg-white text-black' : 'bg-white/[0.04] text-mist hover:bg-white/[0.08] hover:text-white'
+                      option === minute
+                        ? 'theme-button-primary'
+                        : 'theme-surface-elevated theme-text-muted hover:bg-[rgb(var(--theme-surface-rgb))] hover:text-[rgb(var(--theme-text-primary-rgb))]'
                     }`}
                   >
                     {option}
@@ -3400,14 +3408,14 @@ function TimePickerField({
             <button
               type="button"
               onClick={() => onChange('')}
-              className="text-xs font-medium text-white/58 transition hover:text-white/78"
+              className="text-xs font-medium theme-text-muted transition hover:text-[rgb(var(--theme-text-primary-rgb))]"
             >
               Clear
             </button>
             <button
               type="button"
               onClick={() => setOpen(false)}
-              className="text-xs font-medium text-white/58 transition hover:text-white/78"
+              className="text-xs font-medium theme-text-muted transition hover:text-[rgb(var(--theme-text-primary-rgb))]"
             >
               Done
             </button>
@@ -3425,15 +3433,13 @@ function SectionHeader({ title, description, major = false }: { title: string; d
       <p
         className={
           major
-            ? 'text-[13px] font-semibold uppercase tracking-[0.16em] text-white/88'
-            : dailyLogSubsectionLabelClassName
+            ? 'theme-section-title theme-text-primary'
+            : 'theme-label'
         }
       >
         {title}
       </p>
-      {description ? (
-        <p className={major ? 'max-w-2xl text-[15px] leading-7 text-mist' : 'text-sm leading-6 text-mist'}>{description}</p>
-      ) : null}
+      {description ? <p className={major ? 'theme-body-primary max-w-2xl' : 'theme-body-secondary'}>{description}</p> : null}
     </div>
   )
 }

@@ -366,7 +366,7 @@ export interface TrackerFilters {
 }
 
 export interface SettingsState {
-  theme: 'dark' | 'cyberpunk'
+  theme: 'dark' | 'light'
   startDayOfWeek: 'monday' | 'sunday'
   defaultColorMode: ColorMode
   moodLabels: string[]

@@ -40,11 +40,11 @@ export function HabitTrackerTooltip({
 
   return (
     <div
-      className="pointer-events-none absolute z-[140] w-[220px] rounded-2xl border border-[#3A3A3A] bg-[#1B1B1B] px-3.5 py-3 text-left text-white shadow-[0_18px_40px_rgba(0,0,0,0.38)]"
+      className="theme-tooltip pointer-events-none absolute z-[140] w-[220px] rounded-2xl border px-3.5 py-3 text-left shadow-[0_18px_40px_rgba(15,23,42,0.18)]"
       style={{ left, top }}
     >
       <span
-        className="absolute h-3 w-3 rotate-45 border-[#3A3A3A] bg-[#1B1B1B]"
+        className="theme-tooltip absolute h-3 w-3 rotate-45 border"
         style={{
           top: arrowTop,
           [arrowSide]: -6,
@@ -55,14 +55,14 @@ export function HabitTrackerTooltip({
           borderStyle: 'solid',
         }}
       />
-      <p className="text-[12px] font-semibold text-white">{title}</p>
-      <p className="mt-1 text-[10px] text-[#B9B9B9]">{formatDate(date)}</p>
-      <p className="mt-1.5 text-[13px] font-semibold text-white">{status}</p>
-      {streak && streak > 0 ? <p className="mt-1 text-[11px] text-[#C8C8C8]">Streak: {streak} day{streak === 1 ? '' : 's'}</p> : null}
+      <p className="text-[12px] font-semibold theme-text-primary">{title}</p>
+      <p className="mt-1 text-[10px] theme-text-faint">{formatDate(date)}</p>
+      <p className="mt-1.5 text-[13px] font-semibold theme-text-primary">{status}</p>
+      {streak && streak > 0 ? <p className="mt-1 text-[11px] theme-text-secondary">Streak: {streak} day{streak === 1 ? '' : 's'}</p> : null}
       {occurredBadHabits.length > 0 ? (
-        <p className="mt-1 text-[11px] text-[#C8C8C8]">Bad habits: {occurredBadHabits.map((habit) => habit.name).join(', ')}</p>
+        <p className="mt-1 text-[11px] theme-text-secondary">Bad habits: {occurredBadHabits.map((habit) => habit.name).join(', ')}</p>
       ) : null}
-      {preview ? <p className="mt-1 text-[11px] leading-4 text-[#AEAEAE]">{preview}</p> : null}
+      {preview ? <p className="mt-1 text-[11px] leading-4 theme-text-muted">{preview}</p> : null}
     </div>
   )
 }

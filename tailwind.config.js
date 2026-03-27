@@ -4,16 +4,16 @@ export default {
   theme: {
     extend: {
       colors: {
-        ink: '#080808',
-        panel: '#171717',
-        panelSoft: '#212121',
-        line: '#2E2E2E',
-        mist: '#A3A3A3',
-        glow: '#17C964',
-        rose: '#FF3B30',
-        sand: '#FF9F0A',
-        sky: '#F5F5F2',
-        amberMuted: '#FF9F0A',
+        ink: 'rgb(var(--theme-app-bg-rgb) / <alpha-value>)',
+        panel: 'rgb(var(--theme-surface-rgb) / <alpha-value>)',
+        panelSoft: 'rgb(var(--theme-surface-soft-rgb) / <alpha-value>)',
+        line: 'rgb(var(--theme-border-subtle-rgb) / <alpha-value>)',
+        mist: 'rgb(var(--theme-text-muted-rgb) / <alpha-value>)',
+        glow: 'rgb(var(--theme-accent-rgb) / <alpha-value>)',
+        rose: 'rgb(var(--theme-negative-rgb) / <alpha-value>)',
+        sand: 'rgb(var(--theme-warning-rgb) / <alpha-value>)',
+        sky: 'rgb(var(--theme-text-primary-rgb) / <alpha-value>)',
+        amberMuted: 'rgb(var(--theme-warning-rgb) / <alpha-value>)',
       },
       fontFamily: {
         sans: ['"Manrope"', 'ui-sans-serif', 'system-ui'],

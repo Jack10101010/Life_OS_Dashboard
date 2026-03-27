@@ -65,9 +65,9 @@ function getNextWeekAdjustments(week: WeekEntry, days: DayEntry[]) {
 }
 
 function getWeeklyBarColor(score: number) {
-  if (score >= 70) return '#2FA36B'
-  if (score > 30) return '#D9A441'
-  return '#D7263D'
+  if (score >= 70) return 'rgb(var(--theme-accent-rgb))'
+  if (score > 30) return 'rgb(var(--theme-warning-rgb))'
+  return 'rgb(var(--theme-negative-rgb))'
 }
 
 function getWeeklyBarValue(day: DayEntry) {
@@ -120,15 +120,15 @@ export function WeekDrawer({
       title="Weekly Review"
       description={getWeeklyReviewSummary(week, days)}
       headerActions={
-        <div className="rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-sm text-white/78">
+        <div className="theme-muted-pill rounded-full border px-3 py-1.5 text-sm">
           Score {week.weeklyScore}
         </div>
       }
     >
       <div className="space-y-5">
-        <Card className="bg-[#121212] p-4">
+        <Card className="p-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.22em] text-mist/70">Week at a glance</p>
+            <p className="theme-section-title">Week at a glance</p>
             <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
               <Status label="Mood avg" value={week.loggedDaysCount > 0 ? week.moodAverage.toFixed(1) : '-'} />
               <Status label="Habit completion" value={`${week.habitCompletionPercent}%`} />
@@ -138,18 +138,18 @@ export function WeekDrawer({
           </div>
         </Card>
 
-        <Card className="bg-[#121212] p-4">
+        <Card className="p-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.22em] text-mist/70">Weekly takeaway</p>
-            <p className="mt-3 max-w-[760px] text-sm leading-7 text-white/82">{getWeeklyTakeaway(week, days)}</p>
+            <p className="theme-section-title">Weekly takeaway</p>
+            <p className="theme-body-secondary mt-3 max-w-[760px]">{getWeeklyTakeaway(week, days)}</p>
           </div>
         </Card>
 
-        <Card className="space-y-3 bg-[#121212] p-4">
+        <Card className="space-y-3 p-4">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-xs uppercase tracking-[0.22em] text-mist/70">Daily breakdown</p>
-              <p className="mt-1 text-sm text-mist">A lighter read on how the week actually unfolded day by day.</p>
+              <p className="theme-section-title">Daily breakdown</p>
+              <p className="theme-body-secondary mt-1">A lighter read on how the week actually unfolded day by day.</p>
             </div>
           </div>
           <div className="divide-y divide-white/[0.05]">
@@ -161,10 +161,10 @@ export function WeekDrawer({
               >
                 <div className={`grid items-center gap-3 ${showBadHabitTracking ? 'grid-cols-[1.15fr_0.7fr_0.8fr_0.9fr_0.7fr]' : 'grid-cols-[1.2fr_0.8fr_0.9fr_1fr]'}`}>
                   <div>
-                    <p className="text-sm font-semibold text-white">
+                    <p className="theme-body-primary">
                       {new Date(day.date).toLocaleDateString('en-IE', { weekday: 'long' })}
                     </p>
-                    <p className="text-xs text-mist">{new Date(day.date).toLocaleDateString('en-IE', { day: 'numeric', month: 'short' })}</p>
+                    <p className="theme-metadata">{new Date(day.date).toLocaleDateString('en-IE', { day: 'numeric', month: 'short' })}</p>
                   </div>
                   <RowMetric label="Score" value={`${day.score}`} />
                   <RowMetric label="Mood" value={`${day.morningMood}/${day.eveningMood}`} />
@@ -176,29 +176,29 @@ export function WeekDrawer({
           </div>
         </Card>
 
-        <Card className="space-y-3 bg-[#121212] p-4">
-            <p className="text-xs uppercase tracking-[0.22em] text-mist/70">Weekly notes</p>
-            <div className="space-y-3 text-sm text-mist">
-            <p><span className="font-semibold text-white">Reflection:</span> {week.reflection || 'No weekly reflection yet.'}</p>
-            <p><span className="font-semibold text-white">What went well:</span> {week.whatWentWell || 'No notes yet.'}</p>
-            <p><span className="font-semibold text-white">What slipped:</span> {week.whatSlipped || 'No notes yet.'}</p>
-            <p><span className="font-semibold text-white">Big win:</span> {week.bigWin || 'No big win logged.'}</p>
+        <Card className="space-y-3 p-4">
+            <p className="theme-section-title">Weekly notes</p>
+            <div className="theme-body-secondary space-y-3">
+            <p><span className="font-semibold theme-text-primary">Reflection:</span> {week.reflection || 'No weekly reflection yet.'}</p>
+            <p><span className="font-semibold theme-text-primary">What went well:</span> {week.whatWentWell || 'No notes yet.'}</p>
+            <p><span className="font-semibold theme-text-primary">What slipped:</span> {week.whatSlipped || 'No notes yet.'}</p>
+            <p><span className="font-semibold theme-text-primary">Big win:</span> {week.bigWin || 'No big win logged.'}</p>
             </div>
           </Card>
 
-        <Card className="space-y-3 bg-[#121212] p-4">
-          <p className="text-xs uppercase tracking-[0.22em] text-mist/70">Next week</p>
+        <Card className="space-y-3 p-4">
+          <p className="theme-section-title">Next week</p>
           <div className="space-y-2.5">
             {getNextWeekAdjustments(week, days).map((item, index) => (
-              <p key={index} className="text-sm leading-6 text-white/78">
+              <p key={index} className="theme-body-secondary">
                 {index + 1}. {item}
               </p>
             ))}
           </div>
         </Card>
 
-        <Card className="space-y-3 bg-[#121212] p-4">
-          <p className="text-xs uppercase tracking-[0.22em] text-mist/70">Tags</p>
+        <Card className="space-y-3 p-4">
+          <p className="theme-section-title">Tags</p>
           <div className="flex flex-wrap gap-2">
             {week.tags.map((tagId) => {
               const tag = tags.find((item) => item.id === tagId)
@@ -207,18 +207,18 @@ export function WeekDrawer({
           </div>
         </Card>
 
-        <Card className="space-y-4 bg-[#121212] p-4">
+        <Card className="space-y-4 p-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.22em] text-mist/70">Weekly pattern</p>
-            <p className="mt-1 text-sm text-mist">This shows daily performance based on habit completion this week.</p>
+            <p className="theme-section-title">Weekly pattern</p>
+            <p className="theme-body-secondary mt-1">This shows daily performance based on habit completion this week.</p>
           </div>
           {hasWeeklyPatternData ? (
-            <div className="h-[220px] rounded-[22px] bg-white/[0.015] px-2 pb-3 pt-2">
+            <div className="theme-chart-panel h-[220px] rounded-[22px] border px-2 pb-3 pt-2">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={chartData} barCategoryGap={14} margin={{ top: 10, right: 8, left: 0, bottom: 14 }}>
                   <XAxis
                     dataKey="name"
-                    stroke="#8F8F8F"
+                    stroke="rgb(var(--theme-chart-axis-rgb))"
                     fontSize={12}
                     tickLine={false}
                     axisLine={false}
@@ -226,7 +226,7 @@ export function WeekDrawer({
                   />
                   <YAxis hide domain={[0, 100]} />
                   <Tooltip
-                    cursor={{ fill: 'rgba(255,255,255,0.03)' }}
+                    cursor={{ fill: 'rgb(var(--theme-surface-soft-rgb) / 0.42)' }}
                     content={({ active, payload }) => {
                       if (!active || !payload?.length) return null
                       const point = payload[0]?.payload as
@@ -235,12 +235,12 @@ export function WeekDrawer({
                       if (!point || !point.hasData) return null
 
                       return (
-                        <div className="rounded-2xl border border-white/[0.08] bg-[#141414] px-3 py-2.5 shadow-[0_14px_30px_rgba(0,0,0,0.35)]">
-                          <p className="text-sm font-semibold text-white">{point.dayName}</p>
-                          <div className="mt-2 space-y-1 text-xs text-white/72">
-                            <p>Score: <span className="text-white">{point.score}</span></p>
-                            <p>Habits: <span className="text-white">{point.habits}</span></p>
-                            <p>Mood: <span className="text-white">{point.mood}</span></p>
+                        <div className="theme-chart-tooltip rounded-2xl px-3 py-2.5">
+                          <p className="text-sm font-semibold theme-text-primary">{point.dayName}</p>
+                          <div className="mt-2 space-y-1 text-xs theme-text-secondary">
+                            <p>Score: <span className="theme-text-primary">{point.score}</span></p>
+                            <p>Habits: <span className="theme-text-primary">{point.habits}</span></p>
+                            <p>Mood: <span className="theme-text-primary">{point.mood}</span></p>
                           </div>
                         </div>
                       )
@@ -255,7 +255,7 @@ export function WeekDrawer({
               </ResponsiveContainer>
             </div>
           ) : (
-            <p className="rounded-2xl border border-white/[0.06] bg-white/[0.02] px-4 py-4 text-sm text-mist">
+            <p className="theme-chart-panel rounded-2xl border px-4 py-4 text-sm theme-text-muted">
               No data available yet for this week
             </p>
           )}
@@ -267,9 +267,9 @@ export function WeekDrawer({
 
 function Status({ label, value, compact = false }: { label: string; value: string; compact?: boolean }) {
   return (
-    <div className={`rounded-2xl border border-white/5 bg-white/[0.03] ${compact ? 'px-3 py-2' : 'px-3 py-3'}`}>
-      <p className="text-[11px] uppercase tracking-[0.18em] text-mist/70">{label}</p>
-      <p className="mt-1 text-sm font-semibold text-white">{value}</p>
+    <div className={`theme-surface-soft rounded-2xl border ${compact ? 'px-3 py-2' : 'px-3 py-3'}`}>
+      <p className="theme-label">{label}</p>
+      <p className="theme-body-primary mt-1">{value}</p>
     </div>
   )
 }
@@ -277,8 +277,8 @@ function Status({ label, value, compact = false }: { label: string; value: strin
 function RowMetric({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
-      <p className="text-[11px] uppercase tracking-[0.16em] text-mist/62">{label}</p>
-      <p className="mt-1 truncate text-sm font-medium text-white/88">{value}</p>
+      <p className="theme-label theme-text-faint">{label}</p>
+      <p className="theme-body-secondary mt-1 truncate">{value}</p>
     </div>
   )
 }

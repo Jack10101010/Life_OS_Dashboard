@@ -617,7 +617,7 @@ export default function App() {
   }
 
   return (
-    <div className="app-grid min-h-screen bg-ink text-white" style={{ minHeight: '100vh' }}>
+    <div className="app-grid theme-text-primary min-h-screen bg-ink" style={{ minHeight: '100vh' }}>
       <div className="mx-auto flex min-h-screen w-full max-w-[1920px] flex-col lg:flex-row lg:items-start">
         <Sidebar
           currentPage={page}
