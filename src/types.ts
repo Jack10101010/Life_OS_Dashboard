@@ -263,6 +263,7 @@ export interface TradeLogEntry {
 export interface HabitTrackerDayEntry {
   date: string
   completed: boolean
+  paused: boolean
   value: number | null
   note: string
 }
@@ -277,8 +278,32 @@ export interface HabitTrackerEntryDraft {
   trackerId: string
   date: string
   completed: boolean
+  paused: boolean
   value: number | null
   note: string
+}
+
+export type LifeGoalStatus = 'in-motion' | 'paused' | 'complete'
+
+export interface LifeGoalMove {
+  id: string
+  text: string
+  completed: boolean
+  completedAt: string | null
+}
+
+export interface LifeGoal {
+  id: string
+  title: string
+  whyItMatters: string
+  minimumVersion: string
+  ifThenPlan: string
+  targetDate: string
+  status: LifeGoalStatus
+  moves: LifeGoalMove[]
+  linkedHabitIds: string[]
+  createdAt: string
+  updatedAt: string
 }
 
 export type HabitTrackerType = 'checkbox' | 'number' | 'timer' | 'options'

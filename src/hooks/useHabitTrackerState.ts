@@ -107,6 +107,7 @@ export function useHabitTrackerState(initialState: PersistedAppState) {
                 [habitEntryDraft.date]: {
                   date: habitEntryDraft.date,
                   completed: habitEntryDraft.completed,
+                  paused: habitEntryDraft.paused,
                   value: habitEntryDraft.value,
                   note: habitEntryDraft.note,
                 },
@@ -130,7 +131,31 @@ export function useHabitTrackerState(initialState: PersistedAppState) {
             [date]: {
               date,
               completed: !(existingEntry?.completed ?? false),
+              paused: false,
               value: existingEntry?.value ?? null,
+              note: existingEntry?.note ?? '',
+            },
+          },
+        })
+      }),
+    )
+  }
+
+  const useStreakPauseForToday = (trackerId: string, date: string) => {
+    setHabitTrackers((current) =>
+      current.map((tracker) => {
+        if (tracker.id !== trackerId) return tracker
+
+        const existingEntry = tracker.entries[date]
+        return syncHabitTrackerAchievements({
+          ...tracker,
+          entries: {
+            ...tracker.entries,
+            [date]: {
+              date,
+              completed: false,
+              paused: true,
+              value: null,
               note: existingEntry?.note ?? '',
             },
           },
@@ -178,6 +203,7 @@ export function useHabitTrackerState(initialState: PersistedAppState) {
     saveTracker,
     saveHabitEntry,
     toggleHabitCompletion,
+    useStreakPauseForToday,
     clearTrackerAchievements,
     hydrate,
   }

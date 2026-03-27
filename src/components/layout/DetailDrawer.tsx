@@ -4,6 +4,7 @@ import { ReactNode, RefObject } from 'react'
 export function DetailDrawer({
   open,
   title,
+  description,
   subtitle,
   onClose,
   size = 'md',
@@ -13,6 +14,7 @@ export function DetailDrawer({
 }: {
   open: boolean
   title: string
+  description?: string
   subtitle: string
   onClose: () => void
   size?: 'md' | 'lg'
@@ -45,6 +47,7 @@ export function DetailDrawer({
                 <div>
                   <p className="text-xs uppercase tracking-[0.22em] text-[#8B8B8B]">{subtitle}</p>
                   <h3 className="mt-2 text-2xl font-semibold text-white">{title}</h3>
+                  {description ? <p className="mt-2 max-w-[680px] text-sm leading-6 text-[#A7A7A7]">{description}</p> : null}
                 </div>
                 <div className="flex items-center gap-2">
                   {headerActions}

@@ -234,12 +234,13 @@ function computeAchievementsForGoal(tracker: HabitTracker) {
 }
 
 export function normalizeHabitTracker(tracker: HabitTracker): HabitTracker {
-  const normalizedEntries = Object.fromEntries(
+  const normalizedEntries: HabitTracker['entries'] = Object.fromEntries(
     Object.entries(tracker.entries ?? {}).map(([date, entry]) => [
       date,
       {
         date,
         completed: entry?.completed ?? false,
+        paused: entry?.paused ?? false,
         value: entry?.value ?? null,
         note: entry?.note ?? '',
       },
@@ -313,8 +314,55 @@ function getCompletedTrackerDatesFrom(tracker: HabitTracker, startDate: string) 
   return getCompletedTrackerDates(tracker).filter((date) => date >= startDate)
 }
 
+function getPausedTrackerDates(tracker: HabitTracker) {
+  return Object.values(tracker.entries)
+    .filter((entry) => entry.paused)
+    .map((entry) => entry.date)
+    .sort((left, right) => left.localeCompare(right))
+}
+
+function getPausedTrackerDatesFrom(tracker: HabitTracker, startDate: string) {
+  return getPausedTrackerDates(tracker).filter((date) => date >= startDate)
+}
+
+export function isHabitTrackerPausedOnDate(tracker: HabitTracker, isoDate: string) {
+  return Boolean(tracker.entries[isoDate]?.paused)
+}
+
+export function getTrackerStreakPauseState(tracker: HabitTracker, isoDate = getTodayIsoDate()) {
+  const normalizedTracker = normalizeHabitTracker(tracker)
+  const goal = normalizedTracker.goal
+
+  if (!goal || goal.type !== 'streak') return null
+
+  const scheduled = goal.startDate > isoDate
+  const activeDay = isHabitTrackerActiveOnDate(normalizedTracker, isoDate)
+  const todayEntry = normalizedTracker.entries[isoDate]
+  const completedToday = Boolean(todayEntry?.completed)
+  const pausedToday = Boolean(todayEntry?.paused)
+  const weekStart = toIsoDate(startOfIsoWeek(new Date(`${isoDate}T00:00:00Z`)))
+  const weekEnd = toIsoDate(endOfIsoWeek(new Date(`${isoDate}T00:00:00Z`)))
+  const usedThisWeek = Object.values(normalizedTracker.entries).filter(
+    (entry) => entry.paused && entry.date >= goal.startDate && entry.date >= weekStart && entry.date <= weekEnd,
+  ).length
+  const remaining = Math.max(0, 1 - usedThisWeek)
+  const relevant = !scheduled && activeDay && !completedToday
+
+  return {
+    remaining,
+    usedThisWeek,
+    pausedToday,
+    completedToday,
+    activeDay,
+    scheduled,
+    relevant,
+    canUseToday: relevant && !pausedToday && remaining > 0,
+  }
+}
+
 export function getLiveTrackerStreak(tracker: HabitTracker, year: number) {
   const completedSet = new Set(getCompletedTrackerDates(tracker))
+  const pausedSet = new Set(getPausedTrackerDates(tracker))
   let cursor = getDateRangeEndForYear(year)
 
   while (cursor.getUTCFullYear() === year && !isHabitTrackerActiveOnDate(tracker, toIsoDate(cursor))) {
@@ -325,7 +373,7 @@ export function getLiveTrackerStreak(tracker: HabitTracker, year: number) {
     return 0
   }
 
-  if (!completedSet.has(toIsoDate(cursor))) {
+  if (!completedSet.has(toIsoDate(cursor)) && !pausedSet.has(toIsoDate(cursor))) {
     cursor = addDays(cursor, -1)
   }
 
@@ -333,6 +381,10 @@ export function getLiveTrackerStreak(tracker: HabitTracker, year: number) {
   while (cursor.getUTCFullYear() === year) {
     const iso = toIsoDate(cursor)
     if (!isHabitTrackerActiveOnDate(tracker, iso)) {
+      cursor = addDays(cursor, -1)
+      continue
+    }
+    if (pausedSet.has(iso)) {
       cursor = addDays(cursor, -1)
       continue
     }
@@ -345,15 +397,21 @@ export function getLiveTrackerStreak(tracker: HabitTracker, year: number) {
 }
 
 export function getTrackerStreakEndingOn(tracker: HabitTracker, isoDate: string) {
-  if (!isHabitTrackerActiveOnDate(tracker, isoDate) || !tracker.entries[isoDate]?.completed) return 0
-
   const completedSet = new Set(getCompletedTrackerDates(tracker))
+  const pausedSet = new Set(getPausedTrackerDates(tracker))
+  if (!isHabitTrackerActiveOnDate(tracker, isoDate)) return 0
+  if (!completedSet.has(isoDate) && !pausedSet.has(isoDate)) return 0
+
   let cursor = new Date(`${isoDate}T00:00:00Z`)
   let streak = 0
 
   while (true) {
     const value = toIsoDate(cursor)
     if (!isHabitTrackerActiveOnDate(tracker, value)) {
+      cursor = addDays(cursor, -1)
+      continue
+    }
+    if (pausedSet.has(value)) {
       cursor = addDays(cursor, -1)
       continue
     }
@@ -366,9 +424,11 @@ export function getTrackerStreakEndingOn(tracker: HabitTracker, isoDate: string)
 }
 
 function getTrackerStreakEndingOnFrom(tracker: HabitTracker, isoDate: string, startDate: string) {
-  if (isoDate < startDate || !isHabitTrackerActiveOnDate(tracker, isoDate) || !tracker.entries[isoDate]?.completed) return 0
-
   const completedSet = new Set(getCompletedTrackerDatesFrom(tracker, startDate))
+  const pausedSet = new Set(getPausedTrackerDatesFrom(tracker, startDate))
+  if (isoDate < startDate || !isHabitTrackerActiveOnDate(tracker, isoDate)) return 0
+  if (!completedSet.has(isoDate) && !pausedSet.has(isoDate)) return 0
+
   let cursor = new Date(`${isoDate}T00:00:00Z`)
   let streak = 0
 
@@ -376,6 +436,10 @@ function getTrackerStreakEndingOnFrom(tracker: HabitTracker, isoDate: string, st
     const value = toIsoDate(cursor)
     if (value < startDate) break
     if (!isHabitTrackerActiveOnDate(tracker, value)) {
+      cursor = addDays(cursor, -1)
+      continue
+    }
+    if (pausedSet.has(value)) {
       cursor = addDays(cursor, -1)
       continue
     }
@@ -388,12 +452,13 @@ function getTrackerStreakEndingOnFrom(tracker: HabitTracker, isoDate: string, st
 }
 
 function isNextActiveCompletion(tracker: HabitTracker, previousDate: string, nextDate: string, startDate: string) {
+  const pausedSet = new Set(getPausedTrackerDatesFrom(tracker, startDate))
   let cursor = addDays(new Date(`${previousDate}T00:00:00Z`), 1)
   const end = new Date(`${nextDate}T00:00:00Z`)
 
   while (cursor < end) {
     const iso = toIsoDate(cursor)
-    if (iso >= startDate && isHabitTrackerActiveOnDate(tracker, iso)) {
+    if (iso >= startDate && isHabitTrackerActiveOnDate(tracker, iso) && !pausedSet.has(iso)) {
       return false
     }
     cursor = addDays(cursor, 1)
@@ -474,9 +539,10 @@ export function getTrackerGoalProgress(tracker: HabitTracker, year: number) {
 
   if (normalizedTracker.goal.type === 'streak') {
     const target = normalizedTracker.goal.target
+    const pausedToday = Boolean(normalizedTracker.entries[todayIso]?.paused)
     const liveStreak = scheduled
       ? 0
-      : normalizedTracker.entries[todayIso]?.completed
+      : normalizedTracker.entries[todayIso]?.completed || pausedToday
         ? getTrackerStreakEndingOnFrom(normalizedTracker, todayIso, startDate)
         : getTrackerStreakEndingOnFrom(normalizedTracker, yesterdayIso, startDate)
     const current = Math.min(liveStreak, target)
@@ -487,7 +553,11 @@ export function getTrackerGoalProgress(tracker: HabitTracker, year: number) {
         entry.date >= toIsoDate(addDays(today, -Math.max(target + 2, 7))) &&
         entry.date <= yesterdayIso,
     )
-    const missed = current === 0 && hadRecentProgress && !normalizedTracker.entries[yesterdayIso]?.completed
+    const missed =
+      current === 0 &&
+      hadRecentProgress &&
+      !normalizedTracker.entries[yesterdayIso]?.completed &&
+      !normalizedTracker.entries[yesterdayIso]?.paused
     const matchingAchievement = normalizedTracker.achievements.find(
       (achievement) =>
         achievement.goalType === 'streak' &&

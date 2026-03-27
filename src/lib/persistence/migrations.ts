@@ -13,6 +13,7 @@ import {
   HabitTrackerEntryDraft,
   HabitTrackerPeriodView,
   HeatmapLayout,
+  LifeGoal,
   PageId,
   SettingsState,
   DayEventEntry,
@@ -34,6 +35,7 @@ export interface PersistedAppState {
   badHabitLogs: BadHabitLog[]
   tags: Tag[]
   tasks: Task[]
+  lifeGoals: LifeGoal[]
   settings: SettingsState
   page: PageId
   viewMode: TrackerViewMode
@@ -70,6 +72,7 @@ export function getDefaultPersistedAppState(currentYear: number): PersistedAppSt
     badHabitLogs: [],
     tags: starterTags,
     tasks: [],
+    lifeGoals: [],
     settings: defaultSettings,
     page: 'dashboard',
     viewMode: 'weeks',
@@ -222,6 +225,7 @@ export function normalizePersistedAppState(parsed: Partial<PersistedAppState>, c
     badHabitLogs: migratedBadHabitLogs,
     tags: Array.isArray(parsed.tags) ? parsed.tags.map(normalizeTag) : defaults.tags,
     tasks: Array.isArray(parsed.tasks) ? parsed.tasks.map(normalizeTask).filter((task) => task.text) : defaults.tasks,
+    lifeGoals: Array.isArray(parsed.lifeGoals) ? parsed.lifeGoals.map(normalizeLifeGoal).filter((goal) => goal.title) : defaults.lifeGoals,
     settings: parsed.settings ? { ...defaults.settings, ...parsed.settings } : defaults.settings,
     filters: parsed.filters
       ? {
@@ -265,6 +269,7 @@ export function normalizePersistedAppState(parsed: Partial<PersistedAppState>, c
                 {
                   date,
                   completed: entry?.completed ?? false,
+                  paused: entry?.paused ?? false,
                   value: entry?.value ?? null,
                   note: entry?.note ?? '',
                 },
@@ -279,6 +284,7 @@ export function normalizePersistedAppState(parsed: Partial<PersistedAppState>, c
             trackerId: parsed.habitEntryDraft.trackerId,
             date: parsed.habitEntryDraft.date,
             completed: parsed.habitEntryDraft.completed ?? false,
+            paused: parsed.habitEntryDraft.paused ?? false,
             value: parsed.habitEntryDraft.value ?? null,
             note: parsed.habitEntryDraft.note ?? '',
           }
@@ -341,6 +347,37 @@ function ensureYearDataset(
   return {
     ...dataByYear,
     [year]: createMockData(year),
+  }
+}
+
+function normalizeLifeGoal(goal: Partial<LifeGoal>): LifeGoal {
+  const createdAt = typeof goal.createdAt === 'string' && goal.createdAt ? goal.createdAt : new Date().toISOString()
+  return {
+    id: typeof goal.id === 'string' && goal.id ? goal.id : `life-goal-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+    title: typeof goal.title === 'string' ? goal.title.trim() : '',
+    whyItMatters: typeof goal.whyItMatters === 'string' ? goal.whyItMatters.trim() : '',
+    minimumVersion: typeof goal.minimumVersion === 'string' ? goal.minimumVersion.trim() : '',
+    ifThenPlan: typeof goal.ifThenPlan === 'string' ? goal.ifThenPlan.trim() : '',
+    targetDate: typeof goal.targetDate === 'string' ? goal.targetDate : '',
+    status: goal.status === 'paused' || goal.status === 'complete' ? goal.status : 'in-motion',
+    moves: Array.isArray(goal.moves)
+      ? goal.moves
+          .map((move) => ({
+            id:
+              typeof move?.id === 'string' && move.id
+                ? move.id
+                : `life-goal-move-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+            text: typeof move?.text === 'string' ? move.text.trim() : '',
+            completed: Boolean(move?.completed),
+            completedAt: typeof move?.completedAt === 'string' ? move.completedAt : null,
+          }))
+          .filter((move) => move.text.length > 0)
+      : [],
+    linkedHabitIds: Array.isArray(goal.linkedHabitIds)
+      ? goal.linkedHabitIds.filter((id): id is string => typeof id === 'string' && id.length > 0)
+      : [],
+    createdAt,
+    updatedAt: typeof goal.updatedAt === 'string' && goal.updatedAt ? goal.updatedAt : createdAt,
   }
 }
 

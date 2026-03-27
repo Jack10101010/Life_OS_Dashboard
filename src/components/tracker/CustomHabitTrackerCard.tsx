@@ -6,6 +6,7 @@ import {
   getLiveTrackerStreak,
   getTrackerGoalLabel,
   getTrackerGoalProgress,
+  getTrackerStreakPauseState,
   getTrackerStreakEndingOn,
   normalizeHabitTracker,
 } from '../../lib/habitTrackerGoals'
@@ -25,7 +26,7 @@ import { GITHUB_DAY_LABELS, getContributionColumns, getContributionMonthSpans, g
 import { useHeatmapHover } from './useHeatmapHover'
 import { usePopoverGroup } from './usePopoverGroup'
 
-type TrackerCell = { date: string; completed: boolean; note: string }
+type TrackerCell = { date: string; completed: boolean; paused: boolean; note: string }
 
 const WEEKDAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
@@ -151,6 +152,7 @@ function getTrackerCells(tracker: HabitTracker, year: number): TrackerCell[] {
     cells.push({
       date: iso,
       completed: entry?.completed ?? false,
+      paused: entry?.paused ?? false,
       note: entry?.note ?? '',
     })
     cursor.setUTCDate(cursor.getUTCDate() + 1)
@@ -173,6 +175,7 @@ function getMonthViewCells(tracker: HabitTracker, focusDate: string) {
       dayNumber: date.getUTCDate(),
       inCurrentMonth: date.getUTCMonth() === focus.getUTCMonth(),
       completed: entry?.completed ?? false,
+      paused: entry?.paused ?? false,
       note: entry?.note ?? '',
     }
   })
@@ -190,6 +193,7 @@ function getWeekViewCells(tracker: HabitTracker, focusDate: string) {
       date: iso,
       dayNumber: date.getUTCDate(),
       completed: entry?.completed ?? false,
+      paused: entry?.paused ?? false,
       note: entry?.note ?? '',
     }
   })
@@ -304,13 +308,31 @@ function TrackerCellButton({
       {...hoverProps}
     >
       <HeatmapTile
-        backgroundColor={hovered ? '#595959' : disabled ? '#0E0E0E' : cell.completed ? getTrackerColor(color, colorIntensity) : '#262626'}
+        backgroundColor={
+          hovered
+            ? cell.paused
+              ? '#4A4037'
+              : '#595959'
+            : disabled
+              ? '#0E0E0E'
+              : cell.completed
+                ? getTrackerColor(color, colorIntensity)
+                : cell.paused
+                  ? '#312A24'
+                  : '#262626'
+        }
         active={active}
         currentWeek={today}
         disabled={disabled}
         dimmed={dimmed}
         className="h-full w-full"
       />
+      {cell.paused ? (
+        <span className="pointer-events-none absolute left-1/2 top-1/2 z-20 flex h-[68%] w-[42%] -translate-x-1/2 -translate-y-1/2 items-center justify-center gap-[18%]">
+          <span className="h-full w-[22%] rounded-full bg-[rgba(248,244,238,0.88)]" />
+          <span className="h-full w-[22%] rounded-full bg-[rgba(248,244,238,0.88)]" />
+        </span>
+      ) : null}
       {badHabitMarkerColor ? (
         <span
           className="pointer-events-none absolute left-1/2 top-1/2 z-20 h-[7px] w-[7px] -translate-x-1/2 -translate-y-1/2 rounded-full border border-[#1B1B1B]"
@@ -344,6 +366,7 @@ export function CustomHabitTrackerCard({
   onSelectDate,
   onOpenSettings,
   onOpenGoalSetup,
+  onUseStreakPause,
   onShiftPeriod,
   onCalendarRangeChange,
 }: {
@@ -361,6 +384,7 @@ export function CustomHabitTrackerCard({
   onSelectDate: (date: string) => void
   onOpenSettings: () => void
   onOpenGoalSetup: () => void
+  onUseStreakPause: (date: string) => void
   onShiftPeriod: (nextFocusDate: string) => void
   onCalendarRangeChange: (next: HabitTrackerCalendarRange) => void
 }) {
@@ -372,6 +396,12 @@ export function CustomHabitTrackerCard({
     toggleMenu: toggleAchievement,
     closeMenu: closeAchievement,
   } = usePopoverGroup<'details'>()
+  const {
+    containerRef: pauseControlRef,
+    isOpen: isPauseOpen,
+    toggleMenu: togglePauseMenu,
+    closeMenu: closePauseMenu,
+  } = usePopoverGroup<'pause'>()
   const compactMode = periodView !== 'year'
   const yearCells = getTrackerCells(trackerData, year)
   const monthCells = getMonthViewCells(trackerData, focusDate)
@@ -392,6 +422,9 @@ export function CustomHabitTrackerCard({
       ? new Date(Date.UTC(year, currentMonthIndex, 1)).toLocaleDateString('en-IE', { month: 'short', timeZone: 'UTC' }).toUpperCase()
       : null
   const achievementDates = new Set(trackerData.achievements.map((achievement) => achievement.date))
+  const todayIso = new Date().toISOString().slice(0, 10)
+  const streakPauseState = getTrackerStreakPauseState(trackerData, todayIso)
+  const showPauseControl = trackerData.goal?.type === 'streak' && Boolean(streakPauseState?.relevant)
 
   const { containerRef, hovered, bindHover } = useHeatmapHover<TrackerCell>()
   const hoveredDate = hovered?.day.date
@@ -778,31 +811,92 @@ export function CustomHabitTrackerCard({
           ) : null}
         </div>
         {trackerData.goal ? (
-          <button
-            type="button"
-            onClick={onOpenGoalSetup}
-            className={`min-w-0 rounded-2xl border border-[#242424] bg-[#141414] transition hover:border-[#333333] hover:bg-[#181818] ${
-              compactMode ? 'w-[210px] px-3 py-2' : 'ml-2 mr-auto w-[290px] px-4 py-3'
-            }`}
-          >
-            <div className="flex items-center justify-between gap-3">
-              <p className="truncate text-[11px] uppercase tracking-[0.14em] text-[#8E8E8E]">{getTrackerGoalLabel(trackerData.goal)}</p>
-              <p className="shrink-0 text-[13px] font-semibold text-white">{goalProgress?.progressText ?? '0 / 0'}</p>
+          <div className={`${compactMode ? 'w-[210px]' : 'ml-2 mr-auto w-[336px] min-w-[300px]'}`}>
+            <div ref={pauseControlRef} className="relative">
+              <button
+                type="button"
+                onClick={onOpenGoalSetup}
+                className={`min-w-0 w-full rounded-2xl border border-[#242424] bg-[#141414] transition hover:border-[#333333] hover:bg-[#181818] ${
+                  compactMode ? 'px-3 py-2' : 'px-4 py-3'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <p className="truncate text-[11px] uppercase tracking-[0.14em] text-[#8E8E8E]">{getTrackerGoalLabel(trackerData.goal)}</p>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <p className="text-[13px] font-semibold text-white">{goalProgress?.progressText ?? '0 / 0'}</p>
+                    {showPauseControl ? (
+                      <span
+                        title={
+                          streakPauseState?.pausedToday
+                            ? 'Pause already used today'
+                            : streakPauseState?.canUseToday
+                              ? 'Use pause for today'
+                              : 'No pauses left this week'
+                        }
+                        aria-hidden="true"
+                        onClick={(event) => {
+                          event.preventDefault()
+                          event.stopPropagation()
+                          if (streakPauseState?.canUseToday || streakPauseState?.pausedToday) {
+                            togglePauseMenu('pause')
+                          }
+                        }}
+                        className={`inline-flex h-8 w-8 items-center justify-center rounded-full border text-[14px] leading-none transition ${
+                          streakPauseState?.pausedToday
+                            ? 'cursor-pointer border-[#4A4132] bg-[#1C1814] text-[#D3C1A1]'
+                            : streakPauseState?.canUseToday
+                              ? 'cursor-pointer border-[#343434] bg-[#181818] text-[#D8D8D8] hover:border-[#454545] hover:bg-[#1D1D1D] hover:text-white'
+                              : 'cursor-not-allowed border-[#262626] bg-[#141414] text-[#666666]'
+                        }`}
+                      >
+                        ⏸
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="mt-2 flex gap-1.5">
+                  {Array.from({ length: Math.max(goalProgress?.target ?? 0, 1) }, (_, index) => {
+                    const isFilled = index < (goalProgress?.current ?? 0)
+                    const isMissed = Boolean(goalProgress?.missed) && index === 0 && !isFilled
+                    return (
+                      <div
+                        key={index}
+                        className={`h-2 flex-1 rounded-full ${isMissed ? 'bg-[#8D3D37]' : !isFilled ? 'bg-[#262626]' : ''}`}
+                        style={isFilled ? { backgroundColor: trackerColor } : undefined}
+                      />
+                    )
+                  })}
+                </div>
+              </button>
+              {showPauseControl && isPauseOpen('pause') ? (
+                <div className="absolute right-0 top-[calc(100%+8px)] z-30 w-[235px] rounded-2xl border border-[#2F2F2F] bg-[#171717] p-3 shadow-[0_16px_40px_rgba(0,0,0,0.35)]">
+                  {streakPauseState?.pausedToday ? (
+                    <>
+                      <p className="text-sm font-semibold text-white">Today is paused</p>
+                      <p className="mt-1 text-[12px] leading-5 text-[#A9A9A9]">Your streak is protected. This does not count as completion.</p>
+                      <p className="mt-2 text-[12px] text-[#8F8F8F]">Pauses left this week: {streakPauseState.remaining}</p>
+                    </>
+                  ) : streakPauseState?.canUseToday ? (
+                    <>
+                      <p className="text-sm font-semibold text-white">Use pause for today?</p>
+                      <p className="mt-1 text-[12px] leading-5 text-[#A9A9A9]">Preserves your streak. Does not count as completion.</p>
+                      <p className="mt-2 text-[12px] text-[#8F8F8F]">Pauses left this week: {streakPauseState.remaining}</p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onUseStreakPause(todayIso)
+                          closePauseMenu()
+                        }}
+                        className="mt-3 rounded-full border border-[#3A3A3A] bg-[#1E1E1E] px-3 py-1.5 text-[12px] font-semibold text-white transition hover:bg-[#252525]"
+                      >
+                        Use pause
+                      </button>
+                    </>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
-            <div className="mt-2 flex gap-1.5">
-              {Array.from({ length: Math.max(goalProgress?.target ?? 0, 1) }, (_, index) => {
-                const isFilled = index < (goalProgress?.current ?? 0)
-                const isMissed = Boolean(goalProgress?.missed) && index === 0 && !isFilled
-                return (
-                  <div
-                    key={index}
-                    className={`h-2 flex-1 rounded-full ${isMissed ? 'bg-[#8D3D37]' : !isFilled ? 'bg-[#262626]' : ''}`}
-                    style={isFilled ? { backgroundColor: trackerColor } : undefined}
-                  />
-                )
-              })}
-            </div>
-          </button>
+          </div>
         ) : (
           <div className="hidden w-6 lg:block" />
         )}
@@ -872,6 +966,8 @@ export function CustomHabitTrackerCard({
               status={
                 trackerData.entries[hovered.day.date]?.completed
                   ? 'Completed'
+                  : trackerData.entries[hovered.day.date]?.paused
+                    ? 'Paused'
                   : hovered.day.date < new Date().toISOString().slice(0, 10)
                     ? 'Missed'
                     : 'No entry yet'

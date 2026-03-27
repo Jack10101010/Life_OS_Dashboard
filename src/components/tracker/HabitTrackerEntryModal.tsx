@@ -11,6 +11,7 @@ export function HabitTrackerEntryModal({
   date,
   hasGoal,
   completed,
+  paused,
   value,
   note,
   onOpenGoal,
@@ -25,10 +26,11 @@ export function HabitTrackerEntryModal({
   date: string
   hasGoal: boolean
   completed: boolean
+  paused: boolean
   value: number | null
   note: string
   onOpenGoal: () => void
-  onChange: (next: { completed: boolean; value: number | null; note: string }) => void
+  onChange: (next: { completed: boolean; paused: boolean; value: number | null; note: string }) => void
   onSave: () => void
 }) {
   return (
@@ -56,15 +58,15 @@ export function HabitTrackerEntryModal({
               <p className="mt-4 text-sm text-[#A3A3A3]">Status</p>
               <div className="mt-4 flex gap-3">
                 <button
-                  onClick={() => onChange({ completed: true, value, note })}
+                  onClick={() => onChange({ completed: true, paused: false, value, note })}
                   className={`rounded-2xl border px-4 py-3 text-sm font-semibold ${completed ? 'border-white text-white' : 'border-[#2A2A2A] text-[#B0B0B0]'}`}
                 >
                   <span className="mr-2 inline-block h-3 w-3 rounded-full" style={{ backgroundColor: trackerColor }} />
                   Yes
                 </button>
                 <button
-                  onClick={() => onChange({ completed: false, value: null, note })}
-                  className={`rounded-2xl border px-4 py-3 text-sm font-semibold ${!completed ? 'border-white text-white' : 'border-[#2A2A2A] text-[#B0B0B0]'}`}
+                  onClick={() => onChange({ completed: false, paused: false, value: null, note })}
+                  className={`rounded-2xl border px-4 py-3 text-sm font-semibold ${!completed && !paused ? 'border-white text-white' : 'border-[#2A2A2A] text-[#B0B0B0]'}`}
                 >
                   Blank
                 </button>
@@ -80,7 +82,7 @@ export function HabitTrackerEntryModal({
                 value={value ?? ''}
                 onChange={(event) => {
                   const nextValue = event.target.value === '' ? null : Math.max(Number(event.target.value), 0)
-                  onChange({ completed: (nextValue ?? 0) > 0, value: nextValue, note })
+                  onChange({ completed: (nextValue ?? 0) > 0, paused: false, value: nextValue, note })
                 }}
                 className="mt-3 w-full rounded-2xl border border-[#2A2A2A] bg-[#181818] px-4 py-3 text-white outline-none"
                 placeholder={trackerType === 'timer' ? '30' : '1'}
@@ -92,7 +94,7 @@ export function HabitTrackerEntryModal({
           <p className="text-sm text-[#A3A3A3]">Note</p>
           <textarea
             value={note}
-            onChange={(event) => onChange({ completed, value, note: event.target.value })}
+            onChange={(event) => onChange({ completed, paused, value, note: event.target.value })}
             className="mt-3 min-h-32 w-full rounded-2xl border border-[#2A2A2A] bg-[#181818] px-4 py-3 text-white outline-none"
             placeholder="Optional note for this day"
           />

@@ -28,6 +28,7 @@ export type HabitMapsContentProps = {
   onSelectDate: (tracker: React.ComponentProps<typeof CustomHabitTrackerCard>['tracker'], date: string) => void
   onOpenSettings: (tracker: React.ComponentProps<typeof CustomHabitTrackerCard>['tracker']) => void
   onOpenGoalSetup: (tracker: React.ComponentProps<typeof CustomHabitTrackerCard>['tracker']) => void
+  onUseStreakPause: (tracker: React.ComponentProps<typeof CustomHabitTrackerCard>['tracker'], date: string) => void
 }
 
 export function HabitMapsContent({
@@ -49,6 +50,7 @@ export function HabitMapsContent({
   onSelectDate,
   onOpenSettings,
   onOpenGoalSetup,
+  onUseStreakPause,
 }: HabitMapsContentProps) {
   const [mapsViewMode, setMapsViewMode] = useState<TrackerMapsViewMode>(() => {
     if (typeof window === 'undefined') return 'scroll'
@@ -163,6 +165,7 @@ export function HabitMapsContent({
               onSelectDate={(date) => onSelectDate(activeTabTracker, date)}
               onOpenSettings={() => onOpenSettings(activeTabTracker)}
               onOpenGoalSetup={() => onOpenGoalSetup(activeTabTracker)}
+              onUseStreakPause={(date) => onUseStreakPause(activeTabTracker, date)}
             />
           ) : null}
         </div>
@@ -187,6 +190,7 @@ export function HabitMapsContent({
               onSelectDate={(date) => onSelectDate(tracker, date)}
               onOpenSettings={() => onOpenSettings(tracker)}
               onOpenGoalSetup={() => onOpenGoalSetup(tracker)}
+              onUseStreakPause={(date) => onUseStreakPause(tracker, date)}
             />
           ))}
         </div>

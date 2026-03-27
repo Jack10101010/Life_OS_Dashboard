@@ -214,16 +214,18 @@ export function useTrackerState(initialState: PersistedAppState, currentYear: nu
     setMoodShowHabitMarkers(next.moodShowHabitMarkers)
   }
 
-  const updateDay = (
+  const updateDayForYear = (
+    year: number,
     dayId: string,
     updater: (day: DayEntry) => DayEntry,
     options?: { skipCanonicalSave?: boolean },
   ) => {
     setDataByYear((current) => {
-      const yearData = current[filters.year as keyof typeof current]
+      const yearData = current[year as keyof typeof current]
+      if (!yearData) return current
       return {
         ...current,
-        [filters.year]: {
+        [year]: {
           ...yearData,
           days: yearData.days.map((day) => {
             if (day.id !== dayId) return day
@@ -249,6 +251,25 @@ export function useTrackerState(initialState: PersistedAppState, currentYear: nu
         },
       }
     })
+  }
+
+  const updateDay = (
+    dayId: string,
+    updater: (day: DayEntry) => DayEntry,
+    options?: { skipCanonicalSave?: boolean },
+  ) => {
+    updateDayForYear(filters.year, dayId, updater, options)
+  }
+
+  const updateDayByDate = (
+    date: string,
+    updater: (day: DayEntry) => DayEntry,
+    options?: { skipCanonicalSave?: boolean },
+  ) => {
+    const targetYear = Number(date.slice(0, 4))
+    const targetDay = dataByYear[targetYear as keyof typeof dataByYear]?.days.find((day) => day.date === date)
+    if (!targetDay) return
+    updateDayForYear(targetYear, targetDay.id, updater, options)
   }
 
   const toggleBadHabit = (dayId: string, date: string, badHabitId: string) => {
@@ -621,6 +642,7 @@ export function useTrackerState(initialState: PersistedAppState, currentYear: nu
     alcoholFreeStreak,
     momentumScore,
     updateDay,
+    updateDayByDate,
     toggleBadHabit,
     handleSelectTag,
     createTag,

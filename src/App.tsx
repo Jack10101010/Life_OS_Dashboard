@@ -22,7 +22,9 @@ import { PlaceholderPage } from './features/placeholder/PlaceholderPage'
 import { SettingsPage } from './features/settings/SettingsPage'
 import { TrackerWorkspace } from './features/tracker/TrackerWorkspace'
 import { YourDaysPage } from './features/your-days/YourDaysPage'
-import { PageId } from './types'
+import { LifeGoal, PageId } from './types'
+
+const DEV_NOTES_ENABLED_PAGES: PageId[] = ['tasks', 'notes', 'analytics', 'trade-log', 'settings']
 
 export default function App() {
   const currentYear = new Date().getUTCFullYear()
@@ -33,6 +35,7 @@ export default function App() {
   const trackerState = useTrackerState(persisted, currentYear, settingsState.settings.enableBadHabitTracking)
   const habitTrackerState = useHabitTrackerState(persisted)
   const [tasks, setTasks] = useState(persisted.tasks)
+  const [lifeGoals, setLifeGoals] = useState<LifeGoal[]>(persisted.lifeGoals)
 
   const { settings, setSettings, hydrate: hydrateSettings } = settingsState
   const {
@@ -88,6 +91,7 @@ export default function App() {
     selectedWeekDays,
     selectedDay,
     updateDay,
+    updateDayByDate,
     toggleBadHabit,
     handleSelectTag,
     createTag,
@@ -137,6 +141,7 @@ export default function App() {
     moveTrackerDown,
     saveTracker,
     saveHabitEntry,
+    useStreakPauseForToday,
     toggleHabitCompletion,
     hydrate: hydrateHabitTrackers,
   } = habitTrackerState
@@ -154,6 +159,7 @@ export default function App() {
       badHabitLogs,
       tags,
       tasks,
+      lifeGoals,
       settings,
       page,
       viewMode,
@@ -188,6 +194,7 @@ export default function App() {
     badHabitLogs,
     tags,
     tasks,
+    lifeGoals,
     settings,
     page,
     viewMode,
@@ -224,6 +231,7 @@ export default function App() {
     badHabitLogs,
     tags,
     tasks,
+    lifeGoals,
     settings,
     page,
     viewMode,
@@ -270,7 +278,8 @@ export default function App() {
       hydrateSettings(imported.settings)
       hydrateTracker(imported)
       hydrateHabitTrackers(imported)
-      setTasks(imported.tasks)
+    setTasks(imported.tasks)
+      setLifeGoals(imported.lifeGoals)
       window.alert('Backup restored successfully.')
     } catch {
       window.alert('That backup file could not be imported.')
@@ -439,12 +448,14 @@ export default function App() {
                 trackerId: tracker.id,
                 date,
                 completed: entry?.completed ?? false,
+                paused: entry?.paused ?? false,
                 value: entry?.value ?? null,
                 note: entry?.note ?? '',
               })
             },
             onOpenSettings: setEditingTracker,
             onOpenGoalSetup: setGoalEditingTracker,
+            onUseStreakPause: (tracker, date) => useStreakPauseForToday(tracker.id, date),
           }}
         />
       )
@@ -480,12 +491,14 @@ export default function App() {
               trackerId: tracker.id,
               date,
               completed: entry?.completed ?? false,
+              paused: entry?.paused ?? false,
               value: entry?.value ?? null,
               note: entry?.note ?? '',
             })
           }}
           onOpenSettings={setEditingTracker}
           onOpenGoalSetup={setGoalEditingTracker}
+          onUseStreakPause={(tracker, date) => useStreakPauseForToday(tracker.id, date)}
         />
       )
     }
@@ -538,7 +551,37 @@ export default function App() {
     }
 
     if (page === 'goals') {
-      return <GoalsPage habitTrackers={habitTrackers} year={filters.year} />
+      return (
+        <GoalsPage
+          habitTrackers={habitTrackers}
+          lifeGoals={lifeGoals}
+          year={filters.year}
+          onCreateHabitTracker={saveTracker}
+          onCreateLifeGoal={(goal) => setLifeGoals((current) => [goal, ...current])}
+          onUpdateLifeGoal={(goalId, updater) =>
+            setLifeGoals((current) =>
+              current.map((goal) => (goal.id === goalId ? updater(goal) : goal)),
+            )
+          }
+          onDeleteLifeGoal={(goalId) => setLifeGoals((current) => current.filter((goal) => goal.id !== goalId))}
+          onSetLifeGoalAsTodayTask={(goal) => {
+            const todayIso = new Date().toISOString().slice(0, 10)
+            const nextMove = goal.moves.find((move) => !move.completed)?.text.trim() || goal.minimumVersion
+            updateDayByDate(todayIso, (day) => ({
+              ...day,
+              isLogged: true,
+              dashboardExecution: {
+                ...day.dashboardExecution,
+                goal: goal.title,
+                whyItMatters: goal.whyItMatters,
+                todayTask: nextMove,
+                nextAction: nextMove,
+                minimumVersion: goal.minimumVersion,
+              },
+            }))
+          }}
+        />
+      )
     }
 
     const placeholderMap: Record<
@@ -602,12 +645,7 @@ export default function App() {
           <main className="py-5 sm:py-6">
             <PageContainer width="wide" className={sidebarCollapsed ? 'lg:pl-16' : ''}>
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.28 }}>
-              {page !== 'dashboard' &&
-              page !== 'tracker' &&
-              page !== 'habit-maps' &&
-              page !== 'journal-recordings' &&
-              page !== 'gratitude' &&
-              page !== 'vision-board' ? (
+              {DEV_NOTES_ENABLED_PAGES.includes(page) ? (
                 <DevNotesCard
                   page={page}
                   value={pageDevNotes[page] ?? ''}
@@ -706,6 +744,7 @@ export default function App() {
         date={habitEntryDraft?.date ?? new Date().toISOString().slice(0, 10)}
         hasGoal={Boolean(habitTrackers.find((tracker) => tracker.id === habitEntryDraft?.trackerId)?.goal)}
         completed={habitEntryDraft?.completed ?? false}
+        paused={habitEntryDraft?.paused ?? false}
         value={habitEntryDraft?.value ?? null}
         note={habitEntryDraft?.note ?? ''}
         onOpenGoal={() => {
