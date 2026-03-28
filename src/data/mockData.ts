@@ -2,18 +2,18 @@ import { BadHabitDefinition, DayEntry, DayLogSection, Habit, SettingsState, Tag,
 import { createEmptyDashboardExecution } from '../lib/dashboardExecution'
 
 const starterTagDefinitions: Omit<Tag, 'availableIn'>[] = [
-  { id: 'good-sleep', name: 'Good sleep', color: '#3E8F63', section: 'sleep', kind: 'feeling', polarity: 'positive', isCustom: false, isActive: true },
-  { id: 'exercise', name: 'Exercise', color: '#4A9A67', section: 'actions', kind: 'action', polarity: 'positive', isCustom: false, isActive: true },
-  { id: 'social', name: 'Social', color: '#4E8A74', section: 'actions', kind: 'action', polarity: 'positive', isCustom: false, isActive: true },
-  { id: 'productive', name: 'Productive', color: '#5D936B', section: 'actions', kind: 'action', polarity: 'positive', isCustom: false, isActive: true },
-  { id: 'calm', name: 'Calm', color: '#4A8A83', section: 'feelings', kind: 'feeling', polarity: 'positive', isCustom: false, isActive: true },
-  { id: 'clear-headed', name: 'Clear-headed', color: '#538E86', section: 'feelings', kind: 'feeling', polarity: 'positive', isCustom: false, isActive: true },
-  { id: 'poor-sleep', name: 'Poor sleep', color: '#B05E54', section: 'sleep', kind: 'feeling', polarity: 'negative', isCustom: false, isActive: true },
-  { id: 'alcohol', name: 'Alcohol', color: '#C26F46', section: 'actions', kind: 'action', polarity: 'negative', isCustom: false, isActive: true },
-  { id: 'nicotine', name: 'Nicotine', color: '#C97A4E', section: 'actions', kind: 'action', polarity: 'negative', isCustom: false, isActive: true },
-  { id: 'stress', name: 'Stress', color: '#B35A65', section: 'feelings', kind: 'feeling', polarity: 'negative', isCustom: false, isActive: true },
-  { id: 'overthinking', name: 'Overthinking', color: '#A45D73', section: 'feelings', kind: 'feeling', polarity: 'negative', isCustom: false, isActive: true },
-  { id: 'junk-food', name: 'Junk food', color: '#C47A3E', section: 'actions', kind: 'action', polarity: 'negative', isCustom: false, isActive: true },
+  { id: 'good-sleep', name: 'Good sleep', color: '#3E8F63', section: 'sleep', kind: 'feeling', polarity: 'positive', flag: 'none', isCustom: false, isActive: true },
+  { id: 'exercise', name: 'Exercise', color: '#4A9A67', section: 'actions', kind: 'action', polarity: 'positive', flag: 'none', isCustom: false, isActive: true },
+  { id: 'social', name: 'Social', color: '#4E8A74', section: 'actions', kind: 'action', polarity: 'positive', flag: 'none', isCustom: false, isActive: true },
+  { id: 'productive', name: 'Productive', color: '#5D936B', section: 'actions', kind: 'action', polarity: 'positive', flag: 'none', isCustom: false, isActive: true },
+  { id: 'calm', name: 'Calm', color: '#4A8A83', section: 'feelings', kind: 'feeling', polarity: 'positive', flag: 'none', isCustom: false, isActive: true },
+  { id: 'clear-headed', name: 'Clear-headed', color: '#538E86', section: 'feelings', kind: 'feeling', polarity: 'positive', flag: 'none', isCustom: false, isActive: true },
+  { id: 'poor-sleep', name: 'Poor sleep', color: '#B05E54', section: 'sleep', kind: 'feeling', polarity: 'negative', flag: 'none', isCustom: false, isActive: true },
+  { id: 'alcohol', name: 'Alcohol', color: '#C26F46', section: 'actions', kind: 'action', polarity: 'negative', flag: 'none', isCustom: false, isActive: true },
+  { id: 'nicotine', name: 'Nicotine', color: '#C97A4E', section: 'actions', kind: 'action', polarity: 'negative', flag: 'none', isCustom: false, isActive: true },
+  { id: 'stress', name: 'Stress', color: '#B35A65', section: 'feelings', kind: 'feeling', polarity: 'negative', flag: 'none', isCustom: false, isActive: true },
+  { id: 'overthinking', name: 'Overthinking', color: '#A45D73', section: 'feelings', kind: 'feeling', polarity: 'negative', flag: 'none', isCustom: false, isActive: true },
+  { id: 'junk-food', name: 'Junk food', color: '#C47A3E', section: 'actions', kind: 'action', polarity: 'negative', flag: 'none', isCustom: false, isActive: true },
 ]
 
 export const starterTags: Tag[] = starterTagDefinitions.map((tag) => ({
@@ -80,6 +80,7 @@ export function createMockData(year: number) {
         bedtime: '',
         wakeTime: '',
         wokeDuringNight: null,
+        sleepNote: '',
         morningMood: 3,
         eveningMood: 3,
         moodNote: '',

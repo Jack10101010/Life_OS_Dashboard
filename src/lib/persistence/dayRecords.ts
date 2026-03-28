@@ -25,6 +25,7 @@ type DayRecordSections = {
     wakeTime: string
     sleepQuality: number | null
     wokeDuringNight: boolean | null
+    note: string
   }
   morning: {
     mood: number | null
@@ -102,6 +103,7 @@ export function buildCanonicalDayRecord(day: DayEntry): CanonicalDayRecord {
       wakeTime: day.wakeTime,
       sleepQuality: day.sleepQuality,
       wokeDuringNight: day.wokeDuringNight,
+      note: day.sleepNote,
     },
     morning: {
       mood: day.mood,
@@ -154,6 +156,7 @@ export function isMeaningfulContent(record: CanonicalDayRecord | DayEntry | null
     day.bedtime.trim().length > 0 ||
     day.wakeTime.trim().length > 0 ||
     day.wokeDuringNight !== null ||
+    day.sleepNote.trim().length > 0 ||
     day.eveningOutcome !== null ||
     day.eveningUnstable ||
     day.eveningTrajectory !== null ||
@@ -348,6 +351,7 @@ export function normalizeStoredDayRecord(raw: unknown, viewedDate: string, fallb
       wakeTime: normalizedDay.wakeTime,
       sleepQuality: normalizedDay.sleepQuality,
       wokeDuringNight: normalizedDay.wokeDuringNight,
+      note: normalizedDay.sleepNote,
     },
     morning: {
       mood: normalizedDay.mood,
@@ -411,6 +415,8 @@ function mergeCanonicalSectionsIntoDayCandidate(
       sleepSection && 'wokeDuringNight' in sleepSection
         ? sleepSection.wokeDuringNight
         : fullDay.wokeDuringNight ?? parsed.wokeDuringNight,
+    sleepNote:
+      sleepSection && 'note' in sleepSection ? sleepSection.note : fullDay.sleepNote ?? parsed.sleepNote,
     mood: morningSection && 'mood' in morningSection ? morningSection.mood : fullDay.mood ?? parsed.mood,
     motivation:
       morningSection && 'motivation' in morningSection ? morningSection.motivation : fullDay.motivation ?? parsed.motivation,
@@ -534,6 +540,7 @@ function createEmptyDayEntry(date: string, fallbackDay?: DayEntry): DayEntry {
     bedtime: '',
     wakeTime: '',
     wokeDuringNight: null,
+    sleepNote: '',
     morningMood: 3,
     eveningMood: 3,
     moodNote: '',
@@ -593,6 +600,7 @@ function normalizeDayEntryLike(
     bedtime: normalizeString(raw.bedtime, baseDay.bedtime),
     wakeTime: normalizeString(raw.wakeTime, baseDay.wakeTime),
     wokeDuringNight: typeof raw.wokeDuringNight === 'boolean' ? raw.wokeDuringNight : baseDay.wokeDuringNight,
+    sleepNote: normalizeString(raw.sleepNote, baseDay.sleepNote),
     morningMood: typeof raw.morningMood === 'number' ? raw.morningMood : baseDay.morningMood,
     eveningMood: typeof raw.eveningMood === 'number' ? raw.eveningMood : baseDay.eveningMood,
     moodNote: normalizeString(raw.moodNote, baseDay.moodNote),
@@ -785,9 +793,11 @@ function normalizeStoredTagEntries(raw: Partial<DayEntry> & Record<string, unkno
           entry.polarity === 'positive' || entry.polarity === 'neutral' || entry.polarity === 'negative'
             ? entry.polarity
             : 'positive',
+        flag: 'none' as DayTagEntry['flag'],
         timeSection: normalizeTimeSection(entry.timeSection),
         selected: typeof entry.selected === 'boolean' ? entry.selected : true,
       }))
+      .filter((entry) => !isLegacyImportantTagName(entry.customLabel))
   }
 
   return normalizeStringArray(raw.tags ?? fallbackTags).map((tagId, index) => ({
@@ -796,6 +806,7 @@ function normalizeStoredTagEntries(raw: Partial<DayEntry> & Record<string, unkno
     section: 'actions',
     kind: 'action',
     polarity: 'positive',
+    flag: 'none',
     timeSection: 'day',
     selected: true,
   }))
@@ -911,9 +922,16 @@ function normalizeDayEventTags(raw: unknown): DayEventEntry['tags'] {
           (entry as { polarity?: unknown }).polarity === 'positive'
             ? ((entry as { polarity: 'positive' | 'neutral' | 'negative' }).polarity)
             : 'positive',
+        flag: 'none',
       }
     })
-    .filter((entry): entry is DayEventEntry['tags'][number] => entry !== null)
+    .filter((entry): entry is DayEventEntry['tags'][number] => entry !== null && !isLegacyImportantTagName(entry.customLabel))
+}
+
+function isLegacyImportantTagName(value: unknown) {
+  if (typeof value !== 'string') return false
+  const normalized = value.trim().toLowerCase()
+  return normalized === 'important' || normalized === 'high priority' || normalized === 'priority' || normalized === 'test' || normalized === 'h'
 }
 
 function normalizeStringArray(raw: unknown) {

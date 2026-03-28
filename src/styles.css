@@ -5,14 +5,15 @@
 :root {
   color-scheme: dark;
   color: rgb(245 245 242);
-  background: rgb(8 8 8);
+  background: rgb(11 11 12);
 
-  --theme-app-bg-rgb: 8 8 8;
+  --theme-app-bg-rgb: 11 11 12;
   --theme-app-bg-image: none;
   --theme-surface-rgb: 18 18 18;
   --theme-surface-soft-rgb: 28 28 28;
   --theme-surface-elevated-rgb: 23 23 23;
   --theme-sidebar-rgb: 20 20 20;
+  --theme-subtle-block-rgb: 28 28 28;
   --theme-text-primary-rgb: 245 245 242;
   --theme-text-secondary-rgb: 216 216 216;
   --theme-text-muted-rgb: 163 163 163;
@@ -83,20 +84,21 @@
   color: #111827;
   background: #f4f6f8;
 
-  --theme-app-bg-rgb: 244 246 248;
+  --theme-app-bg-rgb: 242 245 248;
   --theme-app-bg-image:
     radial-gradient(circle at top left, rgba(255,255,255,0.88), transparent 28%),
-    linear-gradient(180deg, #f8fafc 0%, #f4f6f8 100%);
+    linear-gradient(180deg, #f7f9fb 0%, #f2f5f8 100%);
   --theme-surface-rgb: 255 255 255;
-  --theme-surface-soft-rgb: 248 250 252;
+  --theme-surface-soft-rgb: 243 246 250;
   --theme-surface-elevated-rgb: 252 252 253;
-  --theme-sidebar-rgb: 240 243 247;
+  --theme-sidebar-rgb: 238 242 246;
+  --theme-subtle-block-rgb: 241 245 249;
   --theme-text-primary-rgb: 17 24 39;
   --theme-text-secondary-rgb: 75 91 107;
   --theme-text-muted-rgb: 115 128 145;
   --theme-text-faint-rgb: 150 161 176;
-  --theme-border-subtle-rgb: 211 219 228;
-  --theme-border-strong-rgb: 190 201 214;
+  --theme-border-subtle-rgb: 214 221 229;
+  --theme-border-strong-rgb: 194 204 216;
   --theme-accent-rgb: 52 199 89;
   --theme-warning-rgb: 216 155 43;
   --theme-negative-rgb: 216 75 90;
@@ -120,17 +122,17 @@
   --theme-popover-bg-rgb: 255 255 255;
   --theme-popover-border-rgb: 207 215 225;
   --theme-overlay-rgb: 148 163 184 / 0.22;
-  --theme-card-shadow: 0 0 0 1px var(--panel-hue-line), 0 0 18px var(--panel-hue-glow), 0 16px 34px rgba(15, 23, 42, 0.1);
+  --theme-card-shadow: 0 0 0 1px var(--panel-hue-line), 0 0 18px var(--panel-hue-glow), 0 18px 42px rgba(15, 23, 42, 0.08);
 
   --theme-chart-axis-rgb: 110 123 139;
   --theme-chart-grid-rgb: 227 232 239 / 0.95;
   --theme-chart-tooltip-bg-rgb: 255 255 255;
   --theme-chart-tooltip-border-rgb: 206 215 225;
 
-  --theme-heatmap-empty-rgb: 214 220 228;
+  --theme-heatmap-empty-rgb: 210 217 226;
   --theme-heatmap-complete-rgb: 121 230 141;
-  --theme-heatmap-paused-rgb: 230 233 239;
-  --theme-heatmap-inactive-rgb: 238 242 246;
+  --theme-heatmap-paused-rgb: 230 234 240;
+  --theme-heatmap-inactive-rgb: 236 240 245;
   --theme-heatmap-negative-rgb: 241 110 120;
 
   --button-border: rgba(206, 214, 223, 1);
@@ -249,9 +251,9 @@ body {
 
 .theme-page-title {
   font-size: 28px;
-  line-height: 1.08;
-  font-weight: 600;
-  letter-spacing: -0.02em;
+  line-height: 1.06;
+  font-weight: 700;
+  letter-spacing: -0.03em;
   color: rgb(var(--theme-text-primary-rgb));
 }
 
@@ -260,7 +262,7 @@ body {
   line-height: 1.2;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.22em;
+  letter-spacing: 0.24em;
   color: rgb(var(--theme-text-muted-rgb));
 }
 
@@ -268,14 +270,14 @@ body {
   font-size: 15px;
   line-height: 1.68;
   font-weight: 500;
-  color: rgb(var(--theme-text-primary-rgb));
+  color: rgb(var(--theme-text-secondary-rgb));
 }
 
 .theme-body-secondary {
   font-size: 14px;
   line-height: 1.7;
   font-weight: 400;
-  color: rgb(var(--theme-text-muted-rgb) / 0.88);
+  color: rgb(var(--theme-text-muted-rgb) / 0.82);
 }
 
 .theme-label {
@@ -283,15 +285,15 @@ body {
   line-height: 1.2;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.22em;
-  color: rgb(var(--theme-text-muted-rgb));
+  letter-spacing: 0.24em;
+  color: rgb(var(--theme-text-muted-rgb) / 0.92);
 }
 
 .theme-metadata {
   font-size: 12px;
   line-height: 1.4;
   font-weight: 500;
-  color: rgb(var(--theme-text-faint-rgb));
+  color: rgb(var(--theme-text-faint-rgb) / 0.92);
 }
 
 .theme-border-subtle {
@@ -443,15 +445,20 @@ body {
 }
 
 .theme-subtle-block {
-  background: #f1f5f9;
+  background: rgb(var(--theme-subtle-block-rgb));
   border-color: rgb(var(--theme-border-strong-rgb));
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.38);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.22);
 }
 
 .theme-inner-section {
   background: rgb(var(--theme-surface-soft-rgb));
   border: 1px solid rgb(var(--theme-border-subtle-rgb));
   box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.4);
+}
+
+.theme-flat-section {
+  background: rgb(var(--theme-surface-soft-rgb));
+  border-color: rgb(var(--theme-border-subtle-rgb));
 }
 
 .heat-cell {

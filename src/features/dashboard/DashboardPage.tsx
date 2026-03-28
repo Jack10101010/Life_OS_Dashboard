@@ -258,6 +258,7 @@ export function DashboardPage({
         section: tag.section,
         kind: tag.kind,
         polarity: tag.polarity,
+        flag: tag.flag,
       }))
 
     onUpdateDay(todayEntry.id, (current) => ({
@@ -838,7 +839,7 @@ export function DashboardPage({
         </div>
       ) : (
         <>
-      <div className="grid gap-4">
+      <div className="grid gap-3">
       <Card className="px-5 py-4.5">
         <div className="flex flex-col gap-4">
           <div className="flex items-start justify-between gap-4">
@@ -913,7 +914,7 @@ export function DashboardPage({
               <div className="mt-3 space-y-2.5">
                 <div className="theme-inner-section max-w-[440px] rounded-[20px] px-3.5 py-3">
                   <div className="flex items-center justify-between gap-3">
-                    <p className="text-[10px] uppercase tracking-[0.22em]" style={{ color: '#34D399' }}>Last win</p>
+                    <p className="theme-label">Last win</p>
                     <span className="theme-metadata">{lastBigWin?.dateLabel ?? ''}</span>
                   </div>
                   <p className="theme-body-secondary mt-2 line-clamp-2">
@@ -921,7 +922,7 @@ export function DashboardPage({
                   </p>
                 </div>
                 <div className="theme-subtle-block max-w-[440px] rounded-[20px] border px-3.5 py-3">
-                  <p className="text-[10px] uppercase tracking-[0.22em]" style={{ color: '#34D399' }}>Reminder for this week</p>
+                  <p className="theme-label">Reminder for this week</p>
                   <div className="mt-1.5 h-[42px]" aria-hidden="true" />
                 </div>
               </div>
@@ -929,7 +930,7 @@ export function DashboardPage({
             <div className="min-w-0 xl:w-full xl:max-w-[620px] xl:justify-self-end">
               <div className="grid auto-rows-fr gap-2 sm:grid-cols-[minmax(0,1fr)_232px]">
                 <div className="theme-inner-section min-w-0 rounded-[20px] px-3.5 py-3">
-                  <p className="text-[10px] uppercase tracking-[0.24em]" style={{ color: '#34D399' }}>Habits completed this week</p>
+                  <p className="theme-label">Habits completed this week</p>
                   <div className="mt-2.5 space-y-1.5">
                     {visibleWeeklyHabits.map((habit) => (
                       <div key={habit.id} className="grid grid-cols-[minmax(0,1fr)_112px_1px_34px] items-center gap-3 text-[15px] leading-6">
@@ -968,7 +969,7 @@ export function DashboardPage({
                   </div>
                 </div>
                 <div className="theme-inner-section min-w-0 sm:min-w-[232px] rounded-[20px] px-3.5 py-3 pr-4">
-                  <p className="text-[10px] uppercase tracking-[0.24em]" style={{ color: '#34D399' }}>Active goals</p>
+                  <p className="theme-label">Active goals</p>
                   <div className="mt-2.5 space-y-1.5">
                     {visibleWeeklyGoals.length > 0 ? (
                       visibleWeeklyGoals.map((goal) => (
@@ -2766,9 +2767,9 @@ function MomentumRing({ score }: { score: number }) {
 }
 
 function getMomentumRingColor(score: number) {
-  if (score < 40) return 'rgb(var(--theme-negative-rgb))'
-  if (score < 70) return 'rgb(var(--theme-warning-rgb))'
-  return 'rgb(var(--theme-accent-rgb))'
+  if (score <= 40) return '#C28A57'
+  if (score <= 70) return '#7FBF8C'
+  return '#34C759'
 }
 
 function getMomentumGuidance(metrics: RollingMomentumMetrics) {

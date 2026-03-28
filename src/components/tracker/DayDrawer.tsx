@@ -8,6 +8,7 @@ import {
   HabitTracker,
   MedicationSupplementEntry,
   Tag,
+  TagFlag,
   TagKind,
   TagPolarity,
   TagSection,
@@ -89,9 +90,11 @@ export function DayDrawer({
   const [menuOpen, setMenuOpen] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [animatingHabitId, setAnimatingHabitId] = useState<string | null>(null)
+  const [sleepExpanded, setSleepExpanded] = useState(true)
   const [morningExpanded, setMorningExpanded] = useState(true)
   const [dayExpanded, setDayExpanded] = useState(false)
   const [eveningExpanded, setEveningExpanded] = useState(false)
+  const [sleepNoteFocused, setSleepNoteFocused] = useState(false)
   const [intentionFocused, setIntentionFocused] = useState(false)
   const [showMorningIntentionInEvening, setShowMorningIntentionInEvening] = useState(false)
   const [reflectionFocused, setReflectionFocused] = useState(false)
@@ -153,17 +156,27 @@ export function DayDrawer({
   const eveningTagsRef = useRef<HTMLDivElement | null>(null)
   const eveningOutcomeRef = useRef<HTMLDivElement | null>(null)
   const eveningReflectionRef = useRef<HTMLDivElement | null>(null)
+  const sleepNoteRef = useRef<HTMLTextAreaElement | null>(null)
   const intentionRef = useRef<HTMLTextAreaElement | null>(null)
   const reflectionRef = useRef<HTMLTextAreaElement | null>(null)
   const [activeScrollSection, setActiveScrollSection] = useState<'morning' | 'day' | 'evening'>('morning')
   const [activeScrollSubsection, setActiveScrollSubsection] = useState<string | null>(null)
+  const resetCustomTagComposer = (timeContext: CustomTagTimeContext = 'evening') => {
+    setCustomTagName('')
+    setCustomTagSaveMode('reusable')
+    setCustomTagSection(getDefaultCustomTagSectionForTimeContext(timeContext))
+    setCustomTagPolarity('positive')
+    setCustomTagTimeSection(timeContext)
+  }
 
   useEffect(() => {
     setMenuOpen(false)
     setShowDeleteConfirm(false)
+    setSleepExpanded(true)
     setMorningExpanded(true)
     setDayExpanded(false)
     setEveningExpanded(false)
+    setSleepNoteFocused(false)
     setIntentionFocused(false)
     setShowMorningIntentionInEvening(false)
     setReflectionFocused(false)
@@ -199,11 +212,7 @@ export function DayDrawer({
     setEditingTagKind('action')
     setEditingTagPolarity('positive')
     setEditingTagAvailableIn(['day', 'evening'])
-    setCustomTagName('')
-    setCustomTagSaveMode('reusable')
-    setCustomTagSection('actions')
-    setCustomTagPolarity('positive')
-    setCustomTagTimeSection('evening')
+    resetCustomTagComposer('evening')
     setDraggedTagId(null)
     setDragOverSection(null)
     setDragOverTagId(null)
@@ -250,6 +259,66 @@ export function DayDrawer({
   }, [managingTags])
 
   useEffect(() => {
+    if (!sleepTagPickerOpen && !morningTagPickerOpen && !dayEventTagPickerOpen && !eveningTagPickerOpen) return
+
+    function handleOutsideClick(event: MouseEvent) {
+      const target = event.target as Node | null
+      if (!target) return
+
+      if (sleepTagPickerOpen && sleepSubsectionRef.current && !sleepSubsectionRef.current.contains(target)) {
+        setSleepTagPickerOpen(false)
+        if (creatingTagHost === 'sleep') {
+          setCreatingTag(false)
+          setCreatingTagHost(null)
+        }
+      }
+
+      if (morningTagPickerOpen && morningTagsRef.current && !morningTagsRef.current.contains(target)) {
+        setMorningTagPickerOpen(false)
+        if (creatingTagHost === 'morning') {
+          setCreatingTag(false)
+          setCreatingTagHost(null)
+        }
+      }
+
+      if (dayEventTagPickerOpen && dayEventsRef.current && !dayEventsRef.current.contains(target)) {
+        setDayEventTagPickerOpen(false)
+        if (creatingTagHost === 'day') {
+          setCreatingTag(false)
+          setCreatingTagHost(null)
+        }
+      }
+
+      if (eveningTagPickerOpen && eveningTagsRef.current && !eveningTagsRef.current.contains(target)) {
+        setEveningTagPickerOpen(false)
+        if (creatingTagHost === 'evening') {
+          setCreatingTag(false)
+          setCreatingTagHost(null)
+        }
+      }
+    }
+
+    document.addEventListener('click', handleOutsideClick)
+
+    return () => {
+      document.removeEventListener('click', handleOutsideClick)
+    }
+  }, [creatingTagHost, dayEventTagPickerOpen, eveningTagPickerOpen, morningTagPickerOpen, sleepTagPickerOpen])
+
+  useEffect(() => {
+    if (!sleepNoteRef.current) return
+    resizeTextarea(sleepNoteRef.current)
+  }, [day?.id, day?.sleepNote, open])
+
+  useEffect(() => {
+    if (!sleepNoteFocused || !sleepNoteRef.current) return
+    resizeTextarea(sleepNoteRef.current)
+    sleepNoteRef.current.focus()
+    const length = sleepNoteRef.current.value.length
+    sleepNoteRef.current.setSelectionRange(length, length)
+  }, [sleepNoteFocused])
+
+  useEffect(() => {
     if (!intentionRef.current) return
     resizeTextarea(intentionRef.current)
   }, [day?.id, day?.morningIntention, open])
@@ -274,9 +343,13 @@ export function DayDrawer({
 
     const sections = [
       { key: 'morning' as const, subsection: null, ref: morningSectionRef },
-      ...(morningExpanded
+      ...(sleepExpanded
         ? [
             { key: 'morning' as const, subsection: 'Sleep', ref: sleepSubsectionRef },
+          ]
+        : []),
+      ...(morningExpanded
+        ? [
             { key: 'morning' as const, subsection: 'Morning check in', ref: morningCheckInRef },
             { key: 'morning' as const, subsection: 'Morning tags', ref: morningTagsRef },
             { key: 'morning' as const, subsection: 'Morning intention', ref: morningIntentionRef },
@@ -334,6 +407,7 @@ export function DayDrawer({
   }, [
     open,
     day,
+    sleepExpanded,
     morningExpanded,
     dayExpanded,
     eveningExpanded,
@@ -417,12 +491,24 @@ export function DayDrawer({
     .filter((entry) => entry.section === 'sleep')
     .map((entry) => getDisplayTagForEntry(entry, tags))
     .filter((item): item is NonNullable<ReturnType<typeof getDisplayTagForEntry>> => item != null)
+  const sleepSelectedTagItems = selectedTagEntries
+    .filter((entry) => entry.selected && entry.section === 'sleep' && entry.timeSection === 'morning')
+    .map((entry) => getDisplayTagForEntry(entry, tags))
+    .filter((item): item is NonNullable<ReturnType<typeof getDisplayTagForEntry>> => item != null)
   const morningFeelingCustomTagItems = customDayTagEntries
     .filter((entry) => entry.section === 'feelings' && entry.timeSection === 'morning')
     .map((entry) => getDisplayTagForEntry(entry, tags))
     .filter((item): item is NonNullable<ReturnType<typeof getDisplayTagForEntry>> => item != null)
+  const morningFeelingSelectedTagItems = selectedTagEntries
+    .filter((entry) => entry.selected && entry.section === 'feelings' && entry.timeSection === 'morning')
+    .map((entry) => getDisplayTagForEntry(entry, tags))
+    .filter((item): item is NonNullable<ReturnType<typeof getDisplayTagForEntry>> => item != null)
   const morningActionCustomTagItems = customDayTagEntries
     .filter((entry) => entry.section === 'actions' && entry.timeSection === 'morning')
+    .map((entry) => getDisplayTagForEntry(entry, tags))
+    .filter((item): item is NonNullable<ReturnType<typeof getDisplayTagForEntry>> => item != null)
+  const morningActionSelectedTagItems = selectedTagEntries
+    .filter((entry) => entry.selected && entry.section === 'actions' && entry.timeSection === 'morning')
     .map((entry) => getDisplayTagForEntry(entry, tags))
     .filter((item): item is NonNullable<ReturnType<typeof getDisplayTagForEntry>> => item != null)
   const dayFeelingCustomTagItems = customDayTagEntries
@@ -437,8 +523,16 @@ export function DayDrawer({
     .filter((entry) => entry.section === 'feelings' && entry.timeSection === 'evening')
     .map((entry) => getDisplayTagForEntry(entry, tags))
     .filter((item): item is NonNullable<ReturnType<typeof getDisplayTagForEntry>> => item != null)
+  const eveningFeelingSelectedTagItems = selectedTagEntries
+    .filter((entry) => entry.selected && entry.section === 'feelings' && entry.timeSection === 'evening')
+    .map((entry) => getDisplayTagForEntry(entry, tags))
+    .filter((item): item is NonNullable<ReturnType<typeof getDisplayTagForEntry>> => item != null)
   const eveningActionCustomTagItems = customDayTagEntries
     .filter((entry) => entry.section === 'actions' && entry.timeSection === 'evening')
+    .map((entry) => getDisplayTagForEntry(entry, tags))
+    .filter((item): item is NonNullable<ReturnType<typeof getDisplayTagForEntry>> => item != null)
+  const eveningActionSelectedTagItems = selectedTagEntries
+    .filter((entry) => entry.selected && entry.section === 'actions' && entry.timeSection === 'evening')
     .map((entry) => getDisplayTagForEntry(entry, tags))
     .filter((item): item is NonNullable<ReturnType<typeof getDisplayTagForEntry>> => item != null)
   const legacyDayTagItems = selectedTagEntries
@@ -453,6 +547,31 @@ export function DayDrawer({
   const dayActionTags = tags.filter((tag) => tag.isActive && tag.section === 'actions' && isTagAvailableInSection(tag, 'day'))
   const eveningActionTags = tags.filter((tag) => tag.isActive && tag.section === 'actions' && isTagAvailableInSection(tag, 'evening'))
   const dayEventTags = tags.filter((tag) => tag.isActive && tag.section === 'events' && isTagAvailableInSection(tag, 'day'))
+  const sleepSelectedFlagsByTagId = Object.fromEntries(
+    sleepSelectedTagItems
+      .filter((item) => !item.oneOff)
+      .map((item) => [item.tag.id, item.tag.flag === 'important']),
+  ) as Record<string, boolean>
+  const morningFeelingSelectedFlagsByTagId = Object.fromEntries(
+    morningFeelingSelectedTagItems
+      .filter((item) => !item.oneOff)
+      .map((item) => [item.tag.id, item.tag.flag === 'important']),
+  ) as Record<string, boolean>
+  const morningActionSelectedFlagsByTagId = Object.fromEntries(
+    morningActionSelectedTagItems
+      .filter((item) => !item.oneOff)
+      .map((item) => [item.tag.id, item.tag.flag === 'important']),
+  ) as Record<string, boolean>
+  const eveningFeelingSelectedFlagsByTagId = Object.fromEntries(
+    eveningFeelingSelectedTagItems
+      .filter((item) => !item.oneOff)
+      .map((item) => [item.tag.id, item.tag.flag === 'important']),
+  ) as Record<string, boolean>
+  const eveningActionSelectedFlagsByTagId = Object.fromEntries(
+    eveningActionSelectedTagItems
+      .filter((item) => !item.oneOff)
+      .map((item) => [item.tag.id, item.tag.flag === 'important']),
+  ) as Record<string, boolean>
   const dayEventFeelingCustomItems = dayEventCustomTags
     .filter((entry) => entry.section === 'feelings')
     .map((entry) => getDisplayTagForDayEventTag(entry, tags))
@@ -548,6 +667,33 @@ export function DayDrawer({
     }))
   }
 
+  const handleToggleSystemImportantDayTag = (timeSection: DayLogSection, section: TagSection) => {
+    const systemTagId = getSystemImportantTagId(timeSection, section)
+    const existingEntry = day.tagEntries.find((entry) => entry.tagId === systemTagId && entry.timeSection === timeSection)
+
+    onUpdateDay(day.id, (current) => ({
+      ...current,
+      isLogged: true,
+      tagEntries: existingEntry
+        ? current.tagEntries.map((entry) =>
+            entry.id === existingEntry.id ? { ...entry, selected: !entry.selected } : entry,
+          )
+        : [
+            ...current.tagEntries,
+            {
+              id: createDayTagEntryId(systemTagId),
+              tagId: systemTagId,
+              section,
+              kind: getDefaultKindForSection(section),
+              polarity: 'neutral',
+              flag: 'none',
+              timeSection,
+              selected: true,
+            },
+          ],
+    }))
+  }
+
   const handleMoveTagEntry = (entryId: string, timeSection: DayLogSection) => {
     onUpdateDay(day.id, (current) => ({
       ...current,
@@ -570,11 +716,44 @@ export function DayDrawer({
           section: createdTag.section,
           kind: createdTag.kind,
           polarity: createdTag.polarity,
+          flag: 'none',
           timeSection: resolvedTimeSection,
           selected: true,
         },
       ],
     }))
+  }
+
+  const handleOpenInlineDayTagCreate = (host: CustomTagTimeContext, section: TagSection) => {
+    const nextOpen = !(creatingTag && creatingTagHost === host && customTagSection === section)
+    setCreatingTag(nextOpen)
+    setCreatingTagHost(nextOpen ? host : null)
+    if (nextOpen) {
+      resetCustomTagComposer(host)
+      setCustomTagSection(section)
+    }
+  }
+
+  const handleAddInlineDayTag = (host: CustomTagTimeContext, section: TagSection) => {
+    const trimmedName = customTagName.trim()
+    if (!trimmedName || isReservedSystemTagName(trimmedName)) return
+
+    const resolvedSection = resolveCustomTagSection(section, host)
+    const resolvedTimeSection = getTagEntryTimeSectionForCustomTagTimeContext(host)
+    const resolvedAvailability = getAvailabilityForCustomTagTimeContext(host)
+
+    const created = onCreateTag({
+      name: trimmedName,
+      section: resolvedSection,
+      kind: getDefaultKindForSection(resolvedSection),
+      polarity: customTagPolarity,
+      availableIn: resolvedAvailability,
+    })
+
+    handleSelectCreatedTag(created, resolvedTimeSection)
+    setCreatingTag(false)
+    setCreatingTagHost(null)
+    resetCustomTagComposer(host)
   }
 
   const handleAddDayTask = () => {
@@ -653,7 +832,7 @@ export function DayDrawer({
 
   const handleAddInlineDayEventTag = (section: Extract<TagSection, 'feelings' | 'actions' | 'events'>) => {
     const trimmedLabel = dayEventInlineTagName.trim()
-    if (!trimmedLabel) return
+    if (!trimmedLabel || isReservedSystemTagName(trimmedLabel)) return
 
     setDayEventCustomTags((current) => {
       const existingIndex = current.findIndex(
@@ -672,6 +851,7 @@ export function DayDrawer({
                 section,
                 kind: getDefaultKindForSection(section),
                 polarity: dayEventInlineTagPolarity,
+                flag: 'none',
               }
             : entry,
         )
@@ -685,6 +865,7 @@ export function DayDrawer({
           section,
           kind: getDefaultKindForSection(section),
           polarity: dayEventInlineTagPolarity,
+          flag: 'none',
         },
       ]
     })
@@ -709,6 +890,7 @@ export function DayDrawer({
         section: tag.section,
         kind: tag.kind,
         polarity: tag.polarity,
+        flag: 'none' as TagFlag,
       }))
 
     const nextEventTags = [...selectedEventTags, ...dayEventCustomTags]
@@ -754,6 +936,12 @@ export function DayDrawer({
     const currentEditingDayEventId = editingDayEventId
     resetDayEventComposer()
     setExpandedDayEventIds(currentEditingDayEventId ? [currentEditingDayEventId] : [])
+  }
+
+  const handleToggleDayEventSelectedTag = (tagId: string) => {
+    setDayEventSelectedTagIds((current) =>
+      current.includes(tagId) ? current.filter((id) => id !== tagId) : [...current, tagId],
+    )
   }
 
   const handleToggleExpandedDayEvent = (eventId: string) => {
@@ -874,11 +1062,7 @@ export function DayDrawer({
                 tags={dayFeelingTags}
                 selectedIds={dayEventSelectedTagIds}
                 customItems={dayEventFeelingCustomItems}
-                onToggle={(tagId) =>
-                  setDayEventSelectedTagIds((current) =>
-                    current.includes(tagId) ? current.filter((id) => id !== tagId) : [...current, tagId],
-                  )
-                }
+                onToggle={handleToggleDayEventSelectedTag}
                 onToggleCustom={(entryId) =>
                   setDayEventCustomTags((current) => current.filter((entry) => entry.id !== entryId))
                 }
@@ -901,11 +1085,12 @@ export function DayDrawer({
                 tags={dayActionTags}
                 selectedIds={dayEventSelectedTagIds}
                 customItems={dayEventActionCustomItems}
-                onToggle={(tagId) =>
-                  setDayEventSelectedTagIds((current) =>
-                    current.includes(tagId) ? current.filter((id) => id !== tagId) : [...current, tagId],
-                  )
-                }
+                systemTag={{
+                  tag: getSystemImportantTag('day', 'actions'),
+                  active: dayEventSelectedTagIds.includes(getSystemImportantTagId('day', 'actions')),
+                  onToggle: () => handleToggleDayEventSelectedTag(getSystemImportantTagId('day', 'actions')),
+                }}
+                onToggle={handleToggleDayEventSelectedTag}
                 onToggleCustom={(entryId) =>
                   setDayEventCustomTags((current) => current.filter((entry) => entry.id !== entryId))
                 }
@@ -928,11 +1113,7 @@ export function DayDrawer({
                 tags={dayEventTags}
                 selectedIds={dayEventSelectedTagIds}
                 customItems={dayEventSectionCustomItems}
-                onToggle={(tagId) =>
-                  setDayEventSelectedTagIds((current) =>
-                    current.includes(tagId) ? current.filter((id) => id !== tagId) : [...current, tagId],
-                  )
-                }
+                onToggle={handleToggleDayEventSelectedTag}
                 onToggleCustom={(entryId) =>
                   setDayEventCustomTags((current) => current.filter((entry) => entry.id !== entryId))
                 }
@@ -980,6 +1161,211 @@ export function DayDrawer({
         </button>
       </div>
     </div>
+  )
+
+  const sleepBlock = (
+    <Card
+      className="bg-[#121212] p-5 transition-colors duration-150 ease-out"
+      style={{
+        borderColor:
+          activeScrollSection === 'morning' && activeScrollSubsection === 'Sleep'
+            ? 'rgba(255,255,255,0.05)'
+            : sleepExpanded
+              ? 'rgba(255,255,255,0.05)'
+              : 'rgba(255,255,255,0.035)',
+        backgroundImage: 'linear-gradient(180deg, rgba(255,255,255,0.018) 0%, rgba(255,255,255,0.008) 24%, rgba(255,255,255,0) 100%)',
+        boxShadow:
+          activeScrollSection === 'morning' && activeScrollSubsection === 'Sleep'
+            ? '0 0 0 1px rgba(255,255,255,0.028), 0 18px 38px rgba(0,0,0,0.18)'
+            : '0 16px 36px rgba(0,0,0,0.16)',
+        filter: activeScrollSection === 'morning' && activeScrollSubsection === 'Sleep' ? 'brightness(1.018)' : undefined,
+      }}
+    >
+      <button
+        type="button"
+        onClick={() => setSleepExpanded((current) => !current)}
+        className="flex w-full items-center justify-between gap-3 text-left"
+      >
+        <SectionHeader title="Sleep" description="Capture the night." major />
+        <span className={sectionToggleClassName} aria-hidden="true">
+          {sleepExpanded ? '−' : '+'}
+        </span>
+      </button>
+      <div
+        className={`grid overflow-hidden transition-[grid-template-rows,opacity,transform,margin] duration-200 ease-out ${
+          sleepExpanded ? 'mt-6 grid-rows-[1fr] opacity-100 translate-y-0' : 'mt-0 grid-rows-[0fr] opacity-0 -translate-y-1 pointer-events-none'
+        }`}
+      >
+        <div className="overflow-hidden">
+      <div ref={sleepSubsectionRef} className="ml-2 rounded-[20px] border border-white/[0.03] bg-[rgba(255,255,255,0.032)] px-3 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.012),0_12px_28px_rgba(0,0,0,0.12)] transition-[background-color,box-shadow,filter] duration-150 ease-out hover:bg-[rgba(255,255,255,0.036)] hover:brightness-[1.01]">
+        <div className="space-y-2.5">
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-white/82">Sleep</p>
+            <p className="text-[12px] text-mist/56">Capture the night</p>
+          </div>
+
+          <div className="grid gap-2.5 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] md:items-center">
+            <TimePickerField
+              value={day.bedtime}
+              placeholder="Bedtime"
+              onChange={(value) =>
+                onUpdateDay(day.id, (current) => ({
+                  ...current,
+                  isLogged: true,
+                  bedtime: value,
+                }))
+              }
+            />
+            <TimePickerField
+              value={day.wakeTime}
+              placeholder="Wake time"
+              onChange={(value) =>
+                onUpdateDay(day.id, (current) => ({
+                  ...current,
+                  isLogged: true,
+                  wakeTime: value,
+                }))
+              }
+            />
+            <button
+              type="button"
+              onClick={() =>
+                onUpdateDay(day.id, (current) => ({
+                  ...current,
+                  isLogged: true,
+                  wokeDuringNight: current.wokeDuringNight === true ? false : true,
+                }))
+              }
+              className={`flex h-[42px] items-center gap-2 rounded-xl border px-2.5 py-2 text-sm transition md:self-stretch ${
+                day.wokeDuringNight
+                  ? 'border-white/[0.1] bg-white/[0.025] text-white/74 hover:border-white/[0.14] hover:bg-white/[0.035] hover:text-white/84'
+                  : 'border-white/[0.05] bg-transparent text-white/54 hover:border-white/[0.08] hover:bg-white/[0.015] hover:text-white/72'
+              }`}
+            >
+              <span
+                className={`flex h-[18px] w-[18px] items-center justify-center rounded-[6px] border text-[11px] leading-none transition ${
+                  day.wokeDuringNight
+                    ? 'border-white/[0.18] bg-white/[0.04] text-white/72'
+                    : 'border-white/[0.1] bg-transparent text-transparent'
+                }`}
+              >
+                ✓
+              </span>
+              <span>Woke during night</span>
+            </button>
+          </div>
+
+          <div className="space-y-1">
+            <CheckInRow
+              label="Sleep quality"
+              value={day.sleepQuality}
+              onSelect={(value) =>
+                onUpdateDay(day.id, (current) => ({
+                  ...current,
+                  isLogged: true,
+                  sleepQuality: value,
+                }))
+              }
+            />
+          </div>
+
+          <div className="space-y-2 border-t border-white/[0.05] pt-2">
+            <div className="flex items-center justify-between gap-3">
+              <p className={dailyLogSubsectionLabelClassName}>Sleep tags</p>
+              <button
+                type="button"
+                onClick={() => setSleepTagPickerOpen((current) => !current)}
+                className="rounded-full border border-dashed border-white/10 px-3 py-1.5 text-xs font-medium text-mist transition hover:border-white/18 hover:text-white"
+              >
+                {sleepTagPickerOpen ? 'Hide picker' : '+ Add tags'}
+              </button>
+            </div>
+            <SelectedTagSummary
+              title="Selected"
+              items={sleepSelectedTagItems}
+              onToggle={(tagId) =>
+                isSystemImportantTagId(tagId)
+                  ? handleToggleSystemImportantDayTag('morning', 'sleep')
+                  : onSelectTag(tagId, 'morning')
+              }
+              onToggleCustom={handleToggleCustomTag}
+              emptyLabel="No sleep tags selected yet."
+            />
+            {sleepTagPickerOpen ? (
+              <div className="dailylog-reveal space-y-3 rounded-[18px] border border-white/[0.06] bg-black/10 p-3">
+                <TagGroup
+                  title="Sleep tags"
+                  tags={sleepTags}
+                  selectedIds={sleepSelectedReusableTagIds}
+                  customItems={sleepCustomTagItems}
+                  selectedImportantByTagId={sleepSelectedFlagsByTagId}
+                  systemTag={{
+                    tag: getSystemImportantTag('morning', 'sleep'),
+                    active: sleepSelectedReusableTagIds.includes(getSystemImportantTagId('morning', 'sleep')),
+                    onToggle: () => handleToggleSystemImportantDayTag('morning', 'sleep'),
+                  }}
+                  onToggle={(tagId) => onSelectTag(tagId, 'morning')}
+                  onToggleCustom={handleToggleCustomTag}
+                />
+                <InlineDayEventTagCreator
+                  open={creatingTag && creatingTagHost === 'sleep' && customTagSection === 'sleep'}
+                  label="Sleep"
+                  value={customTagName}
+                  polarity={customTagPolarity}
+                  onOpen={() => handleOpenInlineDayTagCreate('sleep', 'sleep')}
+                  onValueChange={setCustomTagName}
+                  onPolarityChange={setCustomTagPolarity}
+                  onCancel={() => handleOpenInlineDayTagCreate('sleep', 'sleep')}
+                  onAdd={() => handleAddInlineDayTag('sleep', 'sleep')}
+                />
+                <div className="flex justify-end pt-1">
+                  <button
+                    type="button"
+                    onClick={() => openManageTags('sleep')}
+                    className="rounded-full px-2.5 py-1 text-xs text-white/46 transition hover:bg-white/[0.04] hover:text-white/78"
+                  >
+                    Manage tags
+                  </button>
+                </div>
+              </div>
+            ) : null}
+            {sleepNoteFocused ? (
+              <textarea
+                ref={sleepNoteRef}
+                value={day.sleepNote}
+                onChange={(event) =>
+                  onUpdateDay(day.id, (current) => ({
+                    ...current,
+                    isLogged: true,
+                    sleepNote: event.target.value,
+                  }))
+                }
+                onInput={(event) => resizeTextarea(event.currentTarget)}
+                onBlur={() => setSleepNoteFocused(false)}
+                placeholder="Write anything about your sleep..."
+                className={`${innerFieldPanelClassName} dailylog-reveal min-h-[88px] w-full resize-none overflow-hidden whitespace-normal break-words px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-mist/45 focus:border-white/[0.08] focus:bg-[rgba(255,255,255,0.042)]`}
+                style={{ wordBreak: 'break-word' }}
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => setSleepNoteFocused(true)}
+                className={`${innerFieldPanelClassName} block min-h-[48px] w-full px-4 py-3 text-left text-sm leading-6 transition hover:border-white/[0.065] hover:bg-[rgba(255,255,255,0.03)] ${day.sleepNote.trim() ? 'text-white/90' : 'text-mist/62'}`}
+              >
+                <span
+                  className={`block ${day.sleepNote.trim() ? 'truncate whitespace-nowrap' : 'whitespace-pre-wrap break-words'}`}
+                  style={{ wordBreak: 'break-word' }}
+                >
+                  {day.sleepNote.trim() || '+ Add sleep note'}
+                </span>
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+        </div>
+      </div>
+    </Card>
   )
 
   return (
@@ -1103,6 +1489,8 @@ export function DayDrawer({
           </div>
         </div>
 
+        {sleepBlock}
+
         <div ref={morningSectionRef}>
         <Card
           className="bg-[#121212] p-5 transition-colors duration-150 ease-out"
@@ -1121,7 +1509,7 @@ export function DayDrawer({
             onClick={() => setMorningExpanded((current) => !current)}
             className="flex w-full items-center justify-between gap-3 text-left"
           >
-            <SectionHeader title="Morning" description="Sleep, starting state, and what matters most." major />
+            <SectionHeader title="Morning" description="Mood, starting state, and what matters most." major />
             <span className={sectionToggleClassName} aria-hidden="true">
               {morningExpanded ? '−' : '+'}
             </span>
@@ -1133,216 +1521,6 @@ export function DayDrawer({
           >
             <div className="overflow-hidden">
               <div className="space-y-6">
-              <div ref={sleepSubsectionRef} className="ml-2 rounded-[20px] border border-white/[0.03] bg-[rgba(255,255,255,0.032)] px-3 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.012),0_12px_28px_rgba(0,0,0,0.12)] transition-[background-color,box-shadow,filter] duration-150 ease-out hover:bg-[rgba(255,255,255,0.036)] hover:brightness-[1.01]">
-                <div className="space-y-2.5">
-                  <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                    <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-white/82">Sleep</p>
-                    <p className="text-[12px] text-mist/56">Capture the night</p>
-                  </div>
-
-                  <div className="grid gap-2.5 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] md:items-center">
-                    <TimePickerField
-                      value={day.bedtime}
-                      placeholder="Bedtime"
-                      onChange={(value) =>
-                        onUpdateDay(day.id, (current) => ({
-                          ...current,
-                          isLogged: true,
-                          bedtime: value,
-                        }))
-                      }
-                    />
-                    <TimePickerField
-                      value={day.wakeTime}
-                      placeholder="Wake time"
-                      onChange={(value) =>
-                        onUpdateDay(day.id, (current) => ({
-                          ...current,
-                          isLogged: true,
-                          wakeTime: value,
-                        }))
-                      }
-                    />
-                    <button
-                      type="button"
-                      onClick={() =>
-                        onUpdateDay(day.id, (current) => ({
-                          ...current,
-                          isLogged: true,
-                          wokeDuringNight: current.wokeDuringNight === true ? false : true,
-                        }))
-                      }
-                      className={`flex h-[42px] items-center gap-2 rounded-xl border px-2.5 py-2 text-sm transition md:self-stretch ${
-                        day.wokeDuringNight
-                          ? 'border-white/[0.1] bg-white/[0.025] text-white/74 hover:border-white/[0.14] hover:bg-white/[0.035] hover:text-white/84'
-                          : 'border-white/[0.05] bg-transparent text-white/54 hover:border-white/[0.08] hover:bg-white/[0.015] hover:text-white/72'
-                      }`}
-                    >
-                      <span
-                        className={`flex h-[18px] w-[18px] items-center justify-center rounded-[6px] border text-[11px] leading-none transition ${
-                          day.wokeDuringNight
-                            ? 'border-white/[0.18] bg-white/[0.04] text-white/72'
-                            : 'border-white/[0.1] bg-transparent text-transparent'
-                        }`}
-                      >
-                        ✓
-                      </span>
-                      <span>Woke during night</span>
-                    </button>
-                  </div>
-
-                  <div className="space-y-1">
-                    <CheckInRow
-                      label="Sleep quality"
-                      value={day.sleepQuality}
-                      onSelect={(value) =>
-                        onUpdateDay(day.id, (current) => ({
-                          ...current,
-                          isLogged: true,
-                          sleepQuality: value,
-                        }))
-                      }
-                    />
-                  </div>
-
-                  <div className="space-y-2 border-t border-white/[0.05] pt-2">
-                    <div className="flex items-center justify-between gap-3">
-                    <p className={dailyLogSubsectionLabelClassName}>Sleep tags</p>
-                      <button
-                        type="button"
-                        onClick={() => setSleepTagPickerOpen((current) => !current)}
-                        className="rounded-full border border-dashed border-white/10 px-3 py-1.5 text-xs font-medium text-mist transition hover:border-white/18 hover:text-white"
-                      >
-                        {sleepTagPickerOpen ? 'Hide picker' : '+ Add tags'}
-                      </button>
-                    </div>
-                    <SelectedTagSummary
-                      title="Selected"
-                      tags={sleepTags.filter((tag) => sleepSelectedReusableTagIds.includes(tag.id))}
-                      customItems={sleepCustomTagItems.filter((item) => item.active)}
-                      onToggle={(tagId) => onSelectTag(tagId, 'morning')}
-                      onToggleCustom={handleToggleCustomTag}
-                      emptyLabel="No sleep tags selected yet."
-                    />
-                    {sleepTagPickerOpen ? (
-                      <div className="dailylog-reveal space-y-3 rounded-[18px] border border-white/[0.06] bg-black/10 p-3">
-                        <TagGroup
-                          title="Sleep tags"
-                          tags={sleepTags}
-                          selectedIds={sleepSelectedReusableTagIds}
-                          customItems={sleepCustomTagItems}
-                          onToggle={(tagId) => onSelectTag(tagId, 'morning')}
-                          onToggleCustom={handleToggleCustomTag}
-                        />
-                        <TagSectionFooterActions
-                          onCreate={() => {
-                            setCreatingTag((current) => !(current && creatingTagHost === 'sleep'))
-                            setCreatingTagHost((current) => (current === 'sleep' ? null : 'sleep'))
-                            setCustomTagTimeSection('sleep')
-                          }}
-                          onManage={() => openManageTags('sleep')}
-                        />
-                        {creatingTag && creatingTagHost === 'sleep' ? (
-                          <CustomTagComposer
-                            customTagName={customTagName}
-                            onCustomTagNameChange={setCustomTagName}
-                            customTagSaveMode={customTagSaveMode}
-                            onCustomTagSaveModeChange={setCustomTagSaveMode}
-                            customTagSection={customTagSection}
-                            onCustomTagSectionChange={setCustomTagSection}
-                            customTagTimeSection={customTagTimeSection}
-                            onCustomTagTimeSectionChange={setCustomTagTimeSection}
-                            customTagPolarity={customTagPolarity}
-                            onCustomTagPolarityChange={setCustomTagPolarity}
-                            onCancel={() => {
-                              setCreatingTag(false)
-                              setCreatingTagHost(null)
-                              setCustomTagName('')
-                              setCustomTagSaveMode('reusable')
-                              setCustomTagSection('actions')
-                              setCustomTagPolarity('positive')
-                              setCustomTagTimeSection('sleep')
-                            }}
-                            onSubmit={() => {
-                              const resolvedSection = resolveCustomTagSection(customTagSection, customTagTimeSection)
-                              const resolvedKind = getDefaultKindForSection(resolvedSection)
-                              const resolvedAvailability = getAvailabilityForCustomTagTimeContext(customTagTimeSection)
-                              const resolvedTimeSection = getTagEntryTimeSectionForCustomTagTimeContext(customTagTimeSection)
-
-                              if (customTagSaveMode === 'reusable') {
-                                const created = onCreateTag({
-                                  name: customTagName.trim(),
-                                  section: resolvedSection,
-                                  kind: resolvedKind,
-                                  polarity: customTagPolarity,
-                                  availableIn: resolvedAvailability,
-                                })
-                                handleSelectCreatedTag(created, resolvedTimeSection)
-                              } else {
-                                onUpdateDay(day.id, (current) => {
-                                  const trimmedLabel = customTagName.trim()
-                                  const existingIndex = current.tagEntries.findIndex(
-                                    (entry) =>
-                                      !entry.tagId &&
-                                      entry.timeSection === resolvedTimeSection &&
-                                      entry.section === resolvedSection &&
-                                      entry.customLabel?.toLowerCase() === trimmedLabel.toLowerCase(),
-                                  )
-
-                                  if (existingIndex >= 0) {
-                                    return {
-                                      ...current,
-                                      isLogged: true,
-                                      tagEntries: current.tagEntries.map((entry, index) =>
-                                        index === existingIndex
-                                          ? {
-                                              ...entry,
-                                              customLabel: trimmedLabel,
-                                              section: resolvedSection,
-                                              kind: resolvedKind,
-                                              polarity: customTagPolarity,
-                                              timeSection: resolvedTimeSection,
-                                              selected: true,
-                                            }
-                                          : entry,
-                                      ),
-                                    }
-                                  }
-
-                                  return {
-                                    ...current,
-                                    isLogged: true,
-                                    tagEntries: [
-                                      ...current.tagEntries,
-                                      {
-                                        id: createCustomDayTagId(),
-                                        customLabel: trimmedLabel,
-                                        section: resolvedSection,
-                                        kind: resolvedKind,
-                                        polarity: customTagPolarity,
-                                        timeSection: resolvedTimeSection,
-                                        selected: true,
-                                      },
-                                    ],
-                                  }
-                                })
-                              }
-                              setCreatingTag(false)
-                              setCreatingTagHost(null)
-                              setCustomTagName('')
-                              setCustomTagSaveMode('reusable')
-                              setCustomTagSection('actions')
-                              setCustomTagPolarity('positive')
-                              setCustomTagTimeSection('sleep')
-                            }}
-                          />
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
-
               <div ref={morningCheckInRef} className="ml-2 space-y-2 px-3 pt-4">
                 <p className={dailyLogSubsectionLabelClassName}>Morning check in</p>
                 <CheckInRow
@@ -1417,17 +1595,19 @@ export function DayDrawer({
                 </div>
                 <SelectedTagSummary
                   title="Mood"
-                  tags={morningFeelingTags.filter((tag) => morningSelectedReusableTagIds.includes(tag.id))}
-                  customItems={morningFeelingCustomTagItems.filter((item) => item.active)}
+                  items={morningFeelingSelectedTagItems}
                   onToggle={(tagId) => onSelectTag(tagId, 'morning')}
                   onToggleCustom={handleToggleCustomTag}
                   emptyLabel="No mood tags selected yet."
                 />
                 <SelectedTagSummary
                   title="Actions"
-                  tags={morningActionTags.filter((tag) => morningSelectedReusableTagIds.includes(tag.id))}
-                  customItems={morningActionCustomTagItems.filter((item) => item.active)}
-                  onToggle={(tagId) => onSelectTag(tagId, 'morning')}
+                  items={morningActionSelectedTagItems}
+                  onToggle={(tagId) =>
+                    isSystemImportantTagId(tagId)
+                      ? handleToggleSystemImportantDayTag('morning', 'actions')
+                      : onSelectTag(tagId, 'morning')
+                  }
                   onToggleCustom={handleToggleCustomTag}
                   emptyLabel="No action tags selected yet."
                 />
@@ -1438,6 +1618,7 @@ export function DayDrawer({
                       tags={morningFeelingTags}
                       selectedIds={morningSelectedReusableTagIds}
                       customItems={morningFeelingCustomTagItems}
+                      selectedImportantByTagId={morningFeelingSelectedFlagsByTagId}
                       onToggle={(tagId) => onSelectTag(tagId, 'morning')}
                       onToggleCustom={handleToggleCustomTag}
                     />
@@ -1446,111 +1627,46 @@ export function DayDrawer({
                       tags={morningActionTags}
                       selectedIds={morningSelectedReusableTagIds}
                       customItems={morningActionCustomTagItems}
+                      selectedImportantByTagId={morningActionSelectedFlagsByTagId}
+                      systemTag={{
+                        tag: getSystemImportantTag('morning', 'actions'),
+                        active: morningSelectedReusableTagIds.includes(getSystemImportantTagId('morning', 'actions')),
+                        onToggle: () => handleToggleSystemImportantDayTag('morning', 'actions'),
+                      }}
                       onToggle={(tagId) => onSelectTag(tagId, 'morning')}
                       onToggleCustom={handleToggleCustomTag}
                     />
-                    <TagSectionFooterActions
-                      onCreate={() => {
-                        setCreatingTag((current) => !(current && creatingTagHost === 'morning'))
-                        setCreatingTagHost((current) => (current === 'morning' ? null : 'morning'))
-                      }}
-                      onManage={() => openManageTags('morning')}
+                    <InlineDayEventTagCreator
+                      open={creatingTag && creatingTagHost === 'morning' && customTagSection === 'feelings'}
+                      label="Mood"
+                      value={customTagName}
+                      polarity={customTagPolarity}
+                      onOpen={() => handleOpenInlineDayTagCreate('morning', 'feelings')}
+                      onValueChange={setCustomTagName}
+                      onPolarityChange={setCustomTagPolarity}
+                      onCancel={() => handleOpenInlineDayTagCreate('morning', 'feelings')}
+                      onAdd={() => handleAddInlineDayTag('morning', 'feelings')}
                     />
-                    {creatingTag && creatingTagHost === 'morning' ? (
-                      <CustomTagComposer
-                        customTagName={customTagName}
-                        onCustomTagNameChange={setCustomTagName}
-                        customTagSaveMode={customTagSaveMode}
-                        onCustomTagSaveModeChange={setCustomTagSaveMode}
-                        customTagSection={customTagSection}
-                        onCustomTagSectionChange={setCustomTagSection}
-                        customTagTimeSection={customTagTimeSection}
-                        onCustomTagTimeSectionChange={setCustomTagTimeSection}
-                        customTagPolarity={customTagPolarity}
-                        onCustomTagPolarityChange={setCustomTagPolarity}
-                        onCancel={() => {
-                          setCreatingTag(false)
-                          setCreatingTagHost(null)
-                          setCustomTagName('')
-                          setCustomTagSaveMode('reusable')
-                          setCustomTagSection('actions')
-                          setCustomTagPolarity('positive')
-                          setCustomTagTimeSection('morning')
-                        }}
-                        onSubmit={() => {
-                          const resolvedSection = resolveCustomTagSection(customTagSection, customTagTimeSection)
-                          const resolvedKind = getDefaultKindForSection(resolvedSection)
-                          const resolvedAvailability = getAvailabilityForCustomTagTimeContext(customTagTimeSection)
-                          const resolvedTimeSection = getTagEntryTimeSectionForCustomTagTimeContext(customTagTimeSection)
-
-                          if (customTagSaveMode === 'reusable') {
-                            const created = onCreateTag({
-                              name: customTagName.trim(),
-                              section: resolvedSection,
-                              kind: resolvedKind,
-                              polarity: customTagPolarity,
-                              availableIn: resolvedAvailability,
-                            })
-                            handleSelectCreatedTag(created, resolvedTimeSection)
-                          } else {
-                            onUpdateDay(day.id, (current) => {
-                              const trimmedLabel = customTagName.trim()
-                              const existingIndex = current.tagEntries.findIndex(
-                                (entry) =>
-                                  !entry.tagId &&
-                                  entry.timeSection === resolvedTimeSection &&
-                                  entry.section === resolvedSection &&
-                                  entry.customLabel?.toLowerCase() === trimmedLabel.toLowerCase(),
-                              )
-
-                              if (existingIndex >= 0) {
-                                return {
-                                  ...current,
-                                  isLogged: true,
-                                  tagEntries: current.tagEntries.map((entry, index) =>
-                                    index === existingIndex
-                                      ? {
-                                          ...entry,
-                                          customLabel: trimmedLabel,
-                                          section: resolvedSection,
-                                          kind: resolvedKind,
-                                          polarity: customTagPolarity,
-                                          timeSection: resolvedTimeSection,
-                                          selected: true,
-                                        }
-                                      : entry,
-                                  ),
-                                }
-                              }
-
-                              return {
-                                ...current,
-                                isLogged: true,
-                                tagEntries: [
-                                  ...current.tagEntries,
-                                  {
-                                    id: createCustomDayTagId(),
-                                    customLabel: trimmedLabel,
-                                    section: resolvedSection,
-                                    kind: resolvedKind,
-                                    polarity: customTagPolarity,
-                                    timeSection: resolvedTimeSection,
-                                    selected: true,
-                                  },
-                                ],
-                              }
-                            })
-                          }
-                          setCreatingTag(false)
-                          setCreatingTagHost(null)
-                          setCustomTagName('')
-                          setCustomTagSaveMode('reusable')
-                          setCustomTagSection('actions')
-                          setCustomTagPolarity('positive')
-                          setCustomTagTimeSection('morning')
-                        }}
-                      />
-                    ) : null}
+                    <InlineDayEventTagCreator
+                      open={creatingTag && creatingTagHost === 'morning' && customTagSection === 'actions'}
+                      label="Actions"
+                      value={customTagName}
+                      polarity={customTagPolarity}
+                      onOpen={() => handleOpenInlineDayTagCreate('morning', 'actions')}
+                      onValueChange={setCustomTagName}
+                      onPolarityChange={setCustomTagPolarity}
+                      onCancel={() => handleOpenInlineDayTagCreate('morning', 'actions')}
+                      onAdd={() => handleAddInlineDayTag('morning', 'actions')}
+                    />
+                    <div className="flex justify-end pt-1">
+                      <button
+                        type="button"
+                        onClick={() => openManageTags('morning')}
+                        className="rounded-full px-2.5 py-1 text-xs text-white/46 transition hover:bg-white/[0.04] hover:text-white/78"
+                      >
+                        Manage tags
+                      </button>
+                    </div>
                   </div>
                 ) : null}
               </div>
@@ -2210,7 +2326,7 @@ export function DayDrawer({
                           onClick={() => handleMoveTagEntry(item.entryId, 'evening')}
                           className="transition duration-150 ease-out hover:scale-[1.02] hover:brightness-110"
                         >
-                          <TagPill tag={item.tag} active oneOff={item.oneOff} />
+                          <TagPill tag={item.tag} active oneOff={item.oneOff} important={item.tag.flag === 'important'} />
                         </button>
                       ))}
                     </div>
@@ -2218,17 +2334,19 @@ export function DayDrawer({
                 ) : null}
                 <SelectedTagSummary
                   title="Mood"
-                  tags={eveningFeelingTags.filter((tag) => eveningSelectedReusableTagIds.includes(tag.id))}
-                  customItems={eveningFeelingCustomTagItems.filter((item) => item.active)}
+                  items={eveningFeelingSelectedTagItems}
                   onToggle={(tagId) => onSelectTag(tagId, 'evening')}
                   onToggleCustom={handleToggleCustomTag}
                   emptyLabel="No mood tags selected yet."
                 />
                 <SelectedTagSummary
                   title="Actions"
-                  tags={eveningActionTags.filter((tag) => eveningSelectedReusableTagIds.includes(tag.id))}
-                  customItems={eveningActionCustomTagItems.filter((item) => item.active)}
-                  onToggle={(tagId) => onSelectTag(tagId, 'evening')}
+                  items={eveningActionSelectedTagItems}
+                  onToggle={(tagId) =>
+                    isSystemImportantTagId(tagId)
+                      ? handleToggleSystemImportantDayTag('evening', 'actions')
+                      : onSelectTag(tagId, 'evening')
+                  }
                   onToggleCustom={handleToggleCustomTag}
                   emptyLabel="No action tags selected yet."
                 />
@@ -2239,6 +2357,7 @@ export function DayDrawer({
                       tags={eveningFeelingTags}
                       selectedIds={eveningSelectedReusableTagIds}
                       customItems={eveningFeelingCustomTagItems}
+                      selectedImportantByTagId={eveningFeelingSelectedFlagsByTagId}
                       onToggle={(tagId) => onSelectTag(tagId, 'evening')}
                       onToggleCustom={handleToggleCustomTag}
                     />
@@ -2247,111 +2366,46 @@ export function DayDrawer({
                       tags={eveningActionTags}
                       selectedIds={eveningSelectedReusableTagIds}
                       customItems={eveningActionCustomTagItems}
+                      selectedImportantByTagId={eveningActionSelectedFlagsByTagId}
+                      systemTag={{
+                        tag: getSystemImportantTag('evening', 'actions'),
+                        active: eveningSelectedReusableTagIds.includes(getSystemImportantTagId('evening', 'actions')),
+                        onToggle: () => handleToggleSystemImportantDayTag('evening', 'actions'),
+                      }}
                       onToggle={(tagId) => onSelectTag(tagId, 'evening')}
                       onToggleCustom={handleToggleCustomTag}
                     />
-                    <TagSectionFooterActions
-                      onCreate={() => {
-                        setCreatingTag((current) => !(current && creatingTagHost === 'evening'))
-                        setCreatingTagHost((current) => (current === 'evening' ? null : 'evening'))
-                      }}
-                      onManage={() => openManageTags('evening')}
+                    <InlineDayEventTagCreator
+                      open={creatingTag && creatingTagHost === 'evening' && customTagSection === 'feelings'}
+                      label="Mood"
+                      value={customTagName}
+                      polarity={customTagPolarity}
+                      onOpen={() => handleOpenInlineDayTagCreate('evening', 'feelings')}
+                      onValueChange={setCustomTagName}
+                      onPolarityChange={setCustomTagPolarity}
+                      onCancel={() => handleOpenInlineDayTagCreate('evening', 'feelings')}
+                      onAdd={() => handleAddInlineDayTag('evening', 'feelings')}
                     />
-                    {creatingTag && creatingTagHost === 'evening' ? (
-                      <CustomTagComposer
-                        customTagName={customTagName}
-                        onCustomTagNameChange={setCustomTagName}
-                        customTagSaveMode={customTagSaveMode}
-                        onCustomTagSaveModeChange={setCustomTagSaveMode}
-                        customTagSection={customTagSection}
-                        onCustomTagSectionChange={setCustomTagSection}
-                        customTagTimeSection={customTagTimeSection}
-                        onCustomTagTimeSectionChange={setCustomTagTimeSection}
-                        customTagPolarity={customTagPolarity}
-                        onCustomTagPolarityChange={setCustomTagPolarity}
-                        onCancel={() => {
-                          setCreatingTag(false)
-                          setCreatingTagHost(null)
-                          setCustomTagName('')
-                          setCustomTagSaveMode('reusable')
-                          setCustomTagSection('actions')
-                          setCustomTagPolarity('positive')
-                          setCustomTagTimeSection('evening')
-                        }}
-                        onSubmit={() => {
-                          const resolvedSection = resolveCustomTagSection(customTagSection, customTagTimeSection)
-                          const resolvedKind = getDefaultKindForSection(resolvedSection)
-                          const resolvedAvailability = getAvailabilityForCustomTagTimeContext(customTagTimeSection)
-                          const resolvedTimeSection = getTagEntryTimeSectionForCustomTagTimeContext(customTagTimeSection)
-
-                          if (customTagSaveMode === 'reusable') {
-                            const created = onCreateTag({
-                              name: customTagName.trim(),
-                              section: resolvedSection,
-                              kind: resolvedKind,
-                              polarity: customTagPolarity,
-                              availableIn: resolvedAvailability,
-                            })
-                            handleSelectCreatedTag(created, resolvedTimeSection)
-                          } else {
-                            onUpdateDay(day.id, (current) => {
-                              const trimmedLabel = customTagName.trim()
-                              const existingIndex = current.tagEntries.findIndex(
-                                (entry) =>
-                                  !entry.tagId &&
-                                  entry.timeSection === resolvedTimeSection &&
-                                  entry.section === resolvedSection &&
-                                  entry.customLabel?.toLowerCase() === trimmedLabel.toLowerCase(),
-                              )
-
-                              if (existingIndex >= 0) {
-                                return {
-                                  ...current,
-                                  isLogged: true,
-                                  tagEntries: current.tagEntries.map((entry, index) =>
-                                    index === existingIndex
-                                      ? {
-                                          ...entry,
-                                          customLabel: trimmedLabel,
-                                          section: resolvedSection,
-                                          kind: resolvedKind,
-                                          polarity: customTagPolarity,
-                                          timeSection: resolvedTimeSection,
-                                          selected: true,
-                                        }
-                                      : entry,
-                                  ),
-                                }
-                              }
-
-                              return {
-                                ...current,
-                                isLogged: true,
-                                tagEntries: [
-                                  ...current.tagEntries,
-                                  {
-                                    id: createCustomDayTagId(),
-                                    customLabel: trimmedLabel,
-                                    section: resolvedSection,
-                                    kind: resolvedKind,
-                                    polarity: customTagPolarity,
-                                    timeSection: resolvedTimeSection,
-                                    selected: true,
-                                  },
-                                ],
-                              }
-                            })
-                          }
-                          setCreatingTag(false)
-                          setCreatingTagHost(null)
-                          setCustomTagName('')
-                          setCustomTagSaveMode('reusable')
-                          setCustomTagSection('actions')
-                          setCustomTagPolarity('positive')
-                          setCustomTagTimeSection('evening')
-                        }}
-                      />
-                    ) : null}
+                    <InlineDayEventTagCreator
+                      open={creatingTag && creatingTagHost === 'evening' && customTagSection === 'actions'}
+                      label="Actions"
+                      value={customTagName}
+                      polarity={customTagPolarity}
+                      onOpen={() => handleOpenInlineDayTagCreate('evening', 'actions')}
+                      onValueChange={setCustomTagName}
+                      onPolarityChange={setCustomTagPolarity}
+                      onCancel={() => handleOpenInlineDayTagCreate('evening', 'actions')}
+                      onAdd={() => handleAddInlineDayTag('evening', 'actions')}
+                    />
+                    <div className="flex justify-end pt-1">
+                      <button
+                        type="button"
+                        onClick={() => openManageTags('evening')}
+                        className="rounded-full px-2.5 py-1 text-xs text-white/46 transition hover:bg-white/[0.04] hover:text-white/78"
+                      >
+                        Manage tags
+                      </button>
+                    </div>
                   </div>
                 ) : null}
               </div>
@@ -2608,23 +2662,26 @@ export function DayDrawer({
       {managingTags ? (
         <>
           <div className="theme-overlay fixed inset-0 z-40" onClick={() => setManagingTags(false)} />
-          <div className="theme-popover fixed left-1/2 top-1/2 z-50 flex max-h-[82vh] w-[min(520px,92vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[28px] border p-5 shadow-[0_24px_70px_rgba(15,23,42,0.18)]">
-            <div className="theme-popover sticky top-0 z-10 flex items-start justify-between gap-4 pb-4">
+          <div className="theme-popover fixed left-1/2 top-1/2 z-50 flex max-h-[82vh] w-[min(640px,92vw)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-[30px] border p-6 shadow-[0_28px_80px_rgba(15,23,42,0.22)]">
+            <div className="theme-popover sticky top-0 z-10 flex items-start justify-between gap-6 border-b border-white/[0.06] pb-5">
               <div>
-                <h4 className="text-xl font-semibold theme-text-primary">Manage tags</h4>
-                <p className="mt-2 text-sm leading-6 text-mist">Rename, classify, or archive custom tags without affecting past entries.</p>
+                <p className="theme-label">Tag Library</p>
+                <h4 className="mt-2 text-[30px] font-semibold tracking-[-0.03em] theme-text-primary">Manage tags</h4>
+                <p className="mt-2 max-w-[480px] text-[15px] leading-7 theme-text-secondary">
+                  Rename, classify, or archive custom tags without affecting past entries.
+                </p>
               </div>
               <button
                 type="button"
                 onClick={() => setManagingTags(false)}
-                className="text-sm theme-text-muted transition hover:text-[rgb(var(--theme-text-primary-rgb))]"
+                className="rounded-full border border-[rgb(var(--theme-border-subtle-rgb))] bg-[rgb(var(--theme-surface-elevated-rgb))] px-4 py-2 text-sm theme-text-secondary transition hover:border-[rgb(var(--theme-border-strong-rgb))] hover:text-[rgb(var(--theme-text-primary-rgb))]"
               >
                 Close
               </button>
             </div>
 
-            <div className="mt-1 flex-1 overflow-y-auto overscroll-contain pr-1">
-              <div className="space-y-4">
+            <div className="mt-4 flex-1 overflow-y-auto overscroll-contain pr-1">
+              <div className="space-y-5">
                 <TagMetaToggle
                   label=""
                   options={[
@@ -2636,16 +2693,16 @@ export function DayDrawer({
                   value={manageTagsTab}
                   onChange={(value) => setManageTagsTab(value as 'sleep' | DayLogSection)}
                 />
-                <div className="space-y-3">
+                <div className="space-y-4">
               {customTags.length > 0 ? (
                 manageTagGroups.map((group) => (
-                    <div key={group.title} className="space-y-2.5">
-                      <p className={dailyLogSubsectionLabelClassName}>{group.title}</p>
+                    <div key={group.title} className="space-y-3">
+                      <p className="theme-section-title">{group.title}</p>
                       <div
-                        className={`space-y-3 rounded-[24px] border p-2 transition ${
+                        className={`space-y-4 rounded-[26px] border px-3 py-3 transition ${
                           dragOverSection === group.section
-                            ? 'border-white/[0.14] bg-white/[0.03]'
-                            : 'border-transparent bg-transparent'
+                            ? 'border-white/[0.14] bg-white/[0.035]'
+                            : 'border-white/[0.035] bg-white/[0.018]'
                         }`}
                         onDragOver={(event) => {
                           event.preventDefault()
@@ -2663,178 +2720,192 @@ export function DayDrawer({
                           handleTagDrop(group.section)
                         }}
                       >
-                        {group.tags.length > 0 ? ([ 
-                          { key: 'positive', tags: group.tags.filter((tag) => tag.polarity === 'positive') },
-                          { key: 'neutral', tags: group.tags.filter((tag) => tag.polarity === 'neutral') },
-                          { key: 'negative', tags: group.tags.filter((tag) => tag.polarity === 'negative') },
-                        ] as const).map((polarityGroup) =>
-                          polarityGroup.tags.length > 0 ? (
-                            <div key={`${group.title}-${polarityGroup.key}`} className="space-y-3">
-                              <div className="space-y-3">
-                                {polarityGroup.tags.map((tag) => {
-                                  const editing = editingTagId === tag.id
-                                  return (
-                                    <div
-                                      key={tag.id}
-                                      draggable={!editing}
-                                      onDragStart={(event) => {
-                                        event.dataTransfer.effectAllowed = 'move'
-                                        handleTagDragStart(tag.id)
-                                      }}
-                                      onDragEnd={handleTagDragEnd}
-                                      onDragOver={(event) => {
-                                        event.preventDefault()
-                                        event.dataTransfer.dropEffect = 'move'
-                                        setDragOverSection(group.section)
-                                        setDragOverTagId(tag.id)
-                                      }}
-                                      onDrop={(event) => {
-                                        event.preventDefault()
-                                        handleTagDrop(group.section, tag.id)
-                                      }}
-                                      className={`group rounded-[22px] border bg-[#161616] px-4 py-3 shadow-[0_8px_22px_rgba(0,0,0,0.14)] transition ${
-                                        dragOverTagId === tag.id
-                                          ? 'border-white/[0.14] shadow-[0_0_0_1px_rgba(255,255,255,0.06)]'
-                                          : 'border-white/[0.05]'
-                                      }`}
-                                    >
-                                      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                                        <div className="min-w-0 flex-1">
-                                          {editing ? (
-                                            <div className="space-y-2.5">
-                                              <input
-                                                value={renameDraft}
-                                                onChange={(event) => setRenameDraft(event.target.value)}
-                                                className="w-full rounded-2xl border border-white/[0.08] bg-[#1A1A1A] px-3 py-2 text-sm text-white outline-none transition focus:border-white/[0.14] focus:bg-[#202020]"
-                                                style={{
-                                                  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)',
-                                                }}
-                                              />
-                                            </div>
-                                          ) : (
-                                            <div className="flex min-w-0 items-start gap-3">
-                                              <span className="cursor-grab select-none pt-1 text-base leading-none text-white/22 transition hover:text-white/42 active:cursor-grabbing">
-                                                ⋮⋮
-                                              </span>
-                                              <div className="min-w-0 flex-1">
-                                                <div className="flex min-w-0 flex-wrap items-center gap-2">
-                                                  <TagPill tag={tag} active emphasis="selected" />
-                                                  {!tag.isActive ? <span className="text-xs text-mist/70">Archived</span> : null}
+                        {group.tags.length > 0 ? (
+                          ([
+                            { key: 'positive', tags: group.tags.filter((tag) => tag.polarity === 'positive') },
+                            { key: 'neutral', tags: group.tags.filter((tag) => tag.polarity === 'neutral') },
+                            { key: 'negative', tags: group.tags.filter((tag) => tag.polarity === 'negative') },
+                          ] as const)
+                            .filter((polarityGroup) => polarityGroup.tags.length > 0)
+                            .map((polarityGroup) => (
+                              <div key={`${group.title}-${polarityGroup.key}`} className="space-y-3">
+                                <div className="space-y-2.5">
+                                  {polarityGroup.tags.map((tag) => {
+                                    const editing = editingTagId === tag.id
+                                    return (
+                                      <div
+                                        key={tag.id}
+                                        draggable={!editing}
+                                        onDragStart={(event) => {
+                                          event.dataTransfer.effectAllowed = 'move'
+                                          handleTagDragStart(tag.id)
+                                        }}
+                                        onDragEnd={handleTagDragEnd}
+                                        onDragOver={(event) => {
+                                          event.preventDefault()
+                                          event.dataTransfer.dropEffect = 'move'
+                                          setDragOverSection(group.section)
+                                          setDragOverTagId(tag.id)
+                                        }}
+                                        onDrop={(event) => {
+                                          event.preventDefault()
+                                          handleTagDrop(group.section, tag.id)
+                                        }}
+                                        className={`group rounded-[20px] border px-4 py-3.5 transition ${
+                                          dragOverTagId === tag.id
+                                            ? 'border-white/[0.14] bg-white/[0.035] shadow-[0_0_0_1px_rgba(255,255,255,0.04)]'
+                                            : 'border-white/[0.045] bg-white/[0.012] hover:border-white/[0.08] hover:bg-white/[0.02]'
+                                        }`}
+                                      >
+                                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                                          <div className="min-w-0 flex-1">
+                                            {editing ? (
+                                              <div className="space-y-2.5">
+                                                <input
+                                                  value={renameDraft}
+                                                  onChange={(event) => setRenameDraft(event.target.value)}
+                                                  className="w-full rounded-2xl border border-white/[0.08] bg-[#1A1A1A] px-3 py-2 text-sm text-white outline-none transition focus:border-white/[0.14] focus:bg-[#202020]"
+                                                  style={{
+                                                    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)',
+                                                  }}
+                                                />
+                                              </div>
+                                            ) : (
+                                              <div className="flex min-w-0 items-start gap-3">
+                                                <span className="mt-1.5 grid cursor-grab select-none grid-cols-2 gap-[3px] px-1 active:cursor-grabbing">
+                                                  {Array.from({ length: 6 }).map((_, index) => (
+                                                    <span key={index} className="h-[3px] w-[3px] rounded-full bg-white/26 transition group-hover:bg-white/42" />
+                                                  ))}
+                                                </span>
+                                                <div className="min-w-0 flex-1">
+                                                  <div className="flex min-w-0 flex-wrap items-center gap-2.5">
+                                                    <TagPill tag={tag} active emphasis="selected" />
+                                                    {!tag.isActive ? (
+                                                      <span className="rounded-full border border-white/[0.08] px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-mist/72">
+                                                        Archived
+                                                      </span>
+                                                    ) : null}
+                                                  </div>
+                                                  <p className="mt-2 text-[12px] uppercase tracking-[0.14em] text-white/42">
+                                                    {getTagPolarityLabel(tag.polarity)} • {formatManageTagAvailability(tag.availableIn)}
+                                                  </p>
+                                                  <p className="mt-1 text-[13px] leading-6 text-white/58">
+                                                    {tag.kind === 'feeling' ? 'Feeling tag' : 'Action tag'}
+                                                  </p>
                                                 </div>
                                               </div>
-                                            </div>
-                                          )}
-                                        </div>
-                                        <div className="flex shrink-0 items-center gap-1.5 opacity-55 transition-opacity duration-150 ease-out group-hover:opacity-100 group-focus-within:opacity-100 md:pl-4">
-                                          {editing ? (
-                                            <>
-                                              <button
-                                                type="button"
-                                                onClick={() => {
-                                                  setEditingTagId(null)
-                                                  setRenameDraft('')
-                                                  setEditingTagSection('actions')
-                                                  setEditingTagKind('action')
-                                                  setEditingTagPolarity('positive')
-                                                  setEditingTagAvailableIn(['day', 'evening'])
-                                                }}
-                                                className="rounded-2xl bg-white/[0.04] px-3 py-2 text-sm text-mist transition hover:text-white"
-                                              >
-                                                Cancel
-                                              </button>
-                                              <button
-                                                type="button"
-                                                onClick={() => {
-                                                  onUpdateTag(tag.id, {
-                                                    name: renameDraft,
-                                                    section: tag.section,
-                                                    kind: tag.kind,
-                                                    polarity: tag.polarity,
-                                                    availableIn: tag.availableIn,
-                                                  })
-                                                  setEditingTagId(null)
-                                                  setRenameDraft('')
-                                                  setEditingTagSection('actions')
-                                                  setEditingTagKind('action')
-                                                  setEditingTagPolarity('positive')
-                                                  setEditingTagAvailableIn(['day', 'evening'])
-                                                }}
-                                                className="rounded-2xl bg-white px-3 py-2 text-sm font-medium text-black transition hover:bg-white/90"
-                                              >
-                                                Save
-                                              </button>
-                                            </>
-                                          ) : (
-                                            <>
-                                              <ManageTagActionButton
-                                                icon="✏️"
-                                                label="Rename this tag and update its name everywhere it appears in the tag library."
-                                                ariaLabel="Rename this tag"
-                                                onClick={() => {
-                                                  setEditingTagId(tag.id)
-                                                  setRenameDraft(tag.name)
-                                                  setEditingTagSection(tag.section)
-                                                  setEditingTagKind(tag.kind)
-                                                  setEditingTagPolarity(tag.polarity)
-                                                  setEditingTagAvailableIn(tag.availableIn)
-                                                }}
-                                              />
-                                              {manageTagsTab !== 'sleep' && tag.availableIn.includes(manageTagsTab) ? (
-                                                <ManageTagActionButton
-                                                  icon="➖"
-                                                  label={`Remove this tag from ${getDayLogSectionLabel(manageTagsTab)} only, while keeping it available in its other sections.`}
-                                                  ariaLabel={`Remove this tag from ${getDayLogSectionLabel(manageTagsTab)}`}
-                                                  className="text-white/52 hover:text-white/82"
+                                            )}
+                                          </div>
+                                          <div className="flex shrink-0 items-center gap-2 opacity-70 transition-opacity duration-150 ease-out group-hover:opacity-100 group-focus-within:opacity-100 md:pl-5">
+                                            {editing ? (
+                                              <>
+                                                <button
+                                                  type="button"
                                                   onClick={() => {
-                                                    const nextAvailableIn = tag.availableIn.filter((value) => value !== manageTagsTab)
-                                                    if (nextAvailableIn.length === 0) {
-                                                      setPendingSectionRemoval({ tagId: tag.id, section: manageTagsTab })
-                                                      return
-                                                    }
+                                                    setEditingTagId(null)
+                                                    setRenameDraft('')
+                                                    setEditingTagSection('actions')
+                                                    setEditingTagKind('action')
+                                                    setEditingTagPolarity('positive')
+                                                    setEditingTagAvailableIn(['day', 'evening'])
+                                                  }}
+                                                  className="rounded-2xl bg-white/[0.04] px-3 py-2 text-sm text-mist transition hover:text-white"
+                                                >
+                                                  Cancel
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
                                                     onUpdateTag(tag.id, {
-                                                      name: tag.name,
+                                                      name: renameDraft,
                                                       section: tag.section,
                                                       kind: tag.kind,
                                                       polarity: tag.polarity,
-                                                      availableIn: nextAvailableIn,
+                                                      availableIn: tag.availableIn,
                                                     })
+                                                    setEditingTagId(null)
+                                                    setRenameDraft('')
+                                                    setEditingTagSection('actions')
+                                                    setEditingTagKind('action')
+                                                    setEditingTagPolarity('positive')
+                                                    setEditingTagAvailableIn(['day', 'evening'])
+                                                  }}
+                                                  className="rounded-2xl bg-white px-3 py-2 text-sm font-medium text-black transition hover:bg-white/90"
+                                                >
+                                                  Save
+                                                </button>
+                                              </>
+                                            ) : (
+                                              <>
+                                                <ManageTagActionButton
+                                                  icon="Edit"
+                                                  label="Rename this tag and update its name everywhere it appears in the tag library."
+                                                  ariaLabel="Rename this tag"
+                                                  onClick={() => {
+                                                    setEditingTagId(tag.id)
+                                                    setRenameDraft(tag.name)
+                                                    setEditingTagSection(tag.section)
+                                                    setEditingTagKind(tag.kind)
+                                                    setEditingTagPolarity(tag.polarity)
+                                                    setEditingTagAvailableIn(tag.availableIn)
                                                   }}
                                                 />
-                                              ) : null}
-                                              {tag.isActive ? (
+                                                {manageTagsTab !== 'sleep' && tag.availableIn.includes(manageTagsTab) ? (
+                                                  <ManageTagActionButton
+                                                    icon="Remove"
+                                                    label={`Remove this tag from ${getDayLogSectionLabel(manageTagsTab)} only, while keeping it available in its other sections.`}
+                                                    ariaLabel={`Remove this tag from ${getDayLogSectionLabel(manageTagsTab)}`}
+                                                    className="text-white/58 hover:text-white/84"
+                                                    onClick={() => {
+                                                      const nextAvailableIn = tag.availableIn.filter((value) => value !== manageTagsTab)
+                                                      if (nextAvailableIn.length === 0) {
+                                                        setPendingSectionRemoval({ tagId: tag.id, section: manageTagsTab })
+                                                        return
+                                                      }
+                                                      onUpdateTag(tag.id, {
+                                                        name: tag.name,
+                                                        section: tag.section,
+                                                        kind: tag.kind,
+                                                        polarity: tag.polarity,
+                                                        availableIn: nextAvailableIn,
+                                                      })
+                                                    }}
+                                                  />
+                                                ) : null}
+                                                {tag.isActive ? (
+                                                  <ManageTagActionButton
+                                                    icon="Archive"
+                                                    label="Archive this tag so it no longer appears in active tag pickers, while keeping past entries intact."
+                                                    ariaLabel="Archive this tag"
+                                                    className="text-white/52 hover:text-white/78"
+                                                    onClick={() => onArchiveTag(tag.id)}
+                                                  />
+                                                ) : (
+                                                  <ManageTagActionButton
+                                                    icon="Restore"
+                                                    label="Unarchive this tag and return it to the active tag pickers."
+                                                    ariaLabel="Unarchive this tag"
+                                                    className="text-white/58 hover:text-white/84"
+                                                    onClick={() => onUnarchiveTag(tag.id)}
+                                                  />
+                                                )}
                                                 <ManageTagActionButton
-                                                  icon="📦"
-                                                  label="Archive this tag so it no longer appears in active tag pickers, while keeping past entries intact."
-                                                  ariaLabel="Archive this tag"
-                                                  className="text-white/40 hover:text-white/72"
-                                                  onClick={() => onArchiveTag(tag.id)}
+                                                  icon="Delete"
+                                                  label="Delete this tag from the tag library everywhere. Past logged entries will stay preserved."
+                                                  ariaLabel="Delete this tag entirely"
+                                                  className="text-[#D78E88] hover:border-[rgba(239,68,68,0.24)] hover:bg-[rgba(239,68,68,0.08)] hover:text-[#F4C7C3]"
+                                                  onClick={() => setPendingTagDeleteId(tag.id)}
                                                 />
-                                              ) : (
-                                                <ManageTagActionButton
-                                                  icon="📬"
-                                                  label="Unarchive this tag and return it to the active tag pickers."
-                                                  ariaLabel="Unarchive this tag"
-                                                  className="text-white/52 hover:text-white/82"
-                                                  onClick={() => onUnarchiveTag(tag.id)}
-                                                />
-                                              )}
-                                              <ManageTagActionButton
-                                                icon="🗑"
-                                                label="Delete this tag from the tag library everywhere. Past logged entries will stay preserved."
-                                                ariaLabel="Delete this tag entirely"
-                                                className="text-[#D78E88] hover:bg-[rgba(239,68,68,0.12)] hover:text-[#F4C7C3]"
-                                                onClick={() => setPendingTagDeleteId(tag.id)}
-                                              />
-                                            </>
-                                          )}
+                                              </>
+                                            )}
+                                          </div>
                                         </div>
                                       </div>
-                                    </div>
-                                  )
-                                })}
+                                    )
+                                  })}
+                                </div>
                               </div>
-                            </div>
-                          ) : null,
+                            ))
                         ) : (
                           <p className="px-3 py-2 text-sm text-mist/70">No tags in this section yet.</p>
                         )}
@@ -2866,6 +2937,7 @@ function hasEntryData(day: DayEntry) {
     day.bedtime.trim().length > 0 ||
     day.wakeTime.trim().length > 0 ||
     day.wokeDuringNight !== null ||
+    day.sleepNote.trim().length > 0 ||
     day.morningIntention.trim().length > 0 ||
     day.moodNote.trim().length > 0 ||
     day.completedHabitIds.length > 0 ||
@@ -2912,6 +2984,16 @@ function createDayTagEntryId(seed: string) {
 
 function getDisplayTagForEntry(entry: DayEntry['tagEntries'][number], tags: Tag[]) {
   if (entry.tagId) {
+    if (isSystemImportantTagId(entry.tagId)) {
+      return {
+        entryId: entry.id,
+        active: entry.selected,
+        oneOff: false,
+        timeSection: entry.timeSection,
+        tag: getSystemImportantTag(entry.timeSection, entry.section),
+      }
+    }
+
     const reusableTag = tags.find((tag) => tag.id === entry.tagId)
     if (!reusableTag) return null
     return {
@@ -2919,7 +3001,10 @@ function getDisplayTagForEntry(entry: DayEntry['tagEntries'][number], tags: Tag[
       active: entry.selected,
       oneOff: false,
       timeSection: entry.timeSection,
-      tag: reusableTag,
+      tag: {
+        ...reusableTag,
+        flag: entry.flag,
+      },
     }
   }
 
@@ -2938,6 +3023,7 @@ function getDisplayTagForEntry(entry: DayEntry['tagEntries'][number], tags: Tag[
       availableIn: [entry.timeSection] as DayLogSection[],
       kind: entry.kind,
       polarity: entry.polarity,
+      flag: entry.flag,
       isCustom: true,
       isActive: true,
     },
@@ -2971,17 +3057,28 @@ function ManageTagActionButton({
         type="button"
         onClick={onClick}
         aria-label={ariaLabel}
-        className={`flex h-8 w-8 items-center justify-center rounded-full text-[16px] leading-none text-white/58 transition hover:bg-white/[0.05] ${className}`}
+        className={`rounded-full border border-white/[0.06] bg-white/[0.015] px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.12em] leading-none text-white/58 transition hover:border-white/[0.1] hover:bg-white/[0.04] ${className}`}
       >
         {icon}
       </button>
       {tooltipVisible ? (
-        <div className="pointer-events-none absolute bottom-full right-0 z-30 mb-2 w-56 rounded-2xl border border-white/[0.08] bg-[#171717] px-3 py-2 text-xs leading-5 text-white/84 shadow-[0_16px_40px_rgba(0,0,0,0.32)]">
+        <div className="pointer-events-none absolute bottom-full right-0 z-30 mb-2 w-60 rounded-[18px] border border-white/[0.08] bg-[#171717] px-3 py-2.5 text-[11px] leading-5 text-white/78 shadow-[0_16px_40px_rgba(0,0,0,0.32)]">
           {label}
         </div>
       ) : null}
     </div>
   )
+}
+
+function getTagPolarityLabel(polarity: TagPolarity) {
+  if (polarity === 'negative') return 'Negative'
+  if (polarity === 'neutral') return 'Neutral'
+  return 'Positive'
+}
+
+function formatManageTagAvailability(availableIn: DayLogSection[]) {
+  if (availableIn.length === 0) return 'No sections'
+  return availableIn.map(getDayLogSectionLabel).join(' • ')
 }
 
 const MOMENTUM_RULES = {
@@ -3123,13 +3220,24 @@ function createDayEventDraft() {
 
 function getDisplayTagForDayEventTag(entry: DayEventEntry['tags'][number], tags: Tag[]) {
   if (entry.tagId) {
+    if (isSystemImportantTagId(entry.tagId)) {
+      return {
+        id: entry.id,
+        oneOff: false,
+        tag: getSystemImportantTag('day', entry.section),
+      }
+    }
+
     const reusableTag = tags.find((tag) => tag.id === entry.tagId)
     if (!reusableTag) return null
 
     return {
       id: entry.id,
       oneOff: false,
-      tag: reusableTag,
+      tag: {
+        ...reusableTag,
+        flag: entry.flag,
+      },
     }
   }
 
@@ -3146,6 +3254,7 @@ function getDisplayTagForDayEventTag(entry: DayEventEntry['tags'][number], tags:
       availableIn: ['day'] as DayLogSection[],
       kind: entry.kind,
       polarity: entry.polarity,
+      flag: entry.flag,
       isCustom: true,
       isActive: true,
     },
@@ -3698,7 +3807,13 @@ function TagMetaToggle({
     <div className="space-y-1.5">
       <p className={`px-1 ${dailyLogSubsectionLabelClassName}`}>{label}</p>
       <div
-        className="grid gap-2"
+        className="rounded-[22px] border border-white/[0.05] bg-white/[0.018] p-1.5"
+        style={{
+          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)',
+        }}
+      >
+        <div
+          className="grid gap-2"
         style={{
           gridTemplateColumns: `repeat(${columns ?? options.length}, minmax(0, 1fr))`,
         }}
@@ -3724,10 +3839,10 @@ function TagMetaToggle({
                 event.stopPropagation()
                 onChange(option.value)
               }}
-              className={`min-w-0 whitespace-nowrap rounded-2xl border px-2.5 py-2 text-[13px] text-center transition ${
+              className={`min-w-0 whitespace-nowrap rounded-[18px] border px-3 py-2.5 text-[14px] text-center transition ${
                 selected
                   ? selectedClass
-                  : 'border-[#2A2A2A] bg-[#1A1A1A] text-[#B0B0B0] hover:border-[#3A3A3A] hover:bg-[#222222] hover:text-white'
+                  : 'border-transparent bg-transparent text-white/56 hover:border-white/[0.06] hover:bg-white/[0.02] hover:text-white/82'
               }`}
               style={{
                 borderStyle: oneOffSelected ? 'dashed' : 'solid',
@@ -3739,6 +3854,7 @@ function TagMetaToggle({
             </button>
           )
         })}
+        </div>
       </div>
     </div>
   )
@@ -3794,11 +3910,41 @@ function getTagColor(polarity: TagPolarity) {
   return '#B35A65'
 }
 
+function getSystemImportantTagId(timeSection: DayLogSection, section: TagSection) {
+  return `system-important-${timeSection}-${section}`
+}
+
+function getSystemImportantTag(timeSection: DayLogSection, section: TagSection): Tag {
+  return {
+    id: getSystemImportantTagId(timeSection, section),
+    name: 'Important',
+    color: '#A855F7',
+    section,
+    kind: getDefaultKindForSection(section),
+    polarity: 'neutral',
+    flag: 'important',
+    availableIn: [timeSection],
+    isCustom: false,
+    isActive: true,
+  }
+}
+
+function isSystemImportantTagId(value: string | undefined): value is string {
+  return typeof value === 'string' && value.startsWith('system-important-')
+}
+
+function isReservedSystemTagName(value: string) {
+  const normalized = value.trim().toLowerCase()
+  return normalized === 'important' || normalized === 'high priority' || normalized === 'priority'
+}
+
 function TagGroup({
   title,
   tags,
   selectedIds,
   customItems = [],
+  selectedImportantByTagId = {},
+  systemTag,
   onToggle,
   onToggleCustom,
 }: {
@@ -3811,6 +3957,12 @@ function TagGroup({
     oneOff: boolean
     tag: Tag
   }>
+  selectedImportantByTagId?: Record<string, boolean>
+  systemTag?: {
+    tag: Tag
+    active: boolean
+    onToggle: () => void
+  }
   onToggle: (tagId: string) => void
   onToggleCustom: (entryId: string) => void
 }) {
@@ -3818,6 +3970,18 @@ function TagGroup({
     <div className="space-y-2">
       <p className={dailyLogMicroLabelClassName}>{title}</p>
       <div className="flex flex-wrap gap-2">
+        {systemTag ? (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation()
+              systemTag.onToggle()
+            }}
+            className="mr-1 transition duration-150 ease-out hover:brightness-100"
+          >
+            <TagPill tag={systemTag.tag} active={systemTag.active} important />
+          </button>
+        ) : null}
         {tags.map((tag) => {
           const active = selectedIds.includes(tag.id)
           return (
@@ -3832,7 +3996,7 @@ function TagGroup({
                 active ? 'hover:brightness-100' : 'hover:scale-[1.02] hover:brightness-110'
               }`}
             >
-              <TagPill tag={tag} active={active} />
+              <TagPill tag={tag} active={active} important={Boolean(selectedImportantByTagId[tag.id])} />
             </button>
           )
         })}
@@ -3848,7 +4012,7 @@ function TagGroup({
               item.active ? 'hover:brightness-100' : 'hover:scale-[1.02] hover:brightness-110'
             }`}
           >
-            <TagPill tag={item.tag} active={item.active} oneOff />
+            <TagPill tag={item.tag} active={item.active} oneOff important={item.tag.flag === 'important'} />
           </button>
         ))}
       </div>
@@ -3877,8 +4041,13 @@ function InlineDayEventTagCreator({
   onCancel: () => void
   onAdd: () => void
 }) {
+  const reservedName = isReservedSystemTagName(value)
+
   return open ? (
-    <div className="space-y-2 rounded-[16px] border border-white/[0.045] bg-white/[0.02] px-2.5 py-2">
+    <div
+      className="space-y-2 rounded-[16px] border border-white/[0.045] bg-white/[0.02] px-2.5 py-2"
+      onClick={(event) => event.stopPropagation()}
+    >
       <div className="flex flex-wrap items-center gap-2">
         <input
           value={value}
@@ -3898,10 +4067,13 @@ function InlineDayEventTagCreator({
         />
         <button
           type="button"
-          onClick={onAdd}
-          disabled={!value.trim()}
+          onClick={(event) => {
+            event.stopPropagation()
+            onAdd()
+          }}
+          disabled={!value.trim() || reservedName}
           className={`rounded-2xl px-3 py-2 text-sm font-medium transition ${
-            value.trim() ? 'bg-white text-black hover:bg-white/90' : 'cursor-not-allowed bg-white/8 text-mist/60'
+            value.trim() && !reservedName ? 'bg-white text-black hover:bg-white/90' : 'cursor-not-allowed bg-white/8 text-mist/60'
           }`}
         >
           Add
@@ -3919,7 +4091,10 @@ function InlineDayEventTagCreator({
               <button
                 key={option.value}
                 type="button"
-                onClick={() => onPolarityChange(option.value)}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  onPolarityChange(option.value)
+                }}
                 className={`rounded-full border px-2 py-1 text-[11px] transition ${
                   selected
                     ? option.value === 'negative'
@@ -3937,17 +4112,24 @@ function InlineDayEventTagCreator({
         </div>
         <button
           type="button"
-          onClick={onCancel}
+          onClick={(event) => {
+            event.stopPropagation()
+            onCancel()
+          }}
           className="text-xs text-white/46 transition hover:text-white/74"
         >
           Cancel
         </button>
       </div>
+      {reservedName ? <p className="text-[11px] text-white/44">Important is built in. Select it from the tag list.</p> : null}
     </div>
   ) : (
     <button
       type="button"
-      onClick={onOpen}
+      onClick={(event) => {
+        event.stopPropagation()
+        onOpen()
+      }}
       className="rounded-full border border-dashed border-white/[0.08] px-3 py-1.5 text-xs font-medium text-white/54 transition hover:border-white/[0.14] hover:text-white/78"
     >
       + Add tag
@@ -3957,15 +4139,13 @@ function InlineDayEventTagCreator({
 
 function SelectedTagSummary({
   title,
-  tags,
-  customItems = [],
+  items,
   onToggle,
   onToggleCustom,
   emptyLabel,
 }: {
   title: string
-  tags: Tag[]
-  customItems?: Array<{
+  items: Array<{
     entryId: string
     active: boolean
     oneOff: boolean
@@ -3975,38 +4155,29 @@ function SelectedTagSummary({
   onToggleCustom: (entryId: string) => void
   emptyLabel: string
 }) {
-  const visibleCustomItems = customItems.filter((item) => item.active)
-  const hasItems = tags.length > 0 || visibleCustomItems.length > 0
+  const visibleItems = items.filter((item) => item.active)
+  const hasItems = visibleItems.length > 0
 
   return (
     <div className="space-y-2">
       <p className={dailyLogMicroLabelClassName}>{title}</p>
       {hasItems ? (
         <div className="flex flex-wrap gap-2">
-          {tags.map((tag) => (
-            <button
-              key={tag.id}
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation()
-                onToggle(tag.id)
-              }}
-              className="transition duration-150 ease-out hover:brightness-100"
-            >
-              <TagPill tag={tag} active />
-            </button>
-          ))}
-          {visibleCustomItems.map((item) => (
+          {visibleItems.map((item) => (
             <button
               key={item.entryId}
               type="button"
               onClick={(event) => {
                 event.stopPropagation()
-                onToggleCustom(item.entryId)
+                if (item.oneOff) {
+                  onToggleCustom(item.entryId)
+                } else {
+                  onToggle(item.tag.id)
+                }
               }}
               className="transition duration-150 ease-out hover:brightness-100"
             >
-              <TagPill tag={item.tag} active oneOff />
+              <TagPill tag={item.tag} active oneOff={item.oneOff} important={item.tag.flag === 'important'} />
             </button>
           ))}
         </div>
@@ -4020,6 +4191,12 @@ function SelectedTagSummary({
 function getDefaultKindForSection(section: TagSection): TagKind {
   if (section === 'feelings') return 'feeling'
   return 'action'
+}
+
+function getDefaultCustomTagSectionForTimeContext(timeContext: CustomTagTimeContext): TagSection {
+  if (timeContext === 'sleep') return 'sleep'
+  if (timeContext === 'morning' || timeContext === 'evening') return 'feelings'
+  return 'actions'
 }
 
 function resolveCustomTagSection(section: TagSection, timeContext: CustomTagTimeContext): TagSection {

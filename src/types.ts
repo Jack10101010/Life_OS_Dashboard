@@ -25,6 +25,7 @@ export type EveningSelfInfluence = 'helped' | 'neutral' | 'hurt' | null
 export type ScoreFilter = 'all' | 'high' | 'low'
 export type TagPolarity = 'positive' | 'neutral' | 'negative'
 export type TagType = TagPolarity
+export type TagFlag = 'none' | 'important'
 export type TagSection = 'sleep' | 'feelings' | 'actions' | 'events'
 export type TagKind = 'feeling' | 'action'
 export type DayLogSection = 'morning' | 'evening' | 'day'
@@ -37,6 +38,7 @@ export interface Tag {
   section: TagSection
   kind: TagKind
   polarity: TagPolarity
+  flag: TagFlag
   availableIn: DayLogSection[]
   isCustom: boolean
   isActive: boolean
@@ -49,6 +51,7 @@ export interface DayTagEntry {
   section: TagSection
   kind: TagKind
   polarity: TagPolarity
+  flag: TagFlag
   timeSection: DayLogSection
   selected: boolean
 }
@@ -95,6 +98,7 @@ export interface DayEventTagEntry {
   section: TagSection
   kind: TagKind
   polarity: TagPolarity
+  flag: TagFlag
 }
 
 export interface DayEventEntry {
@@ -181,6 +185,7 @@ export interface DayEntry {
   bedtime: string
   wakeTime: string
   wokeDuringNight: boolean | null
+  sleepNote: string
   morningMood: number
   eveningMood: number
   moodNote: string

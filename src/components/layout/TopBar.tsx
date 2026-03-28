@@ -9,7 +9,7 @@ const labels: Record<PageId, string> = {
   'your-days': 'Your Days',
   'journal-recordings': 'Journal',
   gratitude: 'Journal',
-  goals: 'Goals',
+  goals: 'Goals — Meaningful work, kept visible',
   tasks: 'Tasks',
   notes: 'Notes',
   'vision-board': 'Journal',
@@ -30,7 +30,7 @@ const descriptions: Record<PageId, ReactNode> = {
   'your-days': 'A quieter read-only view for browsing previous days, revisiting what happened, and reopening any day in the Daily Log.',
   'journal-recordings': 'A quieter space for daily reflections, gratitude, and longer-range vision in one place.',
   gratitude: 'A quieter space for daily reflections, gratitude, and longer-range vision in one place.',
-  goals: 'A future layer for outcome planning, still intentionally light in v1.',
+  goals: 'A focused planning layer for the goals that matter most, with one clear next move always in view.',
   tasks: 'Task flow will plug in here once the tracker foundation feels solid.',
   notes: 'Quick capture and linked notes are planned after persistence lands.',
   'vision-board': 'A quieter space for daily reflections, gratitude, and longer-range vision in one place.',
@@ -43,14 +43,13 @@ export function TopBar({ page, onOpenToday, sidebarCollapsed }: { page: PageId; 
   const [pushedToday, setPushedToday] = useState(false)
 
   return (
-    <div className="theme-border-subtle border-b py-5 sm:py-6">
+    <div className="theme-border-subtle border-b pt-5 pb-4 sm:pt-6 sm:pb-5">
       <PageContainer width="wide" className={sidebarCollapsed ? 'lg:pl-16' : ''}>
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
-            <p className="theme-label theme-text-faint">Version 1</p>
-            <h2 className="theme-page-title mt-2">{labels[page]}</h2>
+            <h2 className="theme-page-title">{labels[page]}</h2>
             <p
-              className="theme-body-secondary mt-2 max-w-2xl"
+              className="theme-body-secondary mt-1.5 max-w-2xl"
               style={{
                 color: page === 'dashboard' ? 'rgb(var(--theme-text-primary-rgb))' : 'rgb(var(--theme-text-muted-rgb))',
               }}
@@ -58,7 +57,20 @@ export function TopBar({ page, onOpenToday, sidebarCollapsed }: { page: PageId; 
               {descriptions[page]}
             </p>
           </div>
-          <div className="flex flex-col items-start gap-2 lg:items-end">
+          <div className="flex items-center gap-2 lg:self-center">
+            {page === 'dashboard' ? (
+              <button
+                type="button"
+                onClick={() => setPushedToday((current) => !current)}
+                className={`rounded-full border px-3 py-1 text-xs transition ${
+                  pushedToday
+                    ? 'border-[rgb(var(--theme-accent-rgb)/0.18)] bg-[rgb(var(--theme-accent-rgb)/0.10)] text-[rgb(var(--theme-accent-rgb))]'
+                    : 'border-[rgb(var(--theme-warning-rgb)/0.18)] bg-[rgb(var(--theme-warning-rgb)/0.10)] text-[rgb(var(--theme-warning-rgb))]'
+                }`}
+              >
+                {pushedToday ? '✅ Synced today' : '⚠️ Not pushed today'}
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={onOpenToday}
@@ -74,19 +86,6 @@ export function TopBar({ page, onOpenToday, sidebarCollapsed }: { page: PageId; 
                 })}
               </p>
             </button>
-            {page === 'dashboard' ? (
-              <button
-                type="button"
-                onClick={() => setPushedToday((current) => !current)}
-                className={`rounded-full border px-3 py-1.5 text-xs transition ${
-                  pushedToday
-                    ? 'border-[rgb(var(--theme-accent-rgb)/0.18)] bg-[rgb(var(--theme-accent-rgb)/0.10)] text-[rgb(var(--theme-accent-rgb))]'
-                    : 'border-[rgb(var(--theme-warning-rgb)/0.18)] bg-[rgb(var(--theme-warning-rgb)/0.10)] text-[rgb(var(--theme-warning-rgb))]'
-                }`}
-              >
-                {pushedToday ? '✅ Synced today' : '⚠️ Not pushed today'}
-              </button>
-            ) : null}
           </div>
         </div>
       </PageContainer>

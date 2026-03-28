@@ -140,6 +140,7 @@ export function normalizePersistedAppState(parsed: Partial<PersistedAppState>, c
                 bedtime: typeof day.bedtime === 'string' ? day.bedtime : '',
                 wakeTime: typeof day.wakeTime === 'string' ? day.wakeTime : '',
                 wokeDuringNight: typeof day.wokeDuringNight === 'boolean' ? day.wokeDuringNight : null,
+                sleepNote: typeof (day as { sleepNote?: string }).sleepNote === 'string' ? (day as { sleepNote?: string }).sleepNote ?? '' : '',
                 journal: day.journal ?? (day as { notes?: string }).notes ?? '',
                 dashboardQuickNote: day.dashboardQuickNote ?? '',
                 dashboardExecution: normalizeDashboardExecution(day.dashboardExecution, createEmptyDashboardExecution()),
@@ -201,11 +202,13 @@ export function normalizePersistedAppState(parsed: Partial<PersistedAppState>, c
       : defaults.dataByYear,
     currentYear,
   )
+  const normalizedTags = Array.isArray(parsed.tags) ? parsed.tags.map(normalizeTag) : defaults.tags
+  const cleanedTagState = stripLegacyImportantTags(normalizedTags, normalizedDataByYear)
   const normalizedFilterYear =
-    parsed.filters?.year != null && normalizedDataByYear[parsed.filters.year]
+    parsed.filters?.year != null && cleanedTagState.dataByYear[parsed.filters.year]
       ? parsed.filters.year
       : currentYear
-  const earliestDatasetDate = getEarliestDatasetDate(normalizedDataByYear)
+  const earliestDatasetDate = getEarliestDatasetDate(cleanedTagState.dataByYear)
   const normalizedBadHabits = Array.isArray(parsed.badHabits)
     ? parsed.badHabits.map((habit) =>
         normalizeBadHabitDefinition(habit, {
@@ -214,16 +217,16 @@ export function normalizePersistedAppState(parsed: Partial<PersistedAppState>, c
         }),
       )
     : defaults.badHabits
-  const migratedBadHabitLogs = getMigratedBadHabitLogs(normalizedDataByYear, normalizedBadHabits, parsed.badHabitLogs)
+  const migratedBadHabitLogs = getMigratedBadHabitLogs(cleanedTagState.dataByYear, normalizedBadHabits, parsed.badHabitLogs)
 
   return {
     ...defaults,
     ...parsed,
-    dataByYear: normalizedDataByYear,
+    dataByYear: cleanedTagState.dataByYear,
     habits: Array.isArray(parsed.habits) ? parsed.habits : defaults.habits,
     badHabits: normalizedBadHabits,
     badHabitLogs: migratedBadHabitLogs,
-    tags: Array.isArray(parsed.tags) ? parsed.tags.map(normalizeTag) : defaults.tags,
+    tags: cleanedTagState.tags,
     tasks: Array.isArray(parsed.tasks) ? parsed.tasks.map(normalizeTask).filter((task) => task.text) : defaults.tasks,
     lifeGoals: Array.isArray(parsed.lifeGoals) ? parsed.lifeGoals.map(normalizeLifeGoal).filter((goal) => goal.title) : defaults.lifeGoals,
     settings: parsed.settings
@@ -549,9 +552,50 @@ function normalizeTag(
     section: normalizedSection,
     kind: normalizedKind,
     polarity: normalizedPolarity,
+    flag: 'none',
     availableIn: normalizeTagAvailability((tag as { availableIn?: unknown }).availableIn, normalizedSection),
     isCustom: tag.isCustom ?? true,
     isActive: tag.isActive ?? true,
+  }
+}
+
+function stripLegacyImportantTags(
+  tags: Tag[],
+  dataByYear: PersistedAppState['dataByYear'],
+): { tags: Tag[]; dataByYear: PersistedAppState['dataByYear'] } {
+  const removedTagIds = new Set(tags.filter((tag) => isLegacyImportantTagName(tag.name)).map((tag) => tag.id))
+
+  return {
+    tags: tags.filter((tag) => !removedTagIds.has(tag.id)),
+    dataByYear: Object.fromEntries(
+      Object.entries(dataByYear).map(([year, dataset]) => [
+        year,
+        {
+          ...dataset,
+          days: dataset.days.map((day) => ({
+            ...day,
+            tags: day.tags.filter((tagId) => !removedTagIds.has(tagId)),
+            tagEntries: day.tagEntries.filter(
+              (entry) =>
+                !(
+                  (typeof entry.tagId === 'string' && removedTagIds.has(entry.tagId)) ||
+                  isLegacyImportantTagName(entry.customLabel)
+                ),
+            ),
+            dailyActions: day.dailyActions.map((event) => ({
+              ...event,
+              tags: event.tags.filter(
+                (entry) =>
+                  !(
+                    (typeof entry.tagId === 'string' && removedTagIds.has(entry.tagId)) ||
+                    isLegacyImportantTagName(entry.customLabel)
+                  ),
+              ),
+            })),
+          })),
+        },
+      ]),
+    ) as PersistedAppState['dataByYear'],
   }
 }
 
@@ -575,6 +619,7 @@ function normalizeDayTagEntries(day: {
     section: inferSection(undefined, tagId, tagId),
     kind: inferKind(inferSection(undefined, tagId, tagId), tagId, tagId),
     polarity: inferPolarity(tagId, tagId),
+    flag: 'none',
     timeSection: 'day',
     selected: true,
   }))
@@ -602,6 +647,7 @@ function normalizeDayTagEntry(entry: any, index: number): DayTagEntry | null {
       entry?.polarity === 'negative' || entry?.polarity === 'neutral' || entry?.polarity === 'positive'
         ? entry.polarity
         : inferPolarity(tagId, customLabel),
+    flag: 'none',
     timeSection:
       entry?.timeSection === 'morning' || entry?.timeSection === 'evening' || entry?.timeSection === 'day'
         ? entry.timeSection
@@ -735,9 +781,16 @@ function normalizeDayEventTags(raw: unknown): DayEventEntry['tags'] {
           entry.polarity === 'positive' || entry.polarity === 'neutral' || entry.polarity === 'negative'
             ? entry.polarity
             : 'positive',
+        flag: 'none',
       }
     })
     .filter((entry): entry is DayEventEntry['tags'][number] => entry !== null)
+}
+
+function isLegacyImportantTagName(value: unknown) {
+  if (typeof value !== 'string') return false
+  const normalized = value.trim().toLowerCase()
+  return normalized === 'important' || normalized === 'high priority' || normalized === 'priority' || normalized === 'test' || normalized === 'h'
 }
 
 function inferPolarity(id?: string, name?: string): TagPolarity {

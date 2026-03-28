@@ -310,6 +310,7 @@ export function useTrackerState(initialState: PersistedAppState, currentYear: nu
               section: tag.section,
               kind: tag.kind,
               polarity: tag.polarity,
+              flag: 'none',
               timeSection,
               selected: true,
             },
@@ -331,10 +332,26 @@ export function useTrackerState(initialState: PersistedAppState, currentYear: nu
     availableIn?: DayLogSection[]
   }): Tag => {
     const trimmed = name.trim()
-    const existingTag = tags.find((item) => item.name.toLowerCase() === trimmed.toLowerCase())
-    if (existingTag) return existingTag
-
     const resolvedKind = kind ?? getDefaultKindForSection(section)
+    const resolvedAvailability = availableIn && availableIn.length > 0 ? availableIn : getDefaultTagAvailability(section)
+    const existingTag = tags.find(
+      (item) =>
+        item.name.toLowerCase() === trimmed.toLowerCase() &&
+        item.section === section &&
+        item.kind === resolvedKind &&
+        item.polarity === polarity &&
+        haveSameAvailability(item.availableIn, resolvedAvailability),
+    )
+
+    if (existingTag) {
+      if (!existingTag.isActive) {
+        const reactivatedTag = { ...existingTag, isActive: true }
+        setTags((current) => current.map((item) => (item.id === existingTag.id ? reactivatedTag : item)))
+        return reactivatedTag
+      }
+
+      return existingTag
+    }
 
     const tag: Tag = {
       id: createTagId(trimmed),
@@ -343,7 +360,8 @@ export function useTrackerState(initialState: PersistedAppState, currentYear: nu
       section,
       kind: resolvedKind,
       polarity,
-      availableIn: availableIn && availableIn.length > 0 ? availableIn : getDefaultTagAvailability(section),
+      flag: 'none',
+      availableIn: resolvedAvailability,
       isCustom: true,
       isActive: true,
     }
@@ -760,6 +778,14 @@ function createBadHabitId(name: string) {
   return `bad-habit-${base || Date.now().toString(36)}-${Date.now().toString(36)}`
 }
 
+function haveSameAvailability(left: DayLogSection[], right: DayLogSection[]) {
+  if (left.length !== right.length) return false
+
+  const leftSorted = [...left].sort()
+  const rightSorted = [...right].sort()
+  return leftSorted.every((section, index) => section === rightSorted[index])
+}
+
 function createDayTagEntryId(seed: string) {
   return `day-tag-${seed}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
 }
@@ -794,6 +820,7 @@ function normalizeDayEntry(day: DayEntry): DayEntry {
       bedtime: day.bedtime ?? '',
       wakeTime: day.wakeTime ?? '',
       wokeDuringNight: typeof day.wokeDuringNight === 'boolean' ? day.wokeDuringNight : null,
+      sleepNote: day.sleepNote ?? '',
       eveningOutcome: day.eveningOutcome ?? null,
       eveningUnstable: day.eveningUnstable ?? false,
       eveningTrajectory: day.eveningTrajectory ?? null,
@@ -818,6 +845,7 @@ function normalizeDayEntry(day: DayEntry): DayEntry {
     bedtime: day.bedtime ?? '',
     wakeTime: day.wakeTime ?? '',
     wokeDuringNight: typeof day.wokeDuringNight === 'boolean' ? day.wokeDuringNight : null,
+    sleepNote: day.sleepNote ?? '',
     eveningOutcome: day.eveningOutcome ?? null,
     eveningUnstable: day.eveningUnstable ?? false,
     eveningTrajectory: day.eveningTrajectory ?? null,
@@ -986,8 +1014,10 @@ function normalizeDayTagEntries(day: DayEntry): DayTagEntry[] {
       .filter((entry): entry is DayTagEntry => Boolean(entry) && (typeof entry.tagId === 'string' || typeof entry.customLabel === 'string'))
       .map((entry) => ({
         ...entry,
+        flag: 'none' as DayTagEntry['flag'],
         timeSection: entry.timeSection === 'morning' || entry.timeSection === 'evening' || entry.timeSection === 'day' ? entry.timeSection : 'day',
       }))
+      .filter((entry) => !isLegacyImportantTagName(entry.customLabel))
   }
 
   return day.tags.map((tagId, index) => ({
@@ -996,9 +1026,16 @@ function normalizeDayTagEntries(day: DayEntry): DayTagEntry[] {
     section: 'actions',
     kind: 'action',
     polarity: 'positive',
+    flag: 'none',
     timeSection: 'day',
     selected: true,
   }))
+}
+
+function isLegacyImportantTagName(value: unknown) {
+  if (typeof value !== 'string') return false
+  const normalized = value.trim().toLowerCase()
+  return normalized === 'important' || normalized === 'high priority' || normalized === 'priority' || normalized === 'test' || normalized === 'h'
 }
 
 function normalizeCheckInValue(value: number | null) {
@@ -1018,6 +1055,7 @@ function hasDayEntryData(day: DayEntry) {
     day.bedtime.trim().length > 0 ||
     day.wakeTime.trim().length > 0 ||
     day.wokeDuringNight !== null ||
+    day.sleepNote.trim().length > 0 ||
     day.eveningOutcome !== null ||
     day.eveningTrajectory !== null ||
     day.eveningSelfInfluence !== null ||
@@ -1073,6 +1111,7 @@ function resetDayEntry(day: DayEntry): DayEntry {
     bedtime: '',
     wakeTime: '',
     wokeDuringNight: null,
+    sleepNote: '',
     morningMood: 3,
     eveningMood: 3,
     moodNote: '',

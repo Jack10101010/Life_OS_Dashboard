@@ -627,6 +627,7 @@ function getVisibleDayTags(day: DayEntry, tags: Tag[]) {
         availableIn: [entry.timeSection],
         kind: entry.kind,
         polarity: entry.polarity,
+        flag: entry.flag,
         isCustom: true,
         isActive: true,
       } satisfies Tag

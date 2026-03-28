@@ -26,6 +26,7 @@ type GoalDetailItem =
     }
 
 type GoalsTab = 'life' | 'habit'
+type LifeGoalDetailTab = 'focus' | 'moves' | 'why' | 'progress'
 
 type LifeGoalDraft = {
   title: string
@@ -201,6 +202,9 @@ function sortLifeGoals(goals: LifeGoal[]) {
   })
 }
 
+const goalStatusChipClassName =
+  'inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-full border px-3 py-1 text-[11px] uppercase tracking-[0.16em] leading-none'
+
 export function GoalsPage({
   habitTrackers,
   lifeGoals,
@@ -229,6 +233,7 @@ export function GoalsPage({
   const [lifeGoalActionFeedback, setLifeGoalActionFeedback] = useState<string | null>(null)
   const [linkHabitPickerOpen, setLinkHabitPickerOpen] = useState(false)
   const [habitDraftByMoveId, setHabitDraftByMoveId] = useState<Record<string, string>>({})
+  const [lifeGoalDetailTab, setLifeGoalDetailTab] = useState<LifeGoalDetailTab>('focus')
 
   const sortedLifeGoals = useMemo(() => sortLifeGoals(lifeGoals), [lifeGoals])
 
@@ -243,6 +248,11 @@ export function GoalsPage({
       setSelectedLifeGoalId(sortedLifeGoals[0].id)
     }
   }, [selectedLifeGoalId, sortedLifeGoals])
+
+  useEffect(() => {
+    setLifeGoalDetailTab('focus')
+    setLinkHabitPickerOpen(false)
+  }, [selectedLifeGoalId])
 
   const selectedLifeGoal = useMemo(
     () => sortedLifeGoals.find((goal) => goal.id === selectedLifeGoalId) ?? null,
@@ -410,49 +420,34 @@ export function GoalsPage({
   }
 
   const renderLifeGoalsTab = () => (
-    <ResponsiveGrid columns="two-uneven" className="items-start">
-      <SectionCard className="space-y-5">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="theme-section-title">Life goals</p>
-            <h2 className="theme-page-title mt-2">Meaningful work, kept visible</h2>
-            <p className="theme-body-secondary mt-2 max-w-[560px]">
-              A focused planning layer for the goals that matter most, with one clear next move always in view.
-            </p>
-          </div>
-          <Button
-            variant="soft"
-            onClick={() => {
-              setLifeGoalComposerOpen(true)
-              setLifeGoalDraft(EMPTY_LIFE_GOAL_DRAFT)
-              setLifeGoalActionFeedback(null)
-            }}
-          >
-            New Life Goal
-          </Button>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <p className="theme-section-title">Life goals</p>
+          {sortedLifeGoals.length > 0 ? <p className="text-xs text-mist">{sortedLifeGoals.length} total</p> : null}
         </div>
+        <Button
+          variant="soft"
+          className="px-3 py-1.5 text-xs"
+          onClick={() => {
+            setLifeGoalComposerOpen(true)
+            setLifeGoalDraft(EMPTY_LIFE_GOAL_DRAFT)
+            setLifeGoalActionFeedback(null)
+          }}
+        >
+          New
+        </Button>
+      </div>
 
-        {sortedLifeGoals.length === 0 ? (
-          <div className="rounded-[26px] border border-white/[0.06] bg-white/[0.02] px-5 py-6">
-            <p className="text-lg font-medium text-white">No life goals yet</p>
-            <p className="mt-2 max-w-[420px] text-sm leading-6 text-mist">
-              Define one meaningful direction, keep the next move visible, and let the page stay practical rather than complicated.
-            </p>
-            <Button
-              variant="soft"
-              className="mt-4"
-              onClick={() => {
-                setLifeGoalComposerOpen(true)
-                setLifeGoalDraft(EMPTY_LIFE_GOAL_DRAFT)
-              }}
-            >
-              Create your first life goal
-            </Button>
-          </div>
-        ) : (
-          <div className="space-y-3">
+      {sortedLifeGoals.length === 0 ? (
+        <SectionCard compact className="space-y-3">
+          <p className="text-sm font-medium text-white">No life goals yet</p>
+          <p className="text-sm leading-6 text-mist">Create one meaningful direction to start using the workspace.</p>
+        </SectionCard>
+      ) : (
+        <div className="-mx-1 overflow-x-auto px-1">
+          <div className="flex min-w-max gap-2 pb-0.5">
             {sortedLifeGoals.map((goal) => {
-              const progress = getLifeGoalProgress(goal)
               const statusMeta = getLifeGoalStatusMeta(goal.status)
               return (
                 <button
@@ -463,43 +458,28 @@ export function GoalsPage({
                     setLifeGoalComposerOpen(false)
                     setLifeGoalActionFeedback(null)
                   }}
-                  className={`w-full rounded-[24px] border px-4 py-4 text-left transition ${
+                  className={`max-w-[220px] shrink-0 rounded-full border px-3 py-2 text-left transition ${
                     selectedLifeGoalId === goal.id
-                      ? 'border-white/[0.12] bg-white/[0.045]'
-                      : 'border-white/[0.06] bg-white/[0.02] hover:border-white/[0.1] hover:bg-white/[0.03]'
+                      ? 'border-[rgb(var(--theme-accent-rgb)/0.28)] bg-white/[0.015]'
+                      : 'border-transparent bg-transparent hover:border-white/[0.06] hover:bg-white/[0.02]'
                   }`}
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate text-[17px] font-semibold text-white">{goal.title}</p>
-                      {progress.nextMove ? (
-                        <p className="mt-1 truncate text-sm text-white/68">→ {progress.nextMove.text}</p>
-                      ) : (
-                        <p className="mt-1 truncate text-sm text-mist">No next move set yet.</p>
-                      )}
-                    </div>
-                    <span className={`rounded-full border px-2.5 py-1 text-[11px] uppercase tracking-[0.16em] ${statusMeta.badgeClassName}`}>
+                  <div className="flex items-center gap-2">
+                    <span className={`truncate text-sm ${selectedLifeGoalId === goal.id ? 'font-semibold text-white' : 'font-medium text-white/82'}`}>
+                      {goal.title}
+                    </span>
+                    <span className={`${goalStatusChipClassName} ml-auto px-2 py-0.5 text-[10px] ${statusMeta.badgeClassName}`}>
                       {statusMeta.label}
                     </span>
-                  </div>
-
-                  <div className="mt-4 flex items-center gap-3">
-                    <div className="h-1.5 flex-1 rounded-full bg-white/[0.06]">
-                      <div
-                        className="h-full rounded-full bg-[#5F8F4E]"
-                        style={{ width: `${Math.max(progress.percent, goal.status === 'complete' ? 100 : 6)}%` }}
-                      />
-                    </div>
-                    <span className="shrink-0 text-sm font-medium text-white/52">{progress.completedMoves}</span>
                   </div>
                 </button>
               )
             })}
           </div>
-        )}
-      </SectionCard>
+        </div>
+      )}
 
-      <SectionCard className="space-y-5">
+      <SectionCard className="mx-auto max-w-[1160px] space-y-5">
         {lifeGoalComposerOpen ? (
           <div className="space-y-5">
             <div>
@@ -593,60 +573,46 @@ export function GoalsPage({
           </div>
         ) : selectedLifeGoal && selectedLifeGoalProgress ? (
           <div className="space-y-5">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <p className="theme-section-title">Selected goal</p>
-                <h3 className="theme-page-title mt-2">{selectedLifeGoal.title}</h3>
-                {getLifeGoalAnchorText(selectedLifeGoal.whyItMatters) ? (
-                  <p className="mt-2 max-w-[640px] text-sm leading-6 text-white/62">
-                    {getLifeGoalAnchorText(selectedLifeGoal.whyItMatters)}
-                  </p>
-                ) : null}
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {(['in-motion', 'paused', 'complete'] as LifeGoalStatus[]).map((status) => {
-                  const meta = getLifeGoalStatusMeta(status)
-                  return (
-                    <button
-                      key={status}
-                      type="button"
-                      onClick={() => updateLifeGoalStatus(selectedLifeGoal.id, status)}
-                      className={`rounded-full border px-2.5 py-1 text-[11px] uppercase tracking-[0.16em] transition ${
-                        selectedLifeGoal.status === status
-                          ? meta.badgeClassName
-                          : 'border-white/[0.06] bg-white/[0.025] text-white/56 hover:border-white/[0.1] hover:text-white/76'
-                      }`}
-                    >
-                      {meta.label}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-
-            <div className="rounded-[24px] border border-white/[0.08] bg-white/[0.03] px-5 py-5">
-              <div className="max-w-[760px] space-y-4">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.18em] text-mist/68">Next move</p>
-                  <p className="mt-3 text-[22px] font-semibold leading-[1.42] text-white">
-                    {selectedLifeGoalProgress.nextMove?.text ?? 'No next move currently planned.'}
-                  </p>
-                </div>
-
-                <div className="space-y-3 rounded-[20px] border border-white/[0.06] bg-white/[0.018] px-4 py-4">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.18em] text-mist/62">Minimum version</p>
-                    <p className="mt-2 text-sm leading-6 text-white/76">{selectedLifeGoal.minimumVersion}</p>
-                  </div>
-                  {selectedLifeGoal.ifThenPlan ? (
-                    <div>
-                      <p className="text-xs uppercase tracking-[0.18em] text-mist/62">If-Then plan</p>
-                      <p className="mt-2 text-sm leading-6 text-white/72">{selectedLifeGoal.ifThenPlan}</p>
-                    </div>
+            <div className="rounded-[28px] border border-white/[0.08] bg-white/[0.03] px-6 py-6">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="max-w-[760px]">
+                  <p className="theme-section-title">Selected goal</p>
+                  <h3 className="theme-page-title mt-2">{selectedLifeGoal.title}</h3>
+                  {getLifeGoalAnchorText(selectedLifeGoal.whyItMatters) ? (
+                    <p className="mt-2 max-w-[680px] text-sm leading-6 text-white/62">
+                      {getLifeGoalAnchorText(selectedLifeGoal.whyItMatters)}
+                    </p>
                   ) : null}
-                  <p className="text-sm leading-6 text-mist">
-                    Keep this move small enough to start today. Future momentum-aware guidance can sit here.
-                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {(['in-motion', 'paused', 'complete'] as LifeGoalStatus[]).map((status) => {
+                    const meta = getLifeGoalStatusMeta(status)
+                    return (
+                      <button
+                        key={status}
+                        type="button"
+                        onClick={() => updateLifeGoalStatus(selectedLifeGoal.id, status)}
+                        className={`${goalStatusChipClassName} transition ${
+                          selectedLifeGoal.status === status
+                            ? meta.badgeClassName
+                            : 'border-white/[0.06] bg-white/[0.025] text-white/56 hover:border-white/[0.1] hover:text-white/76'
+                        }`}
+                      >
+                        {meta.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(280px,0.8fr)]">
+                <div className="space-y-4 rounded-[24px] border border-white/[0.08] bg-white/[0.03] px-5 py-5">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.18em] text-mist/68">Next move</p>
+                    <p className="mt-3 text-[24px] font-semibold leading-[1.38] text-white">
+                      {selectedLifeGoalProgress.nextMove?.text ?? 'No next move currently planned.'}
+                    </p>
+                  </div>
                   <div className="flex flex-wrap gap-2 pt-1">
                     <Button
                       variant="soft"
@@ -668,41 +634,44 @@ export function GoalsPage({
                   </div>
                   {lifeGoalActionFeedback ? <p className="text-sm text-mist">{lifeGoalActionFeedback}</p> : null}
                 </div>
-              </div>
-            </div>
 
-            <div className="grid gap-4 md:grid-cols-[minmax(0,1.05fr)_minmax(220px,0.95fr)]">
-              <div className="rounded-[24px] border border-white/[0.05] bg-white/[0.018] px-4 py-4">
-                <p className="text-xs uppercase tracking-[0.18em] text-mist/68">Why it matters</p>
-                <p className="mt-3 text-sm leading-7 text-white/86">{selectedLifeGoal.whyItMatters}</p>
-              </div>
-              <div className="rounded-[24px] border border-white/[0.05] bg-white/[0.018] px-4 py-4">
-                <p className="text-xs uppercase tracking-[0.18em] text-mist/68">Progress</p>
-                <div className="mt-4 flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-[22px] font-semibold text-white">
-                      {selectedLifeGoalProgress.completedMoves} {selectedLifeGoalProgress.completedMoves === 1 ? 'move' : 'moves'} completed
-                    </p>
-                    <p className="mt-2 text-sm text-mist">
-                      {selectedLifeGoalProgress.nextMove
-                        ? `Next milestone: ${selectedLifeGoalProgress.nextMove.text}`
-                        : selectedLifeGoalProgress.lastCompletedMove
-                          ? `Last completed step: ${selectedLifeGoalProgress.lastCompletedMove.text}`
-                          : 'No steps completed yet.'}
+                <div className="grid gap-4">
+                  <div className="rounded-[22px] border border-white/[0.05] bg-white/[0.018] px-4 py-4">
+                    <p className="text-xs uppercase tracking-[0.18em] text-mist/68">Progress</p>
+                    <div className="mt-3 flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-[22px] font-semibold text-white">
+                          {selectedLifeGoalProgress.completedMoves} {selectedLifeGoalProgress.completedMoves === 1 ? 'move' : 'moves'} completed
+                        </p>
+                        <p className="mt-2 text-sm text-mist">
+                          {selectedLifeGoalProgress.nextMove
+                            ? `Next milestone: ${selectedLifeGoalProgress.nextMove.text}`
+                            : selectedLifeGoalProgress.lastCompletedMove
+                              ? `Last completed step: ${selectedLifeGoalProgress.lastCompletedMove.text}`
+                              : 'No steps completed yet.'}
+                        </p>
+                      </div>
+                      {selectedLifeGoal.targetDate ? (
+                        <div className="text-right text-sm text-mist">
+                          <p className="uppercase tracking-[0.16em] text-mist/62">Target</p>
+                          <p className="mt-1 text-white/72">{formatDate(selectedLifeGoal.targetDate)}</p>
+                        </div>
+                      ) : null}
+                    </div>
+                    <div className="mt-4 h-1.5 rounded-full bg-white/[0.06]">
+                      <div
+                        className="h-full rounded-full bg-[#5F8F4E]"
+                        style={{ width: `${Math.max(selectedLifeGoalProgress.percent, selectedLifeGoal.status === 'complete' ? 100 : 6)}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="rounded-[22px] border border-white/[0.05] bg-white/[0.018] px-4 py-4">
+                    <p className="text-xs uppercase tracking-[0.18em] text-mist/62">Workspace note</p>
+                    <p className="mt-2 text-sm leading-6 text-mist">
+                      Keep this move small enough to start today. The deeper planning stays below so this surface keeps driving action.
                     </p>
                   </div>
-                  {selectedLifeGoal.targetDate ? (
-                    <div className="text-right text-sm text-mist">
-                      <p className="uppercase tracking-[0.16em] text-mist/62">Target</p>
-                      <p className="mt-1 text-white/72">{formatDate(selectedLifeGoal.targetDate)}</p>
-                    </div>
-                  ) : null}
-                </div>
-                <div className="mt-4 h-1.5 rounded-full bg-white/[0.06]">
-                  <div
-                    className="h-full rounded-full bg-[#6C8A58]"
-                    style={{ width: `${Math.max(selectedLifeGoalProgress.percent, selectedLifeGoal.status === 'complete' ? 100 : 6)}%` }}
-                  />
                 </div>
               </div>
             </div>
@@ -710,218 +679,274 @@ export function GoalsPage({
             <div className="rounded-[24px] border border-white/[0.05] bg-white/[0.018] px-4 py-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <p className="text-xs uppercase tracking-[0.18em] text-mist/68">Supporting habits</p>
-                  <p className="mt-1 text-sm text-mist">Recurring support systems linked to this goal.</p>
+                  <p className="theme-section-title">Goal detail</p>
+                  <p className="mt-1 text-sm text-mist">Supporting detail stays close, but secondary to the main goal workspace above.</p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setLinkHabitPickerOpen((current) => !current)}
-                  className="text-sm text-white/66 transition hover:text-white"
-                >
-                  + Link existing habit
-                </button>
-              </div>
-
-              {linkHabitPickerOpen && selectedLifeGoal ? (
-                <div className="mt-4 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-3">
-                  {availableHabitsToLink.length > 0 ? (
-                    <div className="space-y-2">
-                      {availableHabitsToLink.map((tracker) => (
-                        <button
-                          key={tracker.id}
-                          type="button"
-                          onClick={() => {
-                            linkHabitToLifeGoal(selectedLifeGoal.id, tracker.id)
-                            setLinkHabitPickerOpen(false)
-                          }}
-                          className="flex w-full items-center justify-between rounded-2xl border border-white/[0.06] bg-white/[0.015] px-3 py-2.5 text-left transition hover:border-white/[0.1] hover:bg-white/[0.03]"
-                        >
-                          <span className="text-sm text-white">{tracker.title}</span>
-                          <span className="text-xs uppercase tracking-[0.16em] text-mist/60">Link</span>
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-mist">All current habits are already linked to this goal.</p>
-                  )}
+                <div className="theme-surface-soft inline-flex rounded-full border p-1">
+                  {([
+                    ['focus', 'Focus'],
+                    ['moves', 'Moves'],
+                    ['why', 'Why'],
+                    ['progress', 'Progress'],
+                  ] as Array<[LifeGoalDetailTab, string]>).map(([tabId, label]) => (
+                    <button
+                      key={tabId}
+                      type="button"
+                      onClick={() => setLifeGoalDetailTab(tabId)}
+                      className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                        lifeGoalDetailTab === tabId
+                          ? 'theme-button-secondary'
+                          : 'theme-text-muted hover:text-[rgb(var(--theme-text-primary-rgb))]'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
                 </div>
-              ) : null}
-
-              <div className="mt-4 space-y-2">
-                {selectedLinkedHabits.length > 0 ? (
-                  selectedLinkedHabits.map((tracker) => {
-                    const liveStreak = getLiveTrackerStreak(tracker, year)
-                    const supportState = getRecentHabitSupportState(tracker)
-                    return (
-                      <div
-                        key={tracker.id}
-                        className="flex items-center justify-between gap-3 rounded-2xl border border-white/[0.06] bg-white/[0.02] px-3.5 py-3"
-                      >
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium text-white">{tracker.title}</p>
-                          <p className="mt-1 text-xs text-mist">
-                            {liveStreak > 0 ? `${liveStreak}d streak` : 'No live streak'} • {supportState}
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => selectedLifeGoal && unlinkHabitFromLifeGoal(selectedLifeGoal.id, tracker.id)}
-                          className="shrink-0 text-xs uppercase tracking-[0.16em] text-white/34 transition hover:text-white/62"
-                        >
-                          Unlink
-                        </button>
-                      </div>
-                    )
-                  })
-                ) : (
-                  <p className="rounded-2xl border border-white/[0.06] bg-white/[0.02] px-3.5 py-3 text-sm text-mist">
-                    No supporting habits linked yet.
-                  </p>
-                )}
               </div>
             </div>
 
-            <div className="rounded-[24px] border border-white/[0.05] bg-white/[0.018] px-4 py-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
+            {lifeGoalDetailTab === 'focus' ? (
+              <div className="rounded-[24px] border border-white/[0.05] bg-white/[0.018] px-4 py-4">
                 <div>
-                  <p className="text-xs uppercase tracking-[0.18em] text-mist/68">Moves</p>
-                  <p className="mt-1 text-sm text-mist">Keep the next steps visible and mark them honestly.</p>
+                  <p className="text-xs uppercase tracking-[0.18em] text-mist/62">Minimum version</p>
+                  <p className="mt-2 text-sm leading-6 text-white/76">{selectedLifeGoal.minimumVersion}</p>
                 </div>
+                {selectedLifeGoal.ifThenPlan ? (
+                  <div className="mt-4">
+                    <p className="text-xs uppercase tracking-[0.18em] text-mist/62">If-Then plan</p>
+                    <p className="mt-2 text-sm leading-6 text-white/72">{selectedLifeGoal.ifThenPlan}</p>
+                  </div>
+                ) : null}
               </div>
+            ) : null}
 
-              <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-                <div className="space-y-2">
-                  <p className="text-xs uppercase tracking-[0.16em] text-mist/62">Upcoming moves</p>
-                  {selectedLifeGoalProgress.plannedMoves.length > 0 ? (
-                    selectedLifeGoalProgress.plannedMoves.map((move, index) => (
-                      <div
-                        key={move.id}
-                        className={`rounded-2xl border px-3.5 py-3 ${
-                          index === 0
-                            ? 'border-white/[0.14] bg-white/[0.045]'
-                            : 'border-white/[0.06] bg-white/[0.02]'
-                        }`}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => toggleMoveCompletion(selectedLifeGoal.id, move.id)}
-                          className="flex w-full items-start justify-between gap-3 text-left transition"
+            {lifeGoalDetailTab === 'moves' ? (
+              <div className="rounded-[24px] border border-white/[0.05] bg-white/[0.018] px-4 py-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.18em] text-mist/68">Moves</p>
+                    <p className="mt-1 text-sm text-mist">Keep the next steps visible and mark them honestly.</p>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.92fr)]">
+                  <div className="space-y-2">
+                    <p className="text-xs uppercase tracking-[0.16em] text-mist/62">Upcoming moves</p>
+                    {selectedLifeGoalProgress.plannedMoves.length > 0 ? (
+                      selectedLifeGoalProgress.plannedMoves.map((move, index) => (
+                        <div
+                          key={move.id}
+                          className={`rounded-2xl border px-3.5 py-3 ${
+                            index === 0
+                              ? 'border-white/[0.14] bg-white/[0.045]'
+                              : 'border-white/[0.06] bg-white/[0.02]'
+                          }`}
                         >
-                          <div className="min-w-0">
-                            <span className={`block leading-6 ${index === 0 ? 'text-[15px] font-medium text-white/92' : 'text-sm text-white/84'}`}>{move.text}</span>
-                            <span className={`mt-1 block text-[11px] uppercase tracking-[0.16em] ${index === 0 ? 'text-white/58' : 'text-mist/56'}`}>
-                              {index === 0 ? 'Next move' : 'Upcoming'}
-                            </span>
-                          </div>
-                          <span className="shrink-0 text-xs uppercase tracking-[0.16em] text-mist/62">Done</span>
-                        </button>
-                        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                           <button
                             type="button"
-                            onClick={() =>
-                              setHabitDraftByMoveId((current) => ({
-                                ...current,
-                                [move.id]: current[move.id] ?? move.text,
-                              }))
-                            }
-                            className="text-xs uppercase tracking-[0.16em] text-white/46 transition hover:text-white/72"
+                            onClick={() => toggleMoveCompletion(selectedLifeGoal.id, move.id)}
+                            className="flex w-full items-start justify-between gap-3 text-left transition"
                           >
-                            Make this a habit
+                            <div className="min-w-0">
+                              <span className={`block leading-6 ${index === 0 ? 'text-[15px] font-medium text-white/92' : 'text-sm text-white/84'}`}>{move.text}</span>
+                              <span className={`mt-1 block text-[11px] uppercase tracking-[0.16em] ${index === 0 ? 'text-white/58' : 'text-mist/56'}`}>
+                                {index === 0 ? 'Next move' : 'Upcoming'}
+                              </span>
+                            </div>
+                            <span className="shrink-0 text-xs uppercase tracking-[0.16em] text-mist/62">Done</span>
                           </button>
-                        </div>
-                        {habitDraftByMoveId[move.id] !== undefined ? (
-                          <div className="mt-3 rounded-2xl border border-white/[0.06] bg-white/[0.018] px-3 py-3">
-                            <input
-                              value={habitDraftByMoveId[move.id]}
-                              onChange={(event) =>
+                          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                            <button
+                              type="button"
+                              onClick={() =>
                                 setHabitDraftByMoveId((current) => ({
                                   ...current,
-                                  [move.id]: event.target.value,
+                                  [move.id]: current[move.id] ?? move.text,
                                 }))
                               }
-                              className="w-full bg-transparent text-sm text-white outline-none placeholder:text-white/26"
-                              placeholder="Habit name"
-                            />
-                            <div className="mt-3 flex justify-end gap-2">
-                              <Button
-                                variant="ghost"
-                                onClick={() =>
-                                  setHabitDraftByMoveId((current) => {
-                                    const next = { ...current }
-                                    delete next[move.id]
-                                    return next
-                                  })
-                                }
-                              >
-                                Cancel
-                              </Button>
-                              <Button variant="soft" onClick={() => createHabitFromMove(selectedLifeGoal, move)}>
-                                Create and link habit
-                              </Button>
-                            </div>
+                              className="text-xs uppercase tracking-[0.16em] text-white/46 transition hover:text-white/72"
+                            >
+                              Make this a habit
+                            </button>
                           </div>
-                        ) : null}
-                      </div>
-                    ))
-                  ) : (
-                    <p className="rounded-2xl border border-white/[0.06] bg-white/[0.02] px-3.5 py-3 text-sm text-mist">
-                      No upcoming moves yet. Add the next concrete step.
-                    </p>
-                  )}
+                          {habitDraftByMoveId[move.id] !== undefined ? (
+                            <div className="mt-3 rounded-2xl border border-white/[0.06] bg-white/[0.018] px-3 py-3">
+                              <input
+                                value={habitDraftByMoveId[move.id]}
+                                onChange={(event) =>
+                                  setHabitDraftByMoveId((current) => ({
+                                    ...current,
+                                    [move.id]: event.target.value,
+                                  }))
+                                }
+                                className="w-full bg-transparent text-sm text-white outline-none placeholder:text-white/26"
+                                placeholder="Habit name"
+                              />
+                              <div className="mt-3 flex justify-end gap-2">
+                                <Button
+                                  variant="ghost"
+                                  onClick={() =>
+                                    setHabitDraftByMoveId((current) => {
+                                      const next = { ...current }
+                                      delete next[move.id]
+                                      return next
+                                    })
+                                  }
+                                >
+                                  Cancel
+                                </Button>
+                                <Button variant="soft" onClick={() => createHabitFromMove(selectedLifeGoal, move)}>
+                                  Create and link habit
+                                </Button>
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      ))
+                    ) : (
+                      <p className="rounded-2xl border border-white/[0.06] bg-white/[0.02] px-3.5 py-3 text-sm text-mist">
+                        No upcoming moves yet. Add the next concrete step.
+                      </p>
+                    )}
 
-                  <div className="rounded-2xl border border-white/[0.06] bg-white/[0.018] px-3.5 py-3">
-                    <input
-                      value={plannedMoveDraft}
-                      onChange={(event) => setPlannedMoveDraft(event.target.value)}
-                      placeholder="Add another planned move"
-                      className="w-full bg-transparent text-sm text-white outline-none placeholder:text-white/26"
-                    />
-                    <div className="mt-3 flex justify-end">
-                      <Button variant="soft" onClick={addPlannedMove}>
-                        Add another move
-                      </Button>
+                    <div className="rounded-2xl border border-white/[0.06] bg-white/[0.018] px-3.5 py-3">
+                      <input
+                        value={plannedMoveDraft}
+                        onChange={(event) => setPlannedMoveDraft(event.target.value)}
+                        placeholder="Add another planned move"
+                        className="w-full bg-transparent text-sm text-white outline-none placeholder:text-white/26"
+                      />
+                      <div className="mt-3 flex justify-end">
+                        <Button variant="soft" onClick={addPlannedMove}>
+                          Add another move
+                        </Button>
+                      </div>
                     </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <p className="text-xs uppercase tracking-[0.16em] text-mist/62">Completed steps</p>
+                    {selectedLifeGoalProgress.completedMoveItems.length > 0 ? (
+                      selectedLifeGoalProgress.completedMoveItems.map((move) => (
+                        <button
+                          key={move.id}
+                          type="button"
+                          onClick={() => toggleMoveCompletion(selectedLifeGoal.id, move.id)}
+                          className="flex w-full items-start justify-between gap-3 rounded-2xl border border-white/[0.08] bg-white/[0.03] px-3.5 py-3 text-left transition hover:border-white/[0.12] hover:bg-white/[0.04]"
+                        >
+                          <span className="text-sm leading-6 text-white/78">{move.text}</span>
+                          <span className="shrink-0 text-xs uppercase tracking-[0.16em] text-mist/72">
+                            {move.completedAt ? formatDate(move.completedAt.slice(0, 10)) : 'Done'}
+                          </span>
+                        </button>
+                      ))
+                    ) : (
+                      <p className="rounded-2xl border border-white/[0.06] bg-white/[0.02] px-3.5 py-3 text-sm text-mist">
+                        Completed steps will collect here as proof of progress.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {lifeGoalDetailTab === 'why' ? (
+              <div className="rounded-[24px] border border-white/[0.05] bg-white/[0.018] px-4 py-4">
+                <p className="text-xs uppercase tracking-[0.18em] text-mist/68">Why it matters</p>
+                <p className="mt-3 max-w-[760px] text-sm leading-7 text-white/86">{selectedLifeGoal.whyItMatters}</p>
+              </div>
+            ) : null}
+
+            {lifeGoalDetailTab === 'progress' ? (
+              <div className="space-y-4">
+                <div className="rounded-[24px] border border-white/[0.05] bg-white/[0.018] px-4 py-4">
+                  <p className="text-xs uppercase tracking-[0.18em] text-mist/68">Supporting habits</p>
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-sm text-mist">Recurring support systems linked to this goal.</p>
+                    <button
+                      type="button"
+                      onClick={() => setLinkHabitPickerOpen((current) => !current)}
+                      className="text-sm text-white/66 transition hover:text-white"
+                    >
+                      + Link existing habit
+                    </button>
+                  </div>
+
+                  {linkHabitPickerOpen && selectedLifeGoal ? (
+                    <div className="mt-4 rounded-2xl border border-white/[0.06] bg-white/[0.02] p-3">
+                      {availableHabitsToLink.length > 0 ? (
+                        <div className="space-y-2">
+                          {availableHabitsToLink.map((tracker) => (
+                            <button
+                              key={tracker.id}
+                              type="button"
+                              onClick={() => {
+                                linkHabitToLifeGoal(selectedLifeGoal.id, tracker.id)
+                                setLinkHabitPickerOpen(false)
+                              }}
+                              className="flex w-full items-center justify-between rounded-2xl border border-white/[0.06] bg-white/[0.015] px-3 py-2.5 text-left transition hover:border-white/[0.1] hover:bg-white/[0.03]"
+                            >
+                              <span className="text-sm text-white">{tracker.title}</span>
+                              <span className="text-xs uppercase tracking-[0.16em] text-mist/60">Link</span>
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-mist">All current habits are already linked to this goal.</p>
+                      )}
+                    </div>
+                  ) : null}
+
+                  <div className="mt-4 space-y-2">
+                    {selectedLinkedHabits.length > 0 ? (
+                      selectedLinkedHabits.map((tracker) => {
+                        const liveStreak = getLiveTrackerStreak(tracker, year)
+                        const supportState = getRecentHabitSupportState(tracker)
+                        return (
+                          <div
+                            key={tracker.id}
+                            className="flex items-center justify-between gap-3 rounded-2xl border border-white/[0.06] bg-white/[0.02] px-3.5 py-3"
+                          >
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium text-white">{tracker.title}</p>
+                              <p className="mt-1 text-xs text-mist">
+                                {liveStreak > 0 ? `${liveStreak}d streak` : 'No live streak'} • {supportState}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => selectedLifeGoal && unlinkHabitFromLifeGoal(selectedLifeGoal.id, tracker.id)}
+                              className="shrink-0 text-xs uppercase tracking-[0.16em] text-white/34 transition hover:text-white/62"
+                            >
+                              Unlink
+                            </button>
+                          </div>
+                        )
+                      })
+                    ) : (
+                      <p className="rounded-2xl border border-white/[0.06] bg-white/[0.02] px-3.5 py-3 text-sm text-mist">
+                        No supporting habits linked yet.
+                      </p>
+                    )}
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <p className="text-xs uppercase tracking-[0.16em] text-mist/62">Completed steps</p>
-                  {selectedLifeGoalProgress.completedMoveItems.length > 0 ? (
-                    selectedLifeGoalProgress.completedMoveItems.map((move) => (
-                      <button
-                        key={move.id}
-                        type="button"
-                        onClick={() => toggleMoveCompletion(selectedLifeGoal.id, move.id)}
-                        className="flex w-full items-start justify-between gap-3 rounded-2xl border border-[#315441]/35 bg-[#122018] px-3.5 py-3 text-left transition hover:border-[#3C6A51]/45 hover:bg-[#16271D]"
-                      >
-                        <span className="text-sm leading-6 text-[#D9F0DF]">{move.text}</span>
-                        <span className="shrink-0 text-xs uppercase tracking-[0.16em] text-[#9FC8AB]">
-                          {move.completedAt ? formatDate(move.completedAt.slice(0, 10)) : 'Done'}
-                        </span>
-                      </button>
-                    ))
-                  ) : (
-                    <p className="rounded-2xl border border-white/[0.06] bg-white/[0.02] px-3.5 py-3 text-sm text-mist">
-                      Completed steps will collect here as proof of progress.
-                    </p>
-                  )}
+                <div className="flex justify-end border-t border-white/[0.05] pt-4">
+                  <button
+                    type="button"
+                    onClick={() => onDeleteLifeGoal(selectedLifeGoal.id)}
+                    className="text-sm text-white/34 transition hover:text-white/62"
+                  >
+                    Delete goal
+                  </button>
                 </div>
               </div>
-
-              <div className="mt-5 flex justify-end border-t border-white/[0.05] pt-4">
-                <button
-                  type="button"
-                  onClick={() => onDeleteLifeGoal(selectedLifeGoal.id)}
-                  className="text-sm text-white/34 transition hover:text-white/62"
-                >
-                  Delete goal
-                </button>
-              </div>
-            </div>
+            ) : null}
           </div>
         ) : null}
       </SectionCard>
-    </ResponsiveGrid>
+    </div>
   )
 
   const renderHabitGoalsTab = () => (
@@ -1186,14 +1211,8 @@ export function GoalsPage({
   )
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h2 className="text-[36px] font-semibold tracking-[-0.02em] theme-text-primary">Serious goals, cleanly separated</h2>
-          <p className="mt-3 max-w-[720px] text-sm leading-6 theme-text-muted">
-            Life Goals stay focused on meaningful direction and next moves. Habit Goals stay available as a separate tracking layer.
-          </p>
-        </div>
+    <div className="space-y-4">
+      <div className="flex justify-start sm:justify-end">
         <div className="theme-surface-soft inline-flex rounded-full border p-1">
           {([
             ['life', 'Life Goals'],
