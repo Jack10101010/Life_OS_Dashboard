@@ -1,4 +1,4 @@
-import { FormEvent, useMemo, useState } from 'react'
+import { FormEvent, useEffect, useMemo, useState } from 'react'
 import { BadHabitDefinition, PageId } from '../../types'
 import { DEFAULT_SIDEBAR_ITEMS } from '../../lib/sidebar'
 
@@ -7,7 +7,9 @@ export function Sidebar({
   collapsed,
   pageOrder,
   pageLabels,
+  goalsView,
   onNavigate,
+  onSetGoalsView,
   onToggleCollapsed,
   onReorderPages,
   onRenamePage,
@@ -18,7 +20,9 @@ export function Sidebar({
   collapsed: boolean
   pageOrder: PageId[]
   pageLabels: Record<PageId, string>
+  goalsView: 'life-overview' | 'life-detail' | 'habit-goals'
   onNavigate: (page: PageId) => void
+  onSetGoalsView: (view: 'life-overview' | 'life-detail' | 'habit-goals') => void
   onToggleCollapsed: () => void
   onReorderPages: (nextOrder: PageId[]) => void
   onRenamePage: (page: PageId, label: string) => void
@@ -28,6 +32,7 @@ export function Sidebar({
   const [draggedPage, setDraggedPage] = useState<PageId | null>(null)
   const [renamingPage, setRenamingPage] = useState<PageId | null>(null)
   const [renameValue, setRenameValue] = useState('')
+  const [goalsExpanded, setGoalsExpanded] = useState(currentPage === 'goals')
   const items = useMemo(() => {
     const byId = new Map(DEFAULT_SIDEBAR_ITEMS.map((item) => [item.id, item]))
     const mergedOrder = [...pageOrder, ...DEFAULT_SIDEBAR_ITEMS.map((item) => item.id).filter((id) => !pageOrder.includes(id))]
@@ -41,6 +46,10 @@ export function Sidebar({
   }, [pageLabels, pageOrder])
   const settingsItem = items.find((item) => item.id === 'settings') ?? null
   const primaryItems = items.filter((item) => item.id !== 'settings')
+
+  useEffect(() => {
+    setGoalsExpanded(currentPage === 'goals')
+  }, [currentPage])
 
   if (collapsed) {
     return (
@@ -87,41 +96,135 @@ export function Sidebar({
 
           return (
             <div key={item.id} className="relative">
-              <button
-                draggable
-                onClick={() => onNavigate(item.id)}
-                onContextMenu={(event) => {
-                  event.preventDefault()
-                  setRenamingPage(item.id)
-                  setRenameValue(item.label)
-                }}
-                onDragStart={() => setDraggedPage(item.id)}
-                onDragEnd={() => setDraggedPage(null)}
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={() => {
-                  if (!draggedPage || draggedPage === item.id) return
-                  const nextOrder = [...pageOrder]
-                  const fromIndex = nextOrder.indexOf(draggedPage)
-                  const toIndex = nextOrder.indexOf(item.id)
-                  if (fromIndex === -1 || toIndex === -1) return
-                  nextOrder.splice(fromIndex, 1)
-                  nextOrder.splice(toIndex, 0, draggedPage)
-                  onReorderPages(nextOrder)
-                  setDraggedPage(null)
-                }}
-                className={`flex w-full items-center justify-between rounded-2xl border px-3.5 py-3 text-left text-sm font-medium transition ${
-                  active
-                    ? 'theme-nav-item-active'
-                    : 'theme-nav-item border-transparent'
-                } ${draggedPage === item.id ? 'opacity-50' : ''}`}
+              {item.id === 'goals' ? (
+                <div className="space-y-0.5">
+                  <button
+                    draggable
+                    onClick={() => {
+                      if (currentPage === 'goals') {
+                        setGoalsExpanded((current) => !current)
+                        return
+                      }
+                      onSetGoalsView('life-overview')
+                      onNavigate('goals')
+                      setGoalsExpanded(true)
+                    }}
+                    onContextMenu={(event) => {
+                      event.preventDefault()
+                      setRenamingPage(item.id)
+                      setRenameValue(item.label)
+                    }}
+                    onDragStart={() => setDraggedPage(item.id)}
+                    onDragEnd={() => setDraggedPage(null)}
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={() => {
+                      if (!draggedPage || draggedPage === item.id) return
+                      const nextOrder = [...pageOrder]
+                      const fromIndex = nextOrder.indexOf(draggedPage)
+                      const toIndex = nextOrder.indexOf(item.id)
+                      if (fromIndex === -1 || toIndex === -1) return
+                      nextOrder.splice(fromIndex, 1)
+                      nextOrder.splice(toIndex, 0, draggedPage)
+                      onReorderPages(nextOrder)
+                      setDraggedPage(null)
+                    }}
+                    className={`flex w-full items-center justify-between rounded-2xl border px-3.5 py-3 text-left text-sm font-medium transition ${
+                      goalsExpanded
+                        ? 'border-transparent bg-transparent theme-text-primary'
+                        : active
+                          ? 'theme-nav-item-active'
+                          : 'theme-nav-item border-transparent'
+                    } ${draggedPage === item.id ? 'opacity-50' : ''}`}
+                  >
+                    <span className="min-w-0 truncate">{item.label}</span>
+                    {goalsExpanded ? null : (
+                      <span
+                        className={`h-1.5 w-1.5 shrink-0 rounded-full transition ${
+                          active ? 'bg-glow opacity-100' : 'bg-line opacity-0'
+                        }`}
+                      />
+                    )}
+                  </button>
+
+                  <div
+                    className={`grid overflow-hidden transition-[grid-template-rows,opacity,margin] duration-200 ease-out ${
+                      goalsExpanded ? 'mt-0.5 grid-rows-[1fr] opacity-100' : 'mt-0 grid-rows-[0fr] opacity-0'
+                    }`}
+                  >
+                    <div className="min-h-0">
+                      <div className="space-y-0.5 pb-1 pl-6 pr-0.5">
+                        {[
+                          { id: 'life-overview', label: 'Life Goals', selected: goalsView !== 'habit-goals' },
+                          { id: 'habit-goals', label: 'Habit Goals', selected: goalsView === 'habit-goals' },
+                        ].map((goalSection) => {
+                          const selected = currentPage === 'goals' && goalSection.selected
+                          return (
+                            <button
+                              key={goalSection.id}
+                              type="button"
+                              onClick={() => {
+                                onSetGoalsView(goalSection.id as 'life-overview' | 'habit-goals')
+                                onNavigate('goals')
+                              }}
+                              className="theme-nav-item flex w-full min-w-0 items-center gap-2 rounded-xl border border-transparent px-2 py-1.5 text-left text-xs transition"
+                            >
+                              <span className={`mt-[1px] h-1.5 w-1.5 shrink-0 rounded-full ${selected ? 'bg-glow opacity-100' : 'bg-line opacity-35'}`} />
+                              <span
+                                className={`min-w-0 flex-1 truncate text-[13px] leading-5 ${selected ? 'theme-text-primary font-medium' : 'theme-text-muted'}`}
+                                title={goalSection.label}
+                              >
+                                {goalSection.label}
+                              </span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+              <div
+                className="space-y-1 rounded-[20px] transition"
               >
-                <span className="min-w-0 truncate">{item.label}</span>
-                <span
-                  className={`h-1.5 w-1.5 shrink-0 rounded-full transition ${
-                    active ? 'bg-glow opacity-100' : 'bg-line opacity-0'
-                  }`}
-                />
-              </button>
+                <button
+                  draggable
+                  onClick={() => {
+                    onNavigate(item.id)
+                  }}
+                  onContextMenu={(event) => {
+                    event.preventDefault()
+                    setRenamingPage(item.id)
+                    setRenameValue(item.label)
+                  }}
+                  onDragStart={() => setDraggedPage(item.id)}
+                  onDragEnd={() => setDraggedPage(null)}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={() => {
+                    if (!draggedPage || draggedPage === item.id) return
+                    const nextOrder = [...pageOrder]
+                    const fromIndex = nextOrder.indexOf(draggedPage)
+                    const toIndex = nextOrder.indexOf(item.id)
+                    if (fromIndex === -1 || toIndex === -1) return
+                    nextOrder.splice(fromIndex, 1)
+                    nextOrder.splice(toIndex, 0, draggedPage)
+                    onReorderPages(nextOrder)
+                    setDraggedPage(null)
+                  }}
+                  className={`flex w-full items-center justify-between rounded-2xl border px-3.5 py-3 text-left text-sm font-medium transition ${
+                    active
+                      ? 'theme-nav-item-active'
+                      : 'theme-nav-item border-transparent'
+                  } ${draggedPage === item.id ? 'opacity-50' : ''}`}
+                  >
+                    <span className="min-w-0 truncate">{item.label}</span>
+                    <span
+                      className={`h-1.5 w-1.5 shrink-0 rounded-full transition ${
+                        active ? 'bg-glow opacity-100' : 'bg-line opacity-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+              )}
 
               {isRenaming ? (
                 <form

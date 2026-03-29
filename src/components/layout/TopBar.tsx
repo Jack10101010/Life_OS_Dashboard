@@ -41,23 +41,30 @@ const descriptions: Record<PageId, ReactNode> = {
 
 export function TopBar({ page, onOpenToday, sidebarCollapsed }: { page: PageId; onOpenToday: () => void; sidebarCollapsed: boolean }) {
   const [pushedToday, setPushedToday] = useState(false)
+  const isGoalsPage = page === 'goals'
+  const showDescription = !isGoalsPage
+  const showTodayCard = !isGoalsPage
 
   return (
-    <div className="theme-border-subtle border-b pt-5 pb-4 sm:pt-6 sm:pb-5">
+    <div className={`theme-border-subtle border-b ${isGoalsPage ? 'pt-3 pb-3 sm:pt-3.5 sm:pb-3.5' : 'pt-5 pb-4 sm:pt-6 sm:pb-5'}`}>
       <PageContainer width="wide" className={sidebarCollapsed ? 'lg:pl-16' : ''}>
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className={`flex flex-col ${isGoalsPage ? 'gap-2' : 'gap-4'} lg:flex-row lg:items-center lg:justify-between`}>
           <div className="min-w-0">
-            <h2 className="theme-page-title">{labels[page]}</h2>
-            <p
-              className="theme-body-secondary mt-1.5 max-w-2xl"
-              style={{
-                color: page === 'dashboard' ? 'rgb(var(--theme-text-primary-rgb))' : 'rgb(var(--theme-text-muted-rgb))',
-              }}
-            >
-              {descriptions[page]}
-            </p>
+            <h2 className={isGoalsPage ? 'text-[28px] font-semibold tracking-[-0.03em] theme-text-primary' : 'theme-page-title'}>
+              {labels[page]}
+            </h2>
+            {showDescription ? (
+              <p
+                className="theme-body-secondary mt-1.5 max-w-2xl"
+                style={{
+                  color: page === 'dashboard' ? 'rgb(var(--theme-text-primary-rgb))' : 'rgb(var(--theme-text-muted-rgb))',
+                }}
+              >
+                {descriptions[page]}
+              </p>
+            ) : null}
           </div>
-          <div className="flex items-center gap-2 lg:self-center">
+          <div className={`flex items-center gap-2 lg:self-center ${showTodayCard ? '' : 'hidden'}`}>
             {page === 'dashboard' ? (
               <button
                 type="button"
@@ -71,21 +78,23 @@ export function TopBar({ page, onOpenToday, sidebarCollapsed }: { page: PageId; 
                 {pushedToday ? '✅ Synced today' : '⚠️ Not pushed today'}
               </button>
             ) : null}
-            <button
-              type="button"
-              onClick={onOpenToday}
-              className="theme-surface-elevated self-start rounded-2xl border px-4 py-3 text-left shadow-[inset_0_0_0_1px_rgba(255,255,255,0.02)] transition hover:border-white/10 lg:text-right"
-            >
-              <p className="theme-label theme-text-faint">Today</p>
-              <p className="theme-body-primary mt-2">
-                {new Date().toLocaleDateString('en-IE', {
-                  weekday: 'short',
-                  day: 'numeric',
-                  month: 'short',
-                  year: 'numeric',
-                })}
-              </p>
-            </button>
+            {showTodayCard ? (
+              <button
+                type="button"
+                onClick={onOpenToday}
+                className="theme-surface-elevated self-start rounded-2xl border px-4 py-3 text-left shadow-[inset_0_0_0_1px_rgba(255,255,255,0.02)] transition hover:border-white/10 lg:text-right"
+              >
+                <p className="theme-label theme-text-faint">Today</p>
+                <p className="theme-body-primary mt-2">
+                  {new Date().toLocaleDateString('en-IE', {
+                    weekday: 'short',
+                    day: 'numeric',
+                    month: 'short',
+                    year: 'numeric',
+                  })}
+                </p>
+              </button>
+            ) : null}
           </div>
         </div>
       </PageContainer>

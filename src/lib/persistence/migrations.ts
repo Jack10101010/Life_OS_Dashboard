@@ -228,7 +228,7 @@ export function normalizePersistedAppState(parsed: Partial<PersistedAppState>, c
     badHabitLogs: migratedBadHabitLogs,
     tags: cleanedTagState.tags,
     tasks: Array.isArray(parsed.tasks) ? parsed.tasks.map(normalizeTask).filter((task) => task.text) : defaults.tasks,
-    lifeGoals: Array.isArray(parsed.lifeGoals) ? parsed.lifeGoals.map(normalizeLifeGoal).filter((goal) => goal.title) : defaults.lifeGoals,
+    lifeGoals: Array.isArray(parsed.lifeGoals) ? parsed.lifeGoals.map((goal, index) => normalizeLifeGoal(goal, index)).filter((goal) => goal.title) : defaults.lifeGoals,
     settings: parsed.settings
       ? {
           ...defaults.settings,
@@ -359,16 +359,27 @@ function ensureYearDataset(
   }
 }
 
-function normalizeLifeGoal(goal: Partial<LifeGoal>): LifeGoal {
+function normalizeLifeGoal(goal: Partial<LifeGoal>, index: number): LifeGoal {
   const createdAt = typeof goal.createdAt === 'string' && goal.createdAt ? goal.createdAt : new Date().toISOString()
+  const defaultStartDate = createdAt.slice(0, 10)
   return {
     id: typeof goal.id === 'string' && goal.id ? goal.id : `life-goal-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
     title: typeof goal.title === 'string' ? goal.title.trim() : '',
+    category: typeof goal.category === 'string' ? goal.category.trim() : '',
     whyItMatters: typeof goal.whyItMatters === 'string' ? goal.whyItMatters.trim() : '',
     minimumVersion: typeof goal.minimumVersion === 'string' ? goal.minimumVersion.trim() : '',
     ifThenPlan: typeof goal.ifThenPlan === 'string' ? goal.ifThenPlan.trim() : '',
+    startDate: typeof goal.startDate === 'string' && goal.startDate ? goal.startDate : defaultStartDate,
     targetDate: typeof goal.targetDate === 'string' ? goal.targetDate : '',
-    status: goal.status === 'paused' || goal.status === 'complete' ? goal.status : 'in-motion',
+    status:
+      goal.status === 'not-started' ||
+      goal.status === 'paused' ||
+      goal.status === 'complete' ||
+      goal.status === 'in-motion'
+        ? goal.status
+        : 'in-motion',
+    isPrimary: typeof goal.isPrimary === 'boolean' ? goal.isPrimary : false,
+    order: typeof goal.order === 'number' && Number.isFinite(goal.order) ? goal.order : index,
     moves: Array.isArray(goal.moves)
       ? goal.moves
           .map((move) => ({
@@ -385,6 +396,7 @@ function normalizeLifeGoal(goal: Partial<LifeGoal>): LifeGoal {
     linkedHabitIds: Array.isArray(goal.linkedHabitIds)
       ? goal.linkedHabitIds.filter((id): id is string => typeof id === 'string' && id.length > 0)
       : [],
+    archivedAt: typeof goal.archivedAt === 'string' && goal.archivedAt ? goal.archivedAt : null,
     createdAt,
     updatedAt: typeof goal.updatedAt === 'string' && goal.updatedAt ? goal.updatedAt : createdAt,
   }

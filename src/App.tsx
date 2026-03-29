@@ -25,6 +25,7 @@ import { YourDaysPage } from './features/your-days/YourDaysPage'
 import { LifeGoal, PageId } from './types'
 
 const DEV_NOTES_ENABLED_PAGES: PageId[] = ['tasks', 'notes', 'analytics', 'trade-log', 'settings']
+type GoalsView = 'life-overview' | 'life-detail' | 'habit-goals'
 
 export default function App() {
   const currentYear = new Date().getUTCFullYear()
@@ -36,6 +37,8 @@ export default function App() {
   const habitTrackerState = useHabitTrackerState(persisted)
   const [tasks, setTasks] = useState(persisted.tasks)
   const [lifeGoals, setLifeGoals] = useState<LifeGoal[]>(persisted.lifeGoals)
+  const [selectedLifeGoalId, setSelectedLifeGoalId] = useState<string | null>(persisted.lifeGoals[0]?.id ?? null)
+  const [goalsView, setGoalsView] = useState<GoalsView>('life-overview')
 
   const { settings, setSettings, hydrate: hydrateSettings } = settingsState
   const {
@@ -556,11 +559,51 @@ export default function App() {
           habitTrackers={habitTrackers}
           lifeGoals={lifeGoals}
           year={filters.year}
+          goalsView={goalsView}
+          selectedLifeGoalId={selectedLifeGoalId}
+          onSelectLifeGoal={setSelectedLifeGoalId}
+          onChangeGoalsView={setGoalsView}
           onCreateHabitTracker={saveTracker}
-          onCreateLifeGoal={(goal) => setLifeGoals((current) => [goal, ...current])}
+          onCreateLifeGoal={(goal) =>
+            setLifeGoals((current) => [
+              { ...goal, order: 0 },
+              ...current.map((item) => ({ ...item, order: item.order + 1 })),
+            ])
+          }
           onUpdateLifeGoal={(goalId, updater) =>
             setLifeGoals((current) =>
               current.map((goal) => (goal.id === goalId ? updater(goal) : goal)),
+            )
+          }
+          onReorderLifeGoals={(goalIds) =>
+            setLifeGoals((current) => {
+              const orderMap = new Map(goalIds.map((id, index) => [id, index]))
+              return current.map((goal) => ({
+                ...goal,
+                order: orderMap.get(goal.id) ?? goal.order,
+              }))
+            })
+          }
+          onSetPrimaryLifeGoal={(goalId) =>
+            setLifeGoals((current) =>
+              current.map((goal) => ({
+                ...goal,
+                isPrimary: goalId !== null && goal.id === goalId,
+              })),
+            )
+          }
+          onArchiveLifeGoal={(goalId) =>
+            setLifeGoals((current) =>
+              current.map((goal) =>
+                goal.id === goalId
+                  ? {
+                      ...goal,
+                      archivedAt: new Date().toISOString(),
+                      isPrimary: false,
+                      updatedAt: new Date().toISOString(),
+                    }
+                  : goal,
+              ),
             )
           }
           onDeleteLifeGoal={(goalId) => setLifeGoals((current) => current.filter((goal) => goal.id !== goalId))}
@@ -624,10 +667,12 @@ export default function App() {
           collapsed={sidebarCollapsed}
           pageOrder={sidebarOrder}
           pageLabels={sidebarLabels}
+          goalsView={goalsView}
           onNavigate={(nextPage) => {
             setPage(nextPage)
             setOpenDrawer(null)
           }}
+          onSetGoalsView={setGoalsView}
           onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
           onReorderPages={setSidebarOrder}
           onRenamePage={(pageId, label) =>

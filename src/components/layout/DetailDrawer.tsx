@@ -10,6 +10,8 @@ export function DetailDrawer({
   size = 'md',
   headerActions,
   bodyRef,
+  panelClassName,
+  bodyClassName,
   children,
 }: {
   open: boolean
@@ -20,6 +22,8 @@ export function DetailDrawer({
   size?: 'md' | 'lg'
   headerActions?: ReactNode
   bodyRef?: RefObject<HTMLDivElement | null>
+  panelClassName?: string
+  bodyClassName?: string
   children: ReactNode
 }) {
   const widthClassName = size === 'lg' ? 'w-[min(940px,92vw)]' : 'w-[min(760px,88vw)]'
@@ -36,7 +40,7 @@ export function DetailDrawer({
             onClick={onClose}
           />
           <motion.aside
-            className={`theme-popover fixed left-1/2 top-[7vh] z-30 max-h-[86vh] -translate-x-1/2 overflow-hidden rounded-[32px] border shadow-[0_35px_100px_rgba(15,23,42,0.22)] ${widthClassName}`}
+            className={`theme-popover fixed left-1/2 top-[7vh] z-30 max-h-[86vh] -translate-x-1/2 overflow-hidden rounded-[32px] border shadow-[0_35px_100px_rgba(15,23,42,0.22)] ${widthClassName} ${panelClassName ?? ''}`}
             initial={{ y: 28, x: '-50%', opacity: 0.82, scale: 0.98 }}
             animate={{ y: 0, x: '-50%', opacity: 1, scale: 1 }}
             exit={{ y: 20, x: '-50%', opacity: 0, scale: 0.98 }}
@@ -60,7 +64,7 @@ export function DetailDrawer({
                 </div>
               </div>
             </div>
-            <div ref={bodyRef} className="max-h-[calc(86vh-92px)] overflow-y-auto overscroll-contain px-7 py-5">
+            <div ref={bodyRef} className={`max-h-[calc(86vh-92px)] overflow-y-auto overscroll-contain px-7 py-5 ${bodyClassName ?? ''}`}>
               {children}
             </div>
           </motion.aside>

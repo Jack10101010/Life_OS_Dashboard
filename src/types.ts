@@ -288,7 +288,7 @@ export interface HabitTrackerEntryDraft {
   note: string
 }
 
-export type LifeGoalStatus = 'in-motion' | 'paused' | 'complete'
+export type LifeGoalStatus = 'not-started' | 'in-motion' | 'paused' | 'complete'
 
 export interface LifeGoalMove {
   id: string
@@ -300,13 +300,18 @@ export interface LifeGoalMove {
 export interface LifeGoal {
   id: string
   title: string
+  category: string
   whyItMatters: string
   minimumVersion: string
   ifThenPlan: string
+  startDate: string
   targetDate: string
   status: LifeGoalStatus
+  isPrimary: boolean
+  order: number
   moves: LifeGoalMove[]
   linkedHabitIds: string[]
+  archivedAt: string | null
   createdAt: string
   updatedAt: string
 }
