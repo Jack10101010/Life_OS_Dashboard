@@ -169,7 +169,7 @@ export function HabitTrackerSettingsModal({
               }`}
             >
               <span className="text-lg leading-none">↑</span>
-              Move up
+              Up
             </button>
             <button
               type="button"
@@ -182,7 +182,7 @@ export function HabitTrackerSettingsModal({
               }`}
             >
               <span className="text-lg leading-none">↓</span>
-              Move down
+              Down
             </button>
           </div>
         </div>

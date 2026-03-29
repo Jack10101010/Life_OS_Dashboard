@@ -24,6 +24,8 @@
   --theme-warning-rgb: 217 164 65;
   --theme-negative-rgb: 215 38 61;
   --theme-info-rgb: 120 167 255;
+  --theme-violet-rgb: 166 122 255;
+  --theme-teal-rgb: 70 190 176;
 
   --theme-button-primary-bg-rgb: 243 241 240;
   --theme-button-primary-hover-rgb: 255 255 255;
@@ -103,6 +105,8 @@
   --theme-warning-rgb: 216 155 43;
   --theme-negative-rgb: 216 75 90;
   --theme-info-rgb: 109 151 255;
+  --theme-violet-rgb: 143 118 255;
+  --theme-teal-rgb: 46 176 163;
 
   --theme-button-primary-bg-rgb: 44 206 91;
   --theme-button-primary-hover-rgb: 37 192 83;
@@ -255,6 +259,28 @@ body {
   font-weight: 700;
   letter-spacing: -0.03em;
   color: rgb(var(--theme-text-primary-rgb));
+}
+
+.roadmap-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--theme-text-faint-rgb) / 0.38) transparent;
+}
+
+.roadmap-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.roadmap-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.roadmap-scroll::-webkit-scrollbar-thumb {
+  background: rgb(var(--theme-text-faint-rgb) / 0.28);
+  border-radius: 999px;
+}
+
+.roadmap-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--theme-text-faint-rgb) / 0.4);
 }
 
 .theme-section-title {

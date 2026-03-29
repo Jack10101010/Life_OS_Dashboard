@@ -289,10 +289,36 @@ export interface HabitTrackerEntryDraft {
 }
 
 export type LifeGoalStatus = 'not-started' | 'in-motion' | 'paused' | 'complete'
+export type LifeGoalCategoryColor = 'green' | 'blue' | 'purple' | 'amber' | 'teal' | 'red' | 'neutral'
 
-export interface LifeGoalMove {
+export interface LifeGoalCategoryDefinition {
+  name: string
+  color: LifeGoalCategoryColor
+}
+
+export const LIFE_GOAL_CATEGORY_COLOR_OPTIONS: readonly LifeGoalCategoryColor[] = [
+  'green',
+  'blue',
+  'purple',
+  'amber',
+  'teal',
+  'red',
+  'neutral',
+] as const
+
+export const DEFAULT_LIFE_GOAL_CATEGORIES: readonly LifeGoalCategoryDefinition[] = [
+  { name: 'Health', color: 'green' },
+  { name: 'Career', color: 'blue' },
+  { name: 'Social', color: 'purple' },
+  { name: 'Finance', color: 'amber' },
+  { name: 'Home', color: 'neutral' },
+  { name: 'Mind', color: 'teal' },
+] as const
+
+export interface LifeGoalTask {
   id: string
   text: string
+  dueDate: string | null
   completed: boolean
   completedAt: string | null
 }
@@ -309,7 +335,7 @@ export interface LifeGoal {
   status: LifeGoalStatus
   isPrimary: boolean
   order: number
-  moves: LifeGoalMove[]
+  tasks: LifeGoalTask[]
   linkedHabitIds: string[]
   archivedAt: string | null
   createdAt: string

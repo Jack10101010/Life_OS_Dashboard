@@ -7,12 +7,15 @@ import {
   BadHabitDefinition,
   BadHabitLog,
   ColorMode,
+  DEFAULT_LIFE_GOAL_CATEGORIES,
   Habit,
   HabitTracker,
   HabitTrackerCalendarRange,
   HabitTrackerEntryDraft,
   HabitTrackerPeriodView,
   HeatmapLayout,
+  LifeGoalCategoryColor,
+  LifeGoalCategoryDefinition,
   LifeGoal,
   PageId,
   SettingsState,
@@ -36,6 +39,7 @@ export interface PersistedAppState {
   tags: Tag[]
   tasks: Task[]
   lifeGoals: LifeGoal[]
+  lifeGoalCategories: LifeGoalCategoryDefinition[]
   settings: SettingsState
   page: PageId
   viewMode: TrackerViewMode
@@ -73,6 +77,7 @@ export function getDefaultPersistedAppState(currentYear: number): PersistedAppSt
     tags: starterTags,
     tasks: [],
     lifeGoals: [],
+    lifeGoalCategories: [...DEFAULT_LIFE_GOAL_CATEGORIES],
     settings: defaultSettings,
     page: 'dashboard',
     viewMode: 'weeks',
@@ -229,6 +234,7 @@ export function normalizePersistedAppState(parsed: Partial<PersistedAppState>, c
     tags: cleanedTagState.tags,
     tasks: Array.isArray(parsed.tasks) ? parsed.tasks.map(normalizeTask).filter((task) => task.text) : defaults.tasks,
     lifeGoals: Array.isArray(parsed.lifeGoals) ? parsed.lifeGoals.map((goal, index) => normalizeLifeGoal(goal, index)).filter((goal) => goal.title) : defaults.lifeGoals,
+    lifeGoalCategories: normalizeLifeGoalCategories(parsed.lifeGoalCategories, Array.isArray(parsed.lifeGoals) ? parsed.lifeGoals : defaults.lifeGoals),
     settings: parsed.settings
       ? {
           ...defaults.settings,
@@ -380,19 +386,28 @@ function normalizeLifeGoal(goal: Partial<LifeGoal>, index: number): LifeGoal {
         : 'in-motion',
     isPrimary: typeof goal.isPrimary === 'boolean' ? goal.isPrimary : false,
     order: typeof goal.order === 'number' && Number.isFinite(goal.order) ? goal.order : index,
-    moves: Array.isArray(goal.moves)
-      ? goal.moves
-          .map((move) => ({
-            id:
-              typeof move?.id === 'string' && move.id
-                ? move.id
-                : `life-goal-move-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
-            text: typeof move?.text === 'string' ? move.text.trim() : '',
-            completed: Boolean(move?.completed),
-            completedAt: typeof move?.completedAt === 'string' ? move.completedAt : null,
-          }))
-          .filter((move) => move.text.length > 0)
-      : [],
+    tasks: (Array.isArray(goal.tasks) ? goal.tasks : Array.isArray((goal as Partial<LifeGoal> & { moves?: unknown[] }).moves) ? (goal as Partial<LifeGoal> & { moves?: unknown[] }).moves! : [])
+      .map((task) => {
+        const candidate = (task ?? {}) as {
+          id?: unknown
+          text?: unknown
+          dueDate?: unknown
+          completed?: unknown
+          completedAt?: unknown
+        }
+
+        return {
+          id:
+            typeof candidate.id === 'string' && candidate.id
+              ? candidate.id
+              : `life-goal-task-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+          text: typeof candidate.text === 'string' ? candidate.text.trim() : '',
+          dueDate: typeof candidate.dueDate === 'string' && candidate.dueDate ? candidate.dueDate : null,
+          completed: Boolean(candidate.completed),
+          completedAt: typeof candidate.completedAt === 'string' ? candidate.completedAt : null,
+        }
+      })
+      .filter((task) => task.text.length > 0),
     linkedHabitIds: Array.isArray(goal.linkedHabitIds)
       ? goal.linkedHabitIds.filter((id): id is string => typeof id === 'string' && id.length > 0)
       : [],
@@ -400,6 +415,49 @@ function normalizeLifeGoal(goal: Partial<LifeGoal>, index: number): LifeGoal {
     createdAt,
     updatedAt: typeof goal.updatedAt === 'string' && goal.updatedAt ? goal.updatedAt : createdAt,
   }
+}
+
+function normalizeLifeGoalCategoryColor(color: unknown): LifeGoalCategoryColor {
+  return color === 'green' ||
+    color === 'blue' ||
+    color === 'purple' ||
+    color === 'amber' ||
+    color === 'teal' ||
+    color === 'red' ||
+    color === 'neutral'
+    ? color
+    : 'neutral'
+}
+
+function normalizeLifeGoalCategories(
+  categories: unknown,
+  lifeGoals: Array<Partial<LifeGoal>>,
+): LifeGoalCategoryDefinition[] {
+  const definitions = new Map<string, LifeGoalCategoryDefinition>()
+
+  for (const category of DEFAULT_LIFE_GOAL_CATEGORIES) {
+    definitions.set(category.name.trim().toLowerCase(), { ...category })
+  }
+
+  if (Array.isArray(categories)) {
+    for (const category of categories) {
+      if (!category || typeof category !== 'object') continue
+      const name = typeof (category as { name?: unknown }).name === 'string' ? (category as { name: string }).name.trim() : ''
+      if (!name) continue
+      definitions.set(name.toLowerCase(), {
+        name,
+        color: normalizeLifeGoalCategoryColor((category as { color?: unknown }).color),
+      })
+    }
+  }
+
+  for (const goal of lifeGoals) {
+    const name = typeof goal.category === 'string' ? goal.category.trim() : ''
+    if (!name || definitions.has(name.toLowerCase())) continue
+    definitions.set(name.toLowerCase(), { name, color: 'neutral' })
+  }
+
+  return [...definitions.values()]
 }
 
 function normalizeTask(task: Partial<Task>): Task {

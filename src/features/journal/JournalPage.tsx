@@ -354,7 +354,7 @@ function LowStateModePanel({
         <div className="space-y-5">
           <StepTextArea
             title="What&apos;s one small thing you can do next?"
-            description="Keep it tiny. Enough to create movement."
+            description="Keep it tiny. Enough to create momentum."
             value={entry.nextThing}
             onChange={(value) => onChange((current) => ({ ...current, nextThing: value }))}
           />

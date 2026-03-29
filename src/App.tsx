@@ -22,7 +22,7 @@ import { PlaceholderPage } from './features/placeholder/PlaceholderPage'
 import { SettingsPage } from './features/settings/SettingsPage'
 import { TrackerWorkspace } from './features/tracker/TrackerWorkspace'
 import { YourDaysPage } from './features/your-days/YourDaysPage'
-import { LifeGoal, PageId } from './types'
+import { LifeGoal, LifeGoalCategoryColor, LifeGoalCategoryDefinition, PageId } from './types'
 
 const DEV_NOTES_ENABLED_PAGES: PageId[] = ['tasks', 'notes', 'analytics', 'trade-log', 'settings']
 type GoalsView = 'life-overview' | 'life-detail' | 'habit-goals'
@@ -37,6 +37,7 @@ export default function App() {
   const habitTrackerState = useHabitTrackerState(persisted)
   const [tasks, setTasks] = useState(persisted.tasks)
   const [lifeGoals, setLifeGoals] = useState<LifeGoal[]>(persisted.lifeGoals)
+  const [lifeGoalCategories, setLifeGoalCategories] = useState<LifeGoalCategoryDefinition[]>(persisted.lifeGoalCategories)
   const [selectedLifeGoalId, setSelectedLifeGoalId] = useState<string | null>(persisted.lifeGoals[0]?.id ?? null)
   const [goalsView, setGoalsView] = useState<GoalsView>('life-overview')
 
@@ -163,6 +164,7 @@ export default function App() {
       tags,
       tasks,
       lifeGoals,
+      lifeGoalCategories,
       settings,
       page,
       viewMode,
@@ -198,6 +200,7 @@ export default function App() {
     tags,
     tasks,
     lifeGoals,
+    lifeGoalCategories,
     settings,
     page,
     viewMode,
@@ -235,6 +238,7 @@ export default function App() {
     tags,
     tasks,
     lifeGoals,
+    lifeGoalCategories,
     settings,
     page,
     viewMode,
@@ -281,8 +285,9 @@ export default function App() {
       hydrateSettings(imported.settings)
       hydrateTracker(imported)
       hydrateHabitTrackers(imported)
-    setTasks(imported.tasks)
+      setTasks(imported.tasks)
       setLifeGoals(imported.lifeGoals)
+      setLifeGoalCategories(imported.lifeGoalCategories)
       window.alert('Backup restored successfully.')
     } catch {
       window.alert('That backup file could not be imported.')
@@ -558,6 +563,7 @@ export default function App() {
         <GoalsPage
           habitTrackers={habitTrackers}
           lifeGoals={lifeGoals}
+          lifeGoalCategories={lifeGoalCategories}
           year={filters.year}
           goalsView={goalsView}
           selectedLifeGoalId={selectedLifeGoalId}
@@ -565,22 +571,66 @@ export default function App() {
           onChangeGoalsView={setGoalsView}
           onCreateHabitTracker={saveTracker}
           onCreateLifeGoal={(goal) =>
-            setLifeGoals((current) => [
-              { ...goal, order: 0 },
-              ...current.map((item) => ({ ...item, order: item.order + 1 })),
-            ])
+            {
+              if (goal.category.trim()) {
+                setLifeGoalCategories((current) =>
+                  current.some((item) => item.name.trim().toLowerCase() === goal.category.trim().toLowerCase())
+                    ? current
+                    : [...current, { name: goal.category.trim(), color: 'neutral' }],
+                )
+              }
+              setLifeGoals((current) => {
+                const primaryGoal = current.find((item) => item.isPrimary) ?? null
+                const nonPrimaryGoals = current.filter((item) => !item.isPrimary)
+
+                const nextNonPrimaryGoals = [
+                  { ...goal, order: 0 },
+                  ...nonPrimaryGoals.map((item) => ({ ...item, order: item.order + 1 })),
+                ]
+
+                return primaryGoal ? [primaryGoal, ...nextNonPrimaryGoals] : nextNonPrimaryGoals
+              })
+            }
           }
           onUpdateLifeGoal={(goalId, updater) =>
-            setLifeGoals((current) =>
-              current.map((goal) => (goal.id === goalId ? updater(goal) : goal)),
+            setLifeGoals((current) => {
+              const nextGoals = current.map((goal) => (goal.id === goalId ? updater(goal) : goal))
+              const updatedGoal = nextGoals.find((goal) => goal.id === goalId)
+              if (updatedGoal?.category.trim()) {
+                setLifeGoalCategories((existing) =>
+                  existing.some((item) => item.name.trim().toLowerCase() === updatedGoal.category.trim().toLowerCase())
+                    ? existing
+                    : [...existing, { name: updatedGoal.category.trim(), color: 'neutral' }],
+                )
+              }
+              return nextGoals
+            })
+          }
+          onEnsureLifeGoalCategory={(name) =>
+            setLifeGoalCategories((current) =>
+              current.some((item) => item.name.trim().toLowerCase() === name.trim().toLowerCase())
+                ? current
+                : [...current, { name: name.trim(), color: 'neutral' }],
             )
+          }
+          onSetLifeGoalCategoryColor={(name, color) =>
+            setLifeGoalCategories((current) => {
+              const normalizedName = name.trim().toLowerCase()
+              const existing = current.some((item) => item.name.trim().toLowerCase() === normalizedName)
+              if (!existing) {
+                return [...current, { name: name.trim(), color }]
+              }
+              return current.map((item) =>
+                item.name.trim().toLowerCase() === normalizedName ? { ...item, name: name.trim(), color } : item,
+              )
+            })
           }
           onReorderLifeGoals={(goalIds) =>
             setLifeGoals((current) => {
               const orderMap = new Map(goalIds.map((id, index) => [id, index]))
               return current.map((goal) => ({
                 ...goal,
-                order: orderMap.get(goal.id) ?? goal.order,
+                order: goal.isPrimary ? -1 : orderMap.get(goal.id) ?? goal.order,
               }))
             })
           }
@@ -609,7 +659,7 @@ export default function App() {
           onDeleteLifeGoal={(goalId) => setLifeGoals((current) => current.filter((goal) => goal.id !== goalId))}
           onSetLifeGoalAsTodayTask={(goal) => {
             const todayIso = new Date().toISOString().slice(0, 10)
-            const nextMove = goal.moves.find((move) => !move.completed)?.text.trim() || goal.minimumVersion
+            const nextTask = goal.tasks.find((task) => !task.completed)?.text.trim() || goal.minimumVersion
             updateDayByDate(todayIso, (day) => ({
               ...day,
               isLogged: true,
@@ -617,8 +667,8 @@ export default function App() {
                 ...day.dashboardExecution,
                 goal: goal.title,
                 whyItMatters: goal.whyItMatters,
-                todayTask: nextMove,
-                nextAction: nextMove,
+                todayTask: nextTask,
+                nextAction: nextTask,
                 minimumVersion: goal.minimumVersion,
               },
             }))

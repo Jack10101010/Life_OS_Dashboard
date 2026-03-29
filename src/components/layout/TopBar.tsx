@@ -30,7 +30,7 @@ const descriptions: Record<PageId, ReactNode> = {
   'your-days': 'A quieter read-only view for browsing previous days, revisiting what happened, and reopening any day in the Daily Log.',
   'journal-recordings': 'A quieter space for daily reflections, gratitude, and longer-range vision in one place.',
   gratitude: 'A quieter space for daily reflections, gratitude, and longer-range vision in one place.',
-  goals: 'A focused planning layer for the goals that matter most, with one clear next move always in view.',
+  goals: 'A focused planning layer for the goals that matter most, with one clear next task always in view.',
   tasks: 'Task flow will plug in here once the tracker foundation feels solid.',
   notes: 'Quick capture and linked notes are planned after persistence lands.',
   'vision-board': 'A quieter space for daily reflections, gratitude, and longer-range vision in one place.',

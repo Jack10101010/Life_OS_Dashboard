@@ -477,7 +477,7 @@ export function DashboardPage({
       })),
     [activeGoals],
   )
-  const safeLowStateNextAction = lowStateNextAction || 'Take one small step: open your task or move your body'
+  const safeLowStateNextAction = lowStateNextAction || 'Take one small step: open your task or stretch your body'
 
   const showFinanceFeedback = (itemId: string, message: string, tone: 'incoming' | 'outgoing') => {
     setFinanceFeedback({ itemId, message, tone })
@@ -1222,7 +1222,7 @@ export function DashboardPage({
                         todayTask: event.target.value,
                       }))
                     }
-                    placeholder="The one thing that moves the goal"
+                    placeholder="The one thing that advances the goal"
                     className="rounded-2xl border border-white/[0.06] bg-[#171A21] px-3 py-3 text-base text-white outline-none transition placeholder:text-white/30 focus:border-[#78A7FF]/28 focus:bg-[#1C2029]"
                   />
                 </label>
@@ -1239,7 +1239,7 @@ export function DashboardPage({
                           nextAction: event.target.value,
                         }))
                       }
-                      placeholder="The smallest possible first move"
+                      placeholder="The smallest possible first task"
                       className="min-h-[82px] rounded-2xl border border-white/[0.06] bg-[#171A21] px-3 py-2.5 text-sm leading-6 text-white/88 outline-none transition placeholder:text-white/30 focus:border-[#78A7FF]/28 focus:bg-[#1C2029]"
                     />
                   </label>
@@ -1333,7 +1333,7 @@ export function DashboardPage({
               </div>
 
               <div className="grid gap-2">
-                <span className="text-[11px] uppercase tracking-[0.2em] text-white/42">Movement</span>
+                <span className="text-[11px] uppercase tracking-[0.2em] text-white/42">Action</span>
                 <div className="flex flex-wrap gap-2">
                   {[
                     { value: false, label: 'Not done' },
@@ -2792,7 +2792,7 @@ function getMomentumGuidance(metrics: RollingMomentumMetrics) {
   if (metrics.label === 'Building') {
     return {
       messagePrimary: "You're hovering.",
-      messageSecondary: 'One focused day today will move this forward.',
+      messageSecondary: 'One focused day today will push this forward.',
       action: '→ Complete your first habit now',
     }
   }
@@ -3650,7 +3650,7 @@ function ScratchpadSection({
                           onToggleSettled(item)
                         }}
                         className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border border-[#8FD3A94A] bg-[#8FD3A91A] text-[11px] leading-none text-[#A7DEBD] transition duration-150 hover:border-[#8FD3A96A] hover:bg-[#8FD3A926] hover:text-[#C2E8CF]"
-                        aria-label={`Move ${title.toLowerCase()} item back to active`}
+                        aria-label={`Return ${title.toLowerCase()} item to active`}
                       >
                         ✓
                       </button>
@@ -3704,7 +3704,7 @@ function ScratchpadSection({
                     }`}
                     aria-label={
                       item.settled
-                        ? `Move ${title.toLowerCase()} item back to active`
+                        ? `Return ${title.toLowerCase()} item to active`
                         : `Mark ${title.toLowerCase()} item ${toggleVerb}`
                     }
                   >
