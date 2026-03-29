@@ -17,6 +17,7 @@ import {
   LifeGoalCategoryColor,
   LifeGoalCategoryDefinition,
   LifeGoal,
+  LifeGoalTaskPriority,
   PageId,
   SettingsState,
   DayEventEntry,
@@ -391,10 +392,22 @@ function normalizeLifeGoal(goal: Partial<LifeGoal>, index: number): LifeGoal {
         const candidate = (task ?? {}) as {
           id?: unknown
           text?: unknown
+          description?: unknown
+          notes?: unknown
           dueDate?: unknown
+          priority?: unknown
+          tags?: unknown
+          subtasks?: unknown
           completed?: unknown
           completedAt?: unknown
         }
+        const priority: LifeGoalTaskPriority =
+          candidate.priority === 'low' ||
+          candidate.priority === 'medium' ||
+          candidate.priority === 'high' ||
+          candidate.priority === 'none'
+            ? candidate.priority
+            : 'none'
 
         return {
           id:
@@ -402,7 +415,28 @@ function normalizeLifeGoal(goal: Partial<LifeGoal>, index: number): LifeGoal {
               ? candidate.id
               : `life-goal-task-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
           text: typeof candidate.text === 'string' ? candidate.text.trim() : '',
+          description: typeof candidate.description === 'string' ? candidate.description.trim() : '',
+          notes: typeof candidate.notes === 'string' ? candidate.notes : '',
           dueDate: typeof candidate.dueDate === 'string' && candidate.dueDate ? candidate.dueDate : null,
+          priority,
+          tags: Array.isArray(candidate.tags)
+            ? candidate.tags.filter((tag): tag is string => typeof tag === 'string').map((tag) => tag.trim()).filter(Boolean)
+            : [],
+          subtasks: Array.isArray(candidate.subtasks)
+            ? candidate.subtasks
+                .map((subtask) => {
+                  const subtaskCandidate = (subtask ?? {}) as { id?: unknown; text?: unknown; completed?: unknown }
+                  return {
+                    id:
+                      typeof subtaskCandidate.id === 'string' && subtaskCandidate.id
+                        ? subtaskCandidate.id
+                        : `life-goal-subtask-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+                    text: typeof subtaskCandidate.text === 'string' ? subtaskCandidate.text.trim() : '',
+                    completed: Boolean(subtaskCandidate.completed),
+                  }
+                })
+                .filter((subtask) => subtask.text.length > 0)
+            : [],
           completed: Boolean(candidate.completed),
           completedAt: typeof candidate.completedAt === 'string' ? candidate.completedAt : null,
         }

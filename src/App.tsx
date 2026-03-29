@@ -711,7 +711,7 @@ export default function App() {
 
   return (
     <div className="app-grid theme-text-primary min-h-screen bg-ink" style={{ minHeight: '100vh' }}>
-      <div className="mx-auto flex min-h-screen w-full max-w-[1920px] flex-col lg:flex-row lg:items-start">
+      <div className="flex min-h-screen w-full flex-col lg:flex-row lg:items-start">
         <Sidebar
           currentPage={page}
           collapsed={sidebarCollapsed}
@@ -736,7 +736,7 @@ export default function App() {
         />
 
         <div className="min-w-0 flex-1">
-          <TopBar page={page} onOpenToday={() => openToday(false, setPage)} sidebarCollapsed={sidebarCollapsed} />
+          <TopBar page={page} onOpenToday={() => openToday(false, setPage)} sidebarCollapsed={sidebarCollapsed} goalsView={goalsView} />
           <main className="py-5 sm:py-6">
             <PageContainer width="wide" className={sidebarCollapsed ? 'lg:pl-16' : ''}>
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.28 }}>

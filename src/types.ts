@@ -315,10 +315,23 @@ export const DEFAULT_LIFE_GOAL_CATEGORIES: readonly LifeGoalCategoryDefinition[]
   { name: 'Mind', color: 'teal' },
 ] as const
 
+export type LifeGoalTaskPriority = 'none' | 'low' | 'medium' | 'high'
+
+export interface LifeGoalTaskSubtask {
+  id: string
+  text: string
+  completed: boolean
+}
+
 export interface LifeGoalTask {
   id: string
   text: string
+  description: string
+  notes: string
   dueDate: string | null
+  priority: LifeGoalTaskPriority
+  tags: string[]
+  subtasks: LifeGoalTaskSubtask[]
   completed: boolean
   completedAt: string | null
 }

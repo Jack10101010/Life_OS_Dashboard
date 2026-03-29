@@ -2,6 +2,8 @@ import { ReactNode, useState } from 'react'
 import { PageContainer } from './LayoutPrimitives'
 import { PageId } from '../../types'
 
+type GoalsView = 'life-overview' | 'life-detail' | 'habit-goals'
+
 const labels: Record<PageId, string> = {
   dashboard: 'Dashboard',
   tracker: 'Tracker',
@@ -39,18 +41,43 @@ const descriptions: Record<PageId, ReactNode> = {
   settings: 'Defaults, labels, habits, and export controls for the dashboard.',
 }
 
-export function TopBar({ page, onOpenToday, sidebarCollapsed }: { page: PageId; onOpenToday: () => void; sidebarCollapsed: boolean }) {
+export function TopBar({
+  page,
+  onOpenToday,
+  sidebarCollapsed,
+  goalsView,
+}: {
+  page: PageId
+  onOpenToday: () => void
+  sidebarCollapsed: boolean
+  goalsView?: GoalsView
+}) {
   const [pushedToday, setPushedToday] = useState(false)
   const isGoalsPage = page === 'goals'
+  const isGoalDetailPage = isGoalsPage && goalsView === 'life-detail'
   const showDescription = !isGoalsPage
   const showTodayCard = !isGoalsPage
 
+  if (isGoalDetailPage) {
+    return null
+  }
+
   return (
-    <div className={`theme-border-subtle border-b ${isGoalsPage ? 'pt-3 pb-3 sm:pt-3.5 sm:pb-3.5' : 'pt-5 pb-4 sm:pt-6 sm:pb-5'}`}>
+    <div
+      className={`theme-border-subtle border-b ${
+        isGoalsPage ? 'pt-3 pb-3 sm:pt-3.5 sm:pb-3.5' : 'pt-5 pb-4 sm:pt-6 sm:pb-5'
+      }`}
+    >
       <PageContainer width="wide" className={sidebarCollapsed ? 'lg:pl-16' : ''}>
         <div className={`flex flex-col ${isGoalsPage ? 'gap-2' : 'gap-4'} lg:flex-row lg:items-center lg:justify-between`}>
           <div className="min-w-0">
-            <h2 className={isGoalsPage ? 'text-[28px] font-semibold tracking-[-0.03em] theme-text-primary' : 'theme-page-title'}>
+            <h2
+              className={
+                isGoalsPage
+                  ? 'text-[28px] font-semibold tracking-[-0.03em] theme-text-primary'
+                  : 'theme-page-title'
+              }
+            >
               {labels[page]}
             </h2>
             {showDescription ? (

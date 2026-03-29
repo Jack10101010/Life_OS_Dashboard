@@ -69,7 +69,7 @@ export function Sidebar({
       <aside className="theme-sidebar-surface flex h-auto w-full shrink-0 flex-col border-b px-3.5 py-5 transition-[width] duration-200 sm:px-5 lg:sticky lg:top-0 lg:h-screen lg:max-h-screen lg:w-[224px] lg:self-start lg:overflow-y-auto lg:overscroll-contain lg:border-b-0 lg:border-r xl:w-[236px] 2xl:w-[248px]">
       <div className="mb-8">
         <div className="flex items-center justify-between">
-          <p className="theme-text-faint text-xs uppercase tracking-[0.32em]">Life Dashboard</p>
+          <p className="theme-text-faint text-[13px] font-semibold uppercase tracking-[0.28em]">Life Dashboard</p>
           <button
             onClick={onToggleCollapsed}
             className="theme-button-secondary rounded-xl border px-2.5 py-1.5 text-xs transition"
@@ -78,7 +78,7 @@ export function Sidebar({
             &lt;
           </button>
         </div>
-        <h1 className="theme-text-primary mt-2.5 text-[26px] font-semibold leading-[1.1]">Quiet signal, clearer weeks.</h1>
+        <div className="mt-4 h-px bg-[linear-gradient(90deg,rgb(var(--theme-border-subtle-rgb)/0.72)_0%,rgb(var(--theme-border-subtle-rgb)/0.18)_78%,transparent_100%)]" />
       </div>
 
       <nav className="grid gap-2 sm:grid-cols-2 lg:block lg:space-y-2">
