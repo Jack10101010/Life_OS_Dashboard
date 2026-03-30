@@ -37,6 +37,7 @@ export function DevNotesCard({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={`Capture ideas for ${pageLabels[page]} here...`}
+        spellCheck={true}
         className="mt-4 min-h-28 w-full rounded-2xl border border-[#2A2A2A] bg-[#181818] px-4 py-3 text-sm text-white outline-none"
       />
     </Card>

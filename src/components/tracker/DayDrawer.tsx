@@ -1021,12 +1021,14 @@ export function DayDrawer({
           value={dayEventDraft.title}
           onChange={(event) => setDayEventDraft((current) => ({ ...current, title: event.target.value }))}
           placeholder="Event title"
+          spellCheck={true}
           className="rounded-2xl border border-white/[0.08] bg-[#1A1A1A] px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-mist/45 focus:border-white/[0.14] focus:bg-[#202020]"
         />
         <input
           type="time"
           value={dayEventDraft.time}
           onChange={(event) => setDayEventDraft((current) => ({ ...current, time: event.target.value }))}
+          spellCheck={false}
           className="rounded-2xl border border-white/[0.08] bg-[#1A1A1A] px-3 py-2.5 text-sm text-white outline-none transition [color-scheme:dark] focus:border-white/[0.14] focus:bg-[#202020]"
         />
       </div>
@@ -1034,6 +1036,7 @@ export function DayDrawer({
         value={dayEventDraft.description}
         onChange={(event) => setDayEventDraft((current) => ({ ...current, description: event.target.value }))}
         placeholder="Description (optional)"
+        spellCheck={true}
         className="min-h-[88px] w-full resize-none rounded-2xl border border-white/[0.08] bg-[#1A1A1A] px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-mist/45 focus:border-white/[0.14] focus:bg-[#202020]"
         style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)' }}
       />
@@ -1343,6 +1346,7 @@ export function DayDrawer({
                 onInput={(event) => resizeTextarea(event.currentTarget)}
                 onBlur={() => setSleepNoteFocused(false)}
                 placeholder="Write anything about your sleep..."
+                spellCheck={true}
                 className={`${innerFieldPanelClassName} dailylog-reveal min-h-[88px] w-full resize-none overflow-hidden whitespace-normal break-words px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-mist/45 focus:border-white/[0.08] focus:bg-[rgba(255,255,255,0.042)]`}
                 style={{ wordBreak: 'break-word' }}
               />
@@ -1687,6 +1691,7 @@ export function DayDrawer({
                     onInput={(event) => resizeTextarea(event.currentTarget)}
                     onBlur={() => setIntentionFocused(false)}
                     placeholder="What matters most today?"
+                    spellCheck={true}
                     className={`${innerFieldPanelClassName} dailylog-reveal min-h-[96px] w-full resize-none overflow-hidden whitespace-normal break-words px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-mist/45 focus:border-white/[0.08] focus:bg-[rgba(255,255,255,0.042)]`}
                     style={{
                       wordBreak: 'break-word',
@@ -1766,6 +1771,7 @@ export function DayDrawer({
                           autoFocus
                           value={editingDayTaskDraft}
                           onChange={(event) => setEditingDayTaskDraft(event.target.value)}
+                          spellCheck={true}
                           onBlur={handleSaveDayTaskEdit}
                           onKeyDown={(event) => {
                             if (event.key === 'Enter') {
@@ -1839,6 +1845,7 @@ export function DayDrawer({
                   }
                 }}
                 placeholder="Add a task for today"
+                spellCheck={true}
                 className="min-w-0 flex-1 rounded-2xl border border-white/[0.08] bg-[#1A1A1A] px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-mist/45 focus:border-white/[0.14] focus:bg-[#202020]"
                 style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)' }}
               />
@@ -2001,6 +2008,7 @@ export function DayDrawer({
                     value={medicationDraft.name}
                     onChange={(event) => setMedicationDraft((current) => ({ ...current, name: event.target.value }))}
                     placeholder="Name"
+                    spellCheck={true}
                     className="rounded-2xl border border-white/[0.08] bg-[#1A1A1A] px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-mist/45 focus:border-white/[0.14] focus:bg-[#202020]"
                     style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)' }}
                   />
@@ -2008,6 +2016,7 @@ export function DayDrawer({
                     value={medicationDraft.dose}
                     onChange={(event) => setMedicationDraft((current) => ({ ...current, dose: event.target.value }))}
                     placeholder="Dose"
+                    spellCheck={false}
                     className="rounded-2xl border border-white/[0.08] bg-[#1A1A1A] px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-mist/45 focus:border-white/[0.14] focus:bg-[#202020]"
                     style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)' }}
                   />
@@ -2015,6 +2024,7 @@ export function DayDrawer({
                     value={medicationDraft.unit}
                     onChange={(event) => setMedicationDraft((current) => ({ ...current, unit: event.target.value }))}
                     placeholder="Unit"
+                    spellCheck={false}
                     className="rounded-2xl border border-white/[0.08] bg-[#1A1A1A] px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-mist/45 focus:border-white/[0.14] focus:bg-[#202020]"
                     style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)' }}
                   />
@@ -2028,6 +2038,7 @@ export function DayDrawer({
                   value={medicationDraft.notes}
                   onChange={(event) => setMedicationDraft((current) => ({ ...current, notes: event.target.value }))}
                   placeholder="Optional notes"
+                  spellCheck={true}
                   className="mt-2.5 min-h-[88px] w-full resize-none rounded-2xl border border-white/[0.08] bg-[#1A1A1A] px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-mist/45 focus:border-white/[0.14] focus:bg-[#202020]"
                   style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)' }}
                 />
@@ -2246,6 +2257,7 @@ export function DayDrawer({
                     }))
                   }
                   placeholder="One thing that went well"
+                  spellCheck={true}
                   className="theme-input w-full rounded-2xl border px-3 py-2.5 text-sm outline-none transition placeholder:text-mist/50"
                   style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)' }}
                 />
@@ -2524,6 +2536,7 @@ export function DayDrawer({
                   }}
                   onBlur={() => setReflectionFocused(false)}
                   placeholder="One thing to capture (optional)"
+                  spellCheck={true}
                   className={`${innerFieldPanelClassName} min-h-[120px] w-full resize-none overflow-hidden px-4 py-3 text-sm leading-6 text-white outline-none placeholder:text-mist/45 focus:border-white/[0.08] focus:bg-[rgba(255,255,255,0.032)]`}
                   style={{
                     transition: 'height 160ms ease-out, border-color 150ms ease-out, background-color 150ms ease-out',
@@ -2764,6 +2777,7 @@ export function DayDrawer({
                                                 <input
                                                   value={renameDraft}
                                                   onChange={(event) => setRenameDraft(event.target.value)}
+                                                  spellCheck={false}
                                                   className="w-full rounded-2xl border border-white/[0.08] bg-[#1A1A1A] px-3 py-2 text-sm text-white outline-none transition focus:border-white/[0.14] focus:bg-[#202020]"
                                                   style={{
                                                     boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)',
@@ -3714,6 +3728,7 @@ function CustomTagComposer({
           value={customTagName}
           onChange={(event) => onCustomTagNameChange(event.target.value)}
           placeholder="New custom tag"
+          spellCheck={false}
           className="rounded-2xl border border-white/[0.08] bg-[#1A1A1A] px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-mist/45 focus:border-white/[0.14] focus:bg-[#202020]"
           style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)' }}
         />
@@ -4063,6 +4078,7 @@ function InlineDayEventTagCreator({
             }
           }}
           placeholder={`Add ${label.toLowerCase()} tag`}
+          spellCheck={false}
           className="min-w-0 flex-1 rounded-2xl border border-white/[0.06] bg-[#1A1A1A] px-3 py-2 text-sm text-white outline-none transition placeholder:text-mist/45 focus:border-white/[0.12] focus:bg-[#202020]"
         />
         <button

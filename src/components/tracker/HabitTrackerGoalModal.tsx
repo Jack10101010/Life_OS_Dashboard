@@ -124,6 +124,7 @@ export function HabitTrackerGoalModal({
                   target: Math.max(Number(event.target.value || 1), 1),
                 } as HabitTrackerGoal)
               }
+              spellCheck={false}
               className="w-24 rounded-xl border border-[#2A2A2A] bg-[#141414] px-3 py-2 text-right text-white outline-none"
             />
           </div>
@@ -208,6 +209,7 @@ export function HabitTrackerGoalModal({
                     setStartDate(nextDate)
                     setDraftGoal((current) => (current ? { ...current, startDate: nextDate } : current))
                   }}
+                  spellCheck={false}
                   className="rounded-xl border border-[#2A2A2A] bg-[#141414] px-3 py-2 text-right text-white outline-none"
                 />
               </div>

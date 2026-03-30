@@ -197,6 +197,7 @@ function JournalWritingPanel({
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           placeholder={prompt}
+          spellCheck={true}
           className="min-h-[240px] w-full resize-none overflow-hidden bg-transparent px-1 py-1 text-[17px] leading-8 text-white/86 outline-none placeholder:text-mist/42"
           style={{ transition: 'height 160ms ease-out, color 150ms ease-out' }}
         />
@@ -297,6 +298,7 @@ function LowStateModePanel({
             value={entry.customFeeling}
             onChange={(event) => onChange((current) => ({ ...current, customFeeling: event.target.value }))}
             placeholder="Anything else you want to name?"
+            spellCheck={true}
             className="min-h-[90px] w-full resize-none bg-transparent text-sm leading-7 text-white/84 outline-none placeholder:text-mist/42"
           />
         </div>
@@ -435,6 +437,7 @@ function StepTextArea({
       <textarea
         value={value}
         onChange={(event) => onChange(event.target.value)}
+        spellCheck={true}
         className={`w-full resize-none bg-transparent text-sm leading-7 text-white/84 outline-none placeholder:text-mist/42 ${compact ? 'min-h-[110px]' : 'min-h-[160px]'}`}
         placeholder="Write a few lines."
       />

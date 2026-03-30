@@ -235,6 +235,7 @@ export function Sidebar({
                     autoFocus
                     value={renameValue}
                     onChange={(event) => setRenameValue(event.target.value)}
+                    spellCheck={true}
                     onBlur={() => {
                       if (renameValue.trim()) {
                         onRenamePage(item.id, renameValue.trim())

@@ -92,6 +92,7 @@ export function HabitTrackerSettingsModal({
           <input
             value={draft.title}
             onChange={(event) => setDraft({ ...draft, title: event.target.value })}
+            spellCheck={true}
             className="mt-2 w-full rounded-2xl border border-[#2A2A2A] bg-[#181818] px-4 py-3 text-white outline-none"
             placeholder="Running"
           />
@@ -101,6 +102,7 @@ export function HabitTrackerSettingsModal({
           <textarea
             value={draft.description}
             onChange={(event) => setDraft({ ...draft, description: event.target.value })}
+            spellCheck={true}
             className="mt-2 min-h-28 w-full rounded-2xl border border-[#2A2A2A] bg-[#181818] px-4 py-3 text-white outline-none"
             placeholder="Short description of what this tracker measures."
           />

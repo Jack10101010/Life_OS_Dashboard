@@ -84,6 +84,7 @@ export function HabitTrackerEntryModal({
                   const nextValue = event.target.value === '' ? null : Math.max(Number(event.target.value), 0)
                   onChange({ completed: (nextValue ?? 0) > 0, paused: false, value: nextValue, note })
                 }}
+                spellCheck={false}
                 className="mt-3 w-full rounded-2xl border border-[#2A2A2A] bg-[#181818] px-4 py-3 text-white outline-none"
                 placeholder={trackerType === 'timer' ? '30' : '1'}
               />
@@ -95,6 +96,7 @@ export function HabitTrackerEntryModal({
           <textarea
             value={note}
             onChange={(event) => onChange({ completed, paused, value, note: event.target.value })}
+            spellCheck={true}
             className="mt-3 min-h-32 w-full rounded-2xl border border-[#2A2A2A] bg-[#181818] px-4 py-3 text-white outline-none"
             placeholder="Optional note for this day"
           />

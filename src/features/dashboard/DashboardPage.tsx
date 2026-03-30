@@ -1015,6 +1015,7 @@ export function DashboardPage({
                     ref={focusInputRef}
                     value={focusDraft}
                     onChange={(event) => setFocusDraft(event.target.value)}
+                    spellCheck={true}
                     onBlur={cancelFocusEditing}
                     onKeyDown={(event) => {
                       if (event.key === 'Enter') {
@@ -1180,6 +1181,7 @@ export function DashboardPage({
                       }))
                     }
                     placeholder="What matters most right now?"
+                    spellCheck={true}
                     className="rounded-2xl border border-white/[0.06] bg-[#1A1A1A] px-3 py-2.5 text-sm text-white/88 outline-none transition placeholder:text-white/34 focus:border-white/[0.12] focus:bg-[#202020]"
                   />
                 </label>
@@ -1194,6 +1196,7 @@ export function DashboardPage({
                       }))
                     }
                     placeholder="Keep the reason simple and sharp"
+                    spellCheck={true}
                     className="rounded-2xl border border-white/[0.06] bg-[#1A1A1A] px-3 py-2.5 text-sm text-white/88 outline-none transition placeholder:text-white/34 focus:border-white/[0.12] focus:bg-[#202020]"
                   />
                 </label>
@@ -1223,6 +1226,7 @@ export function DashboardPage({
                       }))
                     }
                     placeholder="The one thing that advances the goal"
+                    spellCheck={true}
                     className="rounded-2xl border border-white/[0.06] bg-[#171A21] px-3 py-3 text-base text-white outline-none transition placeholder:text-white/30 focus:border-[#78A7FF]/28 focus:bg-[#1C2029]"
                   />
                 </label>
@@ -1240,6 +1244,7 @@ export function DashboardPage({
                         }))
                       }
                       placeholder="The smallest possible first task"
+                      spellCheck={true}
                       className="min-h-[82px] rounded-2xl border border-white/[0.06] bg-[#171A21] px-3 py-2.5 text-sm leading-6 text-white/88 outline-none transition placeholder:text-white/30 focus:border-[#78A7FF]/28 focus:bg-[#1C2029]"
                     />
                   </label>
@@ -1255,6 +1260,7 @@ export function DashboardPage({
                         }))
                       }
                       placeholder="What counts in 5-15 minutes if energy is low?"
+                      spellCheck={true}
                       className="min-h-[82px] rounded-2xl border border-white/[0.06] bg-[#171A21] px-3 py-2.5 text-sm leading-6 text-white/88 outline-none transition placeholder:text-white/30 focus:border-[#78A7FF]/28 focus:bg-[#1C2029]"
                     />
                   </label>
@@ -1377,6 +1383,7 @@ export function DashboardPage({
                       }))
                     }
                     placeholder="What needs to be honest tonight?"
+                    spellCheck={true}
                     className="min-h-[72px] rounded-2xl border border-white/[0.06] bg-[#171717] px-3 py-2.5 text-sm leading-6 text-white/86 outline-none transition placeholder:text-white/30 focus:border-white/[0.12] focus:bg-[#1D1D1D]"
                   />
                 </label>
@@ -1391,6 +1398,7 @@ export function DashboardPage({
                       }))
                     }
                     placeholder="Leave tomorrow one obvious next step"
+                    spellCheck={true}
                     className="rounded-2xl border border-white/[0.06] bg-[#171717] px-3 py-2.5 text-sm text-white/88 outline-none transition placeholder:text-white/30 focus:border-white/[0.12] focus:bg-[#1D1D1D]"
                   />
                 </label>
@@ -1514,6 +1522,7 @@ export function DashboardPage({
                 value={taskDraft}
                 onChange={(event) => setTaskDraft(event.target.value)}
                 placeholder="Add a focus task"
+                spellCheck={true}
                 className="min-w-0 flex-1 rounded-2xl border border-white/[0.08] bg-[#1A1A1A] px-3 py-2 text-sm text-white/88 outline-none transition placeholder:text-white/34 focus:border-white/[0.14] focus:bg-[#202020]"
               />
               <Button type="submit" variant="soft">
@@ -1719,6 +1728,7 @@ export function DashboardPage({
             }
             onInput={(event) => resizeDashboardTextarea(event.currentTarget)}
             placeholder="Break down a task, plan, or think out loud..."
+            spellCheck={true}
             className="mt-4 min-h-[140px] w-full resize-none overflow-hidden rounded-[24px] border border-white/[0.06] bg-white/[0.025] px-4 py-3 text-sm leading-6 text-white/88 outline-none transition placeholder:text-white/34 focus:border-white/[0.12] focus:bg-white/[0.035]"
             style={{
               boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)',
@@ -1823,6 +1833,7 @@ export function DashboardPage({
                       ref={freeNoteTitleInputRef}
                       value={freeNoteTitleDraft}
                       onChange={(event) => setFreeNoteTitleDraft(event.target.value)}
+                      spellCheck={true}
                       onBlur={() => commitFreeNoteRename(note.id)}
                       onKeyDown={(event) => {
                         if (event.key === 'Enter') {
@@ -1889,6 +1900,7 @@ export function DashboardPage({
                       notes.map((note) => (note.id === activeFreeNoteId ? { ...note, text: event.target.value } : note)),
                     )
                   }
+                  spellCheck={true}
                   onInput={(event) => resizeDashboardTextarea(event.currentTarget, 160)}
                   placeholder="Break down a task, plan, or think out loud..."
                   className="min-h-[160px] w-full resize-none overflow-hidden rounded-[24px] bg-white/[0.02] px-4 pt-7 pb-3 text-sm leading-7 text-white/88 outline-none transition placeholder:text-white/30 focus:bg-white/[0.03]"
@@ -2080,6 +2092,7 @@ export function DashboardPage({
                           notes: event.target.value,
                         }))
                       }
+                      spellCheck={true}
                       onInput={(event) => resizeDashboardTextarea(event.currentTarget, 96)}
                       placeholder="Context, assumptions, next steps..."
                       className="mt-2.5 min-h-[96px] w-full resize-none overflow-hidden rounded-[20px] bg-white/[0.02] px-3.5 py-3 text-sm leading-6 text-white/80 outline-none transition placeholder:text-white/28 focus:bg-white/[0.03]"
@@ -2147,6 +2160,7 @@ export function DashboardPage({
                   value={taskPanelSearch}
                   onChange={(event) => setTaskPanelSearch(event.target.value)}
                   placeholder="Search tasks"
+                  spellCheck={false}
                   className="w-full rounded-2xl border border-white/[0.08] bg-[#1A1A1A] px-3 py-2.5 text-sm text-white/88 outline-none transition placeholder:text-white/34 focus:border-white/[0.14] focus:bg-[#202020]"
                 />
                 <div className="flex flex-wrap gap-2">
@@ -2286,12 +2300,14 @@ export function DashboardPage({
                   value={quickAddEventDraft.title}
                   onChange={(event) => setQuickAddEventDraft((current) => ({ ...current, title: event.target.value }))}
                   placeholder="Event title"
+                  spellCheck={true}
                   className="rounded-2xl border border-white/[0.08] bg-[#1A1A1A] px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-mist/45 focus:border-white/[0.14] focus:bg-[#202020]"
                 />
                 <input
                   type="time"
                   value={quickAddEventDraft.time}
                   onChange={(event) => setQuickAddEventDraft((current) => ({ ...current, time: event.target.value }))}
+                  spellCheck={false}
                   className="rounded-2xl border border-white/[0.08] bg-[#1A1A1A] px-3 py-2.5 text-sm text-white outline-none transition [color-scheme:dark] focus:border-white/[0.14] focus:bg-[#202020]"
                 />
               </div>
@@ -2300,6 +2316,7 @@ export function DashboardPage({
                 value={quickAddEventDraft.description}
                 onChange={(event) => setQuickAddEventDraft((current) => ({ ...current, description: event.target.value }))}
                 placeholder="Description (optional)"
+                spellCheck={true}
                 className="mt-3 min-h-[96px] w-full resize-none rounded-2xl border border-white/[0.08] bg-[#1A1A1A] px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-mist/45 focus:border-white/[0.14] focus:bg-[#202020]"
                 style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)' }}
               />
@@ -3595,6 +3612,7 @@ function ScratchpadSection({
                     value={draftName}
                     onChange={(event) => setDraftName(event.target.value)}
                     placeholder="Name"
+                    spellCheck={true}
                     className="min-w-0 flex-1 bg-transparent text-sm text-white/88 outline-none placeholder:text-white/28"
                   />
                   <FinanceDayPicker
@@ -3614,6 +3632,7 @@ function ScratchpadSection({
                       value={draftAmount}
                       onChange={(event) => setDraftAmount(event.target.value)}
                       placeholder="0.00"
+                      spellCheck={false}
                       className="w-[88px] bg-transparent text-right text-sm text-white/70 outline-none placeholder:text-white/24"
                     />
                     <button
@@ -3832,6 +3851,7 @@ function ScratchpadTodoSection({
                     value={draftText}
                     onChange={(event) => setDraftText(event.target.value)}
                     placeholder="To-do item"
+                    spellCheck={true}
                     className="min-w-0 flex-1 bg-transparent text-sm text-white/88 outline-none placeholder:text-white/30"
                   />
                   <button
