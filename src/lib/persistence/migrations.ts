@@ -381,6 +381,16 @@ function normalizeLifeGoal(goal: Partial<LifeGoal>, index: number): LifeGoal {
     title: typeof goal.title === 'string' ? goal.title.trim() : '',
     category: typeof goal.category === 'string' ? goal.category.trim() : '',
     whyItMatters: typeof goal.whyItMatters === 'string' ? goal.whyItMatters.trim() : '',
+    visionStatement:
+      typeof (goal as Partial<LifeGoal> & { visionStatement?: unknown }).visionStatement === 'string'
+        ? ((goal as Partial<LifeGoal> & { visionStatement?: string }).visionStatement ?? '').trim().slice(0, 120)
+        : '',
+    visionImages:
+      Array.isArray((goal as Partial<LifeGoal> & { visionImages?: unknown[] }).visionImages)
+        ? ((goal as Partial<LifeGoal> & { visionImages?: unknown[] }).visionImages ?? [])
+            .filter((image): image is string => typeof image === 'string' && image.length > 0)
+            .slice(0, 6)
+        : [],
     minimumVersion: typeof goal.minimumVersion === 'string' ? goal.minimumVersion.trim() : '',
     ifThenPlan: typeof goal.ifThenPlan === 'string' ? goal.ifThenPlan.trim() : '',
     startDate: typeof goal.startDate === 'string' && goal.startDate ? goal.startDate : defaultStartDate,

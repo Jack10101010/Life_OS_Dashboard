@@ -564,6 +564,8 @@ export default function App() {
           habitTrackers={habitTrackers}
           lifeGoals={lifeGoals}
           lifeGoalCategories={lifeGoalCategories}
+          days={dataset.days}
+          badHabitDateMap={badHabitDateMap}
           year={filters.year}
           goalsView={goalsView}
           selectedLifeGoalId={selectedLifeGoalId}

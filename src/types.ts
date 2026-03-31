@@ -342,6 +342,8 @@ export interface LifeGoal {
   title: string
   category: string
   whyItMatters: string
+  visionStatement: string
+  visionImages: string[]
   minimumVersion: string
   ifThenPlan: string
   startDate: string
