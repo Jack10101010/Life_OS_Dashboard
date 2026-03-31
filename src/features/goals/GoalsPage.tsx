@@ -41,10 +41,12 @@ type GoalsView = 'life-overview' | 'life-detail' | 'habit-goals'
 type LifeGoalDetailTab = 'focus' | 'tasks' | 'roadmap' | 'why' | 'progress'
 type LifeGoalComposerMode = 'create' | 'edit'
 type LifeGoalOverviewMode = 'manual' | 'grouped'
+type GoalTrajectoryTimeframe = '7d' | '14d' | '30d' | '60d' | '3m' | '6m' | '1y'
 
 type LifeGoalDraftTask = {
   id: string
   text: string
+  phase?: string
   description: string
   notes: string
   dueDate: string | null
@@ -97,6 +99,7 @@ function createLifeGoalDraftTask(text = ''): LifeGoalDraftTask {
   return {
     id: `life-goal-draft-task-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
     text,
+    phase: suggestPhase(text) ?? '',
     description: '',
     notes: '',
     dueDate: null,
@@ -124,6 +127,15 @@ function createEmptyLifeGoalDraft(): LifeGoalDraft {
 }
 
 const LIFE_GOAL_WEEKDAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const
+const GOAL_TRAJECTORY_TIMEFRAME_OPTIONS: Array<{ value: GoalTrajectoryTimeframe; label: string; days: number }> = [
+  { value: '7d', label: '7d', days: 7 },
+  { value: '14d', label: '14d', days: 14 },
+  { value: '30d', label: '30d', days: 30 },
+  { value: '60d', label: '60d', days: 60 },
+  { value: '3m', label: '3m', days: 90 },
+  { value: '6m', label: '6m', days: 180 },
+  { value: '1y', label: '1y', days: 365 },
+] as const
 
 function formatDate(date: string) {
   return new Date(`${date}T00:00:00Z`).toLocaleDateString('en-IE', {
@@ -150,6 +162,12 @@ function formatTaskCompletedDate(date: string) {
 
 function getTodayIsoDate() {
   return new Date().toISOString().slice(0, 10)
+}
+
+function shiftIsoDate(date: string, deltaDays: number) {
+  const shiftedDate = new Date(`${date}T00:00:00Z`)
+  shiftedDate.setUTCDate(shiftedDate.getUTCDate() + deltaDays)
+  return shiftedDate.toISOString().slice(0, 10)
 }
 
 function isValidIsoDate(date: string) {
@@ -288,7 +306,7 @@ function getLifeGoalProgress(goal: LifeGoal) {
   const totalTasks = goal.tasks.length
   const completedTasks = goal.tasks.filter((task) => task.completed).length
   const percent = goal.status === 'complete' ? 100 : totalTasks === 0 ? 0 : Math.round((completedTasks / totalTasks) * 100)
-  const nextTask = goal.tasks.find((task) => !task.completed) ?? null
+  const nextTask = getPriorityAwareNextTask(goal.tasks)
   const completedTaskItems = goal.tasks.filter((task) => task.completed)
   const lastCompletedTask = [...completedTaskItems]
     .sort((left, right) => (right.completedAt ?? '').localeCompare(left.completedAt ?? ''))[0] ?? null
@@ -301,6 +319,125 @@ function getLifeGoalProgress(goal: LifeGoal) {
     lastCompletedTask,
     percent,
     nextTask,
+  }
+}
+
+function getPriorityScore(task: Pick<LifeGoalTask, 'priority'> | LifeGoalTaskPriority) {
+  const priority = typeof task === 'string' ? task : task.priority
+  switch (priority) {
+    case 'high':
+      return 3
+    case 'medium':
+      return 2
+    case 'low':
+      return 1
+    default:
+      return 0
+  }
+}
+
+function getPriorityAwareNextTask(tasks: LifeGoalTask[]) {
+  const incompleteTasks = tasks.filter((task) => !task.completed)
+  if (incompleteTasks.length === 0) return null
+
+  const nearTermTasks = incompleteTasks.slice(0, 3)
+  const highPriorityCandidate = nearTermTasks.find((task) => getPriorityScore(task) === 3)
+
+  return highPriorityCandidate ?? incompleteTasks[0] ?? null
+}
+
+function getLifeGoalTaskPriorityMeta(priority: LifeGoalTaskPriority) {
+  switch (priority) {
+    case 'high':
+      return {
+        label: 'High',
+        chipClassName:
+          'border-[rgb(var(--theme-accent-rgb)/0.16)] bg-[rgb(var(--theme-accent-rgb)/0.08)] text-[rgb(var(--theme-accent-rgb)/0.82)]',
+      }
+    case 'medium':
+      return {
+        label: 'Medium',
+        chipClassName:
+          'border-white/[0.07] bg-white/[0.04] text-white/60',
+      }
+    case 'low':
+      return {
+        label: 'Low',
+        chipClassName:
+          'border-white/[0.06] bg-white/[0.025] text-white/52',
+      }
+    default:
+      return null
+  }
+}
+
+function getRoadmapTaskVisualState(
+  task: LifeGoalTask,
+  section: 'completed' | 'current' | 'upcoming',
+  focusHighPriorityOnly: boolean,
+) {
+  const priorityScore = getPriorityScore(task)
+  const isHighPriority = priorityScore === 3
+  const baseOpacity =
+    section === 'completed'
+      ? 0.56
+      : section === 'current'
+        ? priorityScore === 3
+          ? 1
+          : priorityScore <= 1
+            ? 0.92
+            : 0.97
+        : priorityScore === 3
+          ? 0.94
+          : priorityScore === 2
+            ? 0.84
+            : priorityScore === 1
+              ? 0.78
+              : 0.72
+
+  return {
+    titleClassName:
+      section === 'completed'
+        ? 'text-white/54'
+        : section === 'current'
+          ? priorityScore === 3
+            ? 'text-white'
+            : 'text-white/96'
+          : priorityScore === 3
+            ? 'text-white/92'
+            : priorityScore === 2
+              ? 'text-white/82'
+              : priorityScore === 1
+                ? 'text-white/76'
+                : 'text-white/68',
+    metaClassName:
+      section === 'completed'
+        ? 'text-mist/50'
+        : priorityScore === 3
+          ? 'text-mist/70'
+          : priorityScore === 2
+            ? 'text-mist/64'
+            : 'text-mist/58',
+    markerClassName:
+      section === 'completed'
+        ? 'text-white/38'
+        : section === 'current'
+          ? priorityScore === 3
+            ? 'text-[rgb(var(--theme-accent-rgb)/0.98)]'
+            : 'text-[rgb(var(--theme-accent-rgb)/0.9)]'
+          : priorityScore === 3
+            ? 'text-white/62'
+            : 'text-white/48',
+    opacity: focusHighPriorityOnly && !isHighPriority ? (section === 'completed' ? 0.4 : 0.46) : baseOpacity,
+    rowStyle:
+      priorityScore === 3 && section !== 'completed'
+        ? {
+            boxShadow:
+              section === 'current'
+                ? 'inset 0 1px 0 rgb(255 255 255 / 0.02), 0 0 0 1px rgb(var(--theme-accent-rgb) / 0.1)'
+                : 'inset 0 1px 0 rgb(255 255 255 / 0.01), 0 0 0 1px rgb(var(--theme-accent-rgb) / 0.06)',
+          }
+        : undefined,
   }
 }
 
@@ -440,31 +577,35 @@ function formatGoalCardTitle(title: string) {
     .join(' ')
 }
 
-function normalizeLifeGoalDraftTasks(tasks: LifeGoalDraftTask[]) {
-  return tasks
-    .map((task) => {
-      const text = task.text.trim()
-      if (!text) return null
-      return {
-        id: task.id,
-        text,
-        description: task.description.trim(),
-        notes: task.notes,
-        dueDate: task.dueDate && isValidIsoDate(task.dueDate) ? task.dueDate : null,
-        priority: task.priority,
-        tags: task.tags.map((tag) => tag.trim()).filter(Boolean),
-        subtasks: task.subtasks
-          .map((subtask) => ({
-            id: subtask.id,
-            text: subtask.text.trim(),
-            completed: subtask.completed,
-          }))
-          .filter((subtask) => subtask.text.length > 0),
-        completed: task.completed,
-        completedAt: task.completed ? task.completedAt ?? new Date().toISOString() : null,
-      }
+function normalizeLifeGoalDraftTasks(tasks: LifeGoalDraftTask[]): LifeGoalTask[] {
+  const normalizedTasks: LifeGoalTask[] = []
+
+  for (const task of tasks) {
+    const text = task.text.trim()
+    if (!text) continue
+
+    normalizedTasks.push({
+      id: task.id,
+      text,
+      phase: normalizeLifeGoalPhaseValue(task.phase),
+      description: task.description.trim(),
+      notes: task.notes,
+      dueDate: task.dueDate && isValidIsoDate(task.dueDate) ? task.dueDate : null,
+      priority: task.priority,
+      tags: task.tags.map((tag) => tag.trim()).filter(Boolean),
+      subtasks: task.subtasks
+        .map((subtask) => ({
+          id: subtask.id,
+          text: subtask.text.trim(),
+          completed: subtask.completed,
+        }))
+        .filter((subtask) => subtask.text.length > 0),
+      completed: task.completed,
+      completedAt: task.completed ? task.completedAt ?? new Date().toISOString() : null,
     })
-    .filter((task): task is LifeGoalDraftTask => task !== null)
+  }
+
+  return normalizedTasks
 }
 
 function createLifeGoalDraftFromGoal(goal: LifeGoal): LifeGoalDraft {
@@ -483,6 +624,7 @@ function createLifeGoalDraftFromGoal(goal: LifeGoal): LifeGoalDraft {
         ? goal.tasks.map((task) => ({
             id: task.id,
             text: task.text,
+            phase: normalizeLifeGoalPhaseValue(task.phase),
             description: task.description,
             notes: task.notes,
             dueDate: task.dueDate,
@@ -731,6 +873,132 @@ function getGoalSubtaskProgress(tasks: LifeGoalTask[]) {
   return { total, completed }
 }
 
+function getLifeGoalProgressTrajectory(tasks: LifeGoalTask[]) {
+  const totalTasks = tasks.length
+  if (totalTasks === 0) {
+    return {
+      totalTasks,
+      completedCount: 0,
+      points: [] as Array<{ percent: number; completedAt: string; day: string }>,
+      dailyPoints: [] as Array<{ day: string; completedCount: number; percent: number }>,
+      firstCompletedAt: null as string | null,
+      lastCompletedAt: null as string | null,
+      firstCompletedDay: null as string | null,
+      lastCompletedDay: null as string | null,
+      uniqueCompletionDays: 0,
+    }
+  }
+
+  const completedTasks = [...tasks]
+    .filter((task) => task.completed && task.completedAt)
+    .sort((left, right) => (left.completedAt ?? '').localeCompare(right.completedAt ?? ''))
+
+  const completedCount = completedTasks.length
+  if (completedCount === 0) {
+    return {
+      totalTasks,
+      completedCount,
+      points: [] as Array<{ percent: number; completedAt: string; day: string }>,
+      dailyPoints: [] as Array<{ day: string; completedCount: number; percent: number }>,
+      firstCompletedAt: null as string | null,
+      lastCompletedAt: null as string | null,
+      firstCompletedDay: null as string | null,
+      lastCompletedDay: null as string | null,
+      uniqueCompletionDays: 0,
+    }
+  }
+
+  const points = completedTasks.map((task, index) => {
+    const progressCount = index + 1
+    const percent = Math.round((progressCount / totalTasks) * 100)
+    return {
+      percent,
+      completedAt: task.completedAt!,
+      day: task.completedAt!.slice(0, 10),
+    }
+  })
+  const dailyPoints = Array.from(
+    completedTasks.reduce((map, task, index) => {
+      const day = task.completedAt!.slice(0, 10)
+      map.set(day, {
+        day,
+        completedCount: index + 1,
+        percent: Math.round(((index + 1) / totalTasks) * 100),
+      })
+      return map
+    }, new Map<string, { day: string; completedCount: number; percent: number }>()),
+  ).map(([, point]) => point)
+  const uniqueCompletionDays = new Set(points.map((point) => point.day)).size
+
+  return {
+    totalTasks,
+    completedCount,
+    points,
+    dailyPoints,
+    firstCompletedAt: points[0]?.completedAt ?? null,
+    lastCompletedAt: points[points.length - 1]?.completedAt ?? null,
+    firstCompletedDay: points[0]?.day ?? null,
+    lastCompletedDay: points[points.length - 1]?.day ?? null,
+    uniqueCompletionDays,
+  }
+}
+
+function suggestPhase(taskText: string): string | null {
+  const normalizedText = taskText.trim().toLowerCase()
+  if (!normalizedText) return null
+
+  const keywordGroups: Array<{ phase: string; keywords: string[] }> = [
+    { phase: 'Define', keywords: ['define', 'research', 'plan', 'idea', 'vision'] },
+    { phase: 'Build', keywords: ['build', 'create', 'implement', 'develop'] },
+    { phase: 'Refine', keywords: ['improve', 'refine', 'optimize', 'fix', 'adjust'] },
+    { phase: 'Launch', keywords: ['launch', 'publish', 'release', 'ship'] },
+  ]
+
+  for (const group of keywordGroups) {
+    if (group.keywords.some((keyword) => normalizedText.includes(keyword))) {
+      return group.phase
+    }
+  }
+
+  return null
+}
+
+function getLifeGoalTaskPhaseLabel(task: Pick<LifeGoalTask, 'phase'>) {
+  return normalizeLifeGoalPhaseValue(task.phase)
+}
+
+function getRoadmapPhaseGroups(tasks: LifeGoalTask[]) {
+  const groups: Array<{ label: string | null; tasks: LifeGoalTask[] }> = []
+
+  for (const task of tasks) {
+    const label = getLifeGoalTaskPhaseLabel(task)
+    const previousGroup = groups[groups.length - 1]
+
+    if (previousGroup && previousGroup.label === label) {
+      previousGroup.tasks.push(task)
+      continue
+    }
+
+    groups.push({
+      label,
+      tasks: [task],
+    })
+  }
+
+  return groups
+}
+
+function getRoadmapTaskSections(tasks: LifeGoalTask[]) {
+  const completed = tasks.filter((task) => task.completed)
+  const incomplete = tasks.filter((task) => !task.completed)
+
+  return {
+    completed,
+    current: incomplete[0] ?? null,
+    upcoming: incomplete.slice(1),
+  }
+}
+
 function renderSubtaskProgressDots(subtasks: LifeGoalTask['subtasks'], tone: 'active' | 'completed' = 'active') {
   const summary = getSubtaskProgressSummary(subtasks)
   if (summary.total === 0) return null
@@ -786,6 +1054,8 @@ type FloatingPanelPosition = {
   width: number
 }
 
+type TaskPeekFocusField = 'title' | 'phase'
+
 function getFloatingPanelPosition(
   anchor: HTMLElement,
   {
@@ -815,6 +1085,12 @@ function createLifeGoalFromDraft(draft: LifeGoalDraft): LifeGoal {
   const timestamp = new Date().toISOString()
   const tasks = normalizeLifeGoalDraftTasks(draft.tasks).map((task) => ({
     ...task,
+    phase:
+      task.phase?.trim()
+        ? task.phase.trim()
+        : task.id.startsWith('life-goal-draft-task-')
+          ? suggestPhase(task.text) ?? undefined
+          : task.phase,
     id: task.id.startsWith('life-goal-draft-task-')
       ? `life-goal-task-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
       : task.id,
@@ -837,6 +1113,14 @@ function createLifeGoalFromDraft(draft: LifeGoalDraft): LifeGoal {
     createdAt: timestamp,
     updatedAt: timestamp,
   }
+}
+
+const LIFE_GOAL_PHASE_OPTIONS = ['General', 'Define', 'Build', 'Refine', 'Launch'] as const
+
+function normalizeLifeGoalPhaseValue(phase?: string | null) {
+  const trimmed = phase?.trim()
+  if (!trimmed) return 'General'
+  return LIFE_GOAL_PHASE_OPTIONS.includes(trimmed as (typeof LIFE_GOAL_PHASE_OPTIONS)[number]) ? trimmed : 'General'
 }
 
 function getRecentHabitSupportState(tracker: HabitTracker) {
@@ -937,8 +1221,11 @@ export function GoalsPage({
   const [linkHabitPickerOpen, setLinkHabitPickerOpen] = useState(false)
   const [habitDraftByTaskId, setHabitDraftByTaskId] = useState<Record<string, string>>({})
   const [lifeGoalDetailTab, setLifeGoalDetailTab] = useState<LifeGoalDetailTab>('focus')
+  const [roadmapHighPriorityFocus, setRoadmapHighPriorityFocus] = useState(false)
+  const [goalTrajectoryTimeframe, setGoalTrajectoryTimeframe] = useState<GoalTrajectoryTimeframe>('30d')
   const [selectedRoadmapTaskId, setSelectedRoadmapTaskId] = useState<string | null>(null)
   const [selectedTaskPeekId, setSelectedTaskPeekId] = useState<string | null>(null)
+  const [pendingTaskPeekFocusField, setPendingTaskPeekFocusField] = useState<TaskPeekFocusField | null>(null)
   const [taskPeekSubtaskDraft, setTaskPeekSubtaskDraft] = useState('')
   const [taskPeekSubtaskEntryOpen, setTaskPeekSubtaskEntryOpen] = useState(false)
   const [draggedSubtaskId, setDraggedSubtaskId] = useState<string | null>(null)
@@ -985,6 +1272,7 @@ export function GoalsPage({
   const taskDraftInputRef = useRef<HTMLInputElement | null>(null)
   const taskPeekPanelRef = useRef<HTMLDivElement | null>(null)
   const taskPeekTitleRef = useRef<HTMLTextAreaElement | null>(null)
+  const taskPeekPhaseFieldRef = useRef<HTMLSelectElement | null>(null)
   const taskPeekTriggerRef = useRef<HTMLElement | null>(null)
   const taskPeekDateFieldRef = useRef<HTMLDivElement | null>(null)
   const taskPeekDatePanelRef = useRef<HTMLDivElement | null>(null)
@@ -1075,6 +1363,7 @@ export function GoalsPage({
       setTaskPeekNotesOpen(false)
       setTaskPeekSubtaskEntryOpen(false)
       setTaskPeekDeleteConfirmation(null)
+      setPendingTaskPeekFocusField(null)
       const previousTrigger = taskPeekTriggerRef.current
       if (previousTrigger) {
         window.requestAnimationFrame(() => previousTrigger.focus())
@@ -1083,6 +1372,12 @@ export function GoalsPage({
     }
 
     const frame = window.requestAnimationFrame(() => {
+      if (pendingTaskPeekFocusField === 'phase') {
+        taskPeekPhaseFieldRef.current?.focus()
+        setPendingTaskPeekFocusField(null)
+        return
+      }
+
       taskPeekTitleRef.current?.focus()
       taskPeekTitleRef.current?.setSelectionRange(
         taskPeekTitleRef.current.value.length,
@@ -1091,7 +1386,7 @@ export function GoalsPage({
     })
 
     return () => window.cancelAnimationFrame(frame)
-  }, [selectedTaskPeek?.id])
+  }, [pendingTaskPeekFocusField, selectedTaskPeek?.id])
 
   useEffect(() => {
     if (!selectedTaskPeek) return
@@ -1258,7 +1553,12 @@ export function GoalsPage({
   const taskPriorityOptions = useMemo(() => getTaskPriorityOptions(), [])
 
   const handleSaveLifeGoal = () => {
-    if (!lifeGoalDraft.title.trim() || !lifeGoalDraft.whyItMatters.trim() || !lifeGoalDraft.minimumVersion.trim() || draftTasks.length === 0) {
+    const nextTaskText = lifeGoalDraft.tasks[0]?.text.trim() ?? ''
+    if (
+      !lifeGoalDraft.title.trim() ||
+      !lifeGoalDraft.whyItMatters.trim() ||
+      (lifeGoalComposerMode === 'edit' ? !lifeGoalDraft.minimumVersion.trim() || draftTasks.length === 0 : !nextTaskText)
+    ) {
       return
     }
 
@@ -1285,7 +1585,16 @@ export function GoalsPage({
       return
     }
 
-    const nextGoal = createLifeGoalFromDraft(lifeGoalDraft)
+    const nextGoal = createLifeGoalFromDraft({
+      ...lifeGoalDraft,
+      minimumVersion: lifeGoalDraft.minimumVersion.trim() || nextTaskText || lifeGoalDraft.title.trim(),
+      tasks: [
+        {
+          ...(lifeGoalDraft.tasks[0] ?? createLifeGoalDraftTask()),
+          text: nextTaskText,
+        },
+      ],
+    })
     onCreateLifeGoal(nextGoal)
     if (lifeGoalDraft.isPrimary) {
       onSetPrimaryLifeGoal(nextGoal.id)
@@ -1310,6 +1619,7 @@ export function GoalsPage({
         {
           id: `life-goal-task-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
           text: trimmed,
+          phase: suggestPhase(trimmed) ?? undefined,
           description: '',
           notes: '',
           dueDate: null,
@@ -2145,6 +2455,10 @@ export function GoalsPage({
 
   const renderLifeGoalComposer = () => (
     <div className="space-y-5">
+      {(() => {
+        const isCreateMode = lifeGoalComposerMode === 'create'
+        return (
+          <>
       <div className="grid gap-4">
         <label className="space-y-2">
           <span className="theme-label">Title</span>
@@ -2191,16 +2505,6 @@ export function GoalsPage({
             />
           </label>
           <label className="space-y-2">
-            <span className="theme-label">Minimum version</span>
-            <input
-              value={lifeGoalDraft.minimumVersion}
-              onChange={(event) => setLifeGoalDraft((current) => ({ ...current, minimumVersion: event.target.value }))}
-              placeholder="Write the first rough outline"
-              spellCheck={true}
-              className="theme-input w-full rounded-2xl border px-4 py-3 text-sm outline-none"
-            />
-          </label>
-          <label className="space-y-2">
             <span className="theme-label">Primary goal</span>
             <button
               type="button"
@@ -2215,8 +2519,20 @@ export function GoalsPage({
               </span>
             </button>
           </label>
+          {!isCreateMode ? (
+            <label className="space-y-2">
+              <span className="theme-label">Minimum version</span>
+              <input
+                value={lifeGoalDraft.minimumVersion}
+                onChange={(event) => setLifeGoalDraft((current) => ({ ...current, minimumVersion: event.target.value }))}
+                placeholder="Write the first rough outline"
+                spellCheck={true}
+                className="theme-input w-full rounded-2xl border px-4 py-3 text-sm outline-none"
+              />
+            </label>
+          ) : null}
         </div>
-        <div className="grid gap-4 md:grid-cols-4">
+        <div className={`grid gap-4 ${isCreateMode ? 'md:grid-cols-3' : 'md:grid-cols-4'}`}>
           <div className="space-y-2">
             <span className="theme-label">Category</span>
             <div ref={lifeGoalCategoryFieldRef} className="relative">
@@ -2511,155 +2827,164 @@ export function GoalsPage({
               ) : null}
             </div>
           </div>
-          <div className="space-y-2">
-            <span className="theme-label">Status</span>
-            <div ref={lifeGoalStatusFieldRef} className="relative">
-              <button
-                type="button"
-                onClick={() => setLifeGoalStatusMenuOpen((current) => !current)}
-                className="theme-input flex w-full items-center justify-between gap-2 rounded-2xl border px-3 py-2.5 text-left text-sm transition"
-              >
-                <span className={`${goalStatusChipClassName} px-2.5 py-1 text-[10px] ${getLifeGoalStatusMeta(lifeGoalDraft.status).badgeClassName}`}>
-                  {getLifeGoalStatusMeta(lifeGoalDraft.status).label}
-                </span>
-                <span className="theme-text-faint text-xs">▾</span>
-              </button>
-
-              {lifeGoalStatusMenuOpen && lifeGoalStatusPanelPosition && typeof document !== 'undefined'
-                ? createPortal(
-                <div
-                  ref={lifeGoalStatusPanelRef}
-                  className="theme-popover fixed z-[80] overflow-hidden rounded-[22px] border shadow-[0_18px_40px_rgba(15,23,42,0.18)]"
-                  style={{
-                    top: `${lifeGoalStatusPanelPosition.top}px`,
-                    left: `${lifeGoalStatusPanelPosition.left}px`,
-                    width: `${lifeGoalStatusPanelPosition.width}px`,
-                  }}
+          {!isCreateMode ? (
+            <div className="space-y-2">
+              <span className="theme-label">Status</span>
+              <div ref={lifeGoalStatusFieldRef} className="relative">
+                <button
+                  type="button"
+                  onClick={() => setLifeGoalStatusMenuOpen((current) => !current)}
+                  className="theme-input flex w-full items-center justify-between gap-2 rounded-2xl border px-3 py-2.5 text-left text-sm transition"
                 >
-                  <div className="p-2">
-                    <div className="flex flex-col items-start gap-2">
-                    {(['not-started', 'in-motion', 'paused', 'complete'] as LifeGoalStatus[]).map((status) => {
-                      const active = lifeGoalDraft.status === status
-                      const meta = getLifeGoalStatusMeta(status)
-                      return (
-                        <button
-                          key={status}
-                          type="button"
-                          onClick={() => applyLifeGoalStatus(status)}
-                          className={`inline-flex items-center justify-center rounded-full border px-3 py-1.5 text-[10px] font-medium uppercase tracking-[0.16em] leading-none transition ${
-                            active
-                              ? 'theme-button-secondary theme-text-primary'
-                              : `${meta.badgeClassName} hover:border-[rgb(var(--theme-border-strong-rgb))]`
-                          }`}
-                        >
-                          {meta.label}
-                        </button>
-                      )
-                    })}
+                  <span className={`${goalStatusChipClassName} px-2.5 py-1 text-[10px] ${getLifeGoalStatusMeta(lifeGoalDraft.status).badgeClassName}`}>
+                    {getLifeGoalStatusMeta(lifeGoalDraft.status).label}
+                  </span>
+                  <span className="theme-text-faint text-xs">▾</span>
+                </button>
+
+                {lifeGoalStatusMenuOpen && lifeGoalStatusPanelPosition && typeof document !== 'undefined'
+                  ? createPortal(
+                  <div
+                    ref={lifeGoalStatusPanelRef}
+                    className="theme-popover fixed z-[80] overflow-hidden rounded-[22px] border shadow-[0_18px_40px_rgba(15,23,42,0.18)]"
+                    style={{
+                      top: `${lifeGoalStatusPanelPosition.top}px`,
+                      left: `${lifeGoalStatusPanelPosition.left}px`,
+                      width: `${lifeGoalStatusPanelPosition.width}px`,
+                    }}
+                  >
+                    <div className="p-2">
+                      <div className="flex flex-col items-start gap-2">
+                      {(['not-started', 'in-motion', 'paused', 'complete'] as LifeGoalStatus[]).map((status) => {
+                        const active = lifeGoalDraft.status === status
+                        const meta = getLifeGoalStatusMeta(status)
+                        return (
+                          <button
+                            key={status}
+                            type="button"
+                            onClick={() => applyLifeGoalStatus(status)}
+                            className={`inline-flex items-center justify-center rounded-full border px-3 py-1.5 text-[10px] font-medium uppercase tracking-[0.16em] leading-none transition ${
+                              active
+                                ? 'theme-button-secondary theme-text-primary'
+                                : `${meta.badgeClassName} hover:border-[rgb(var(--theme-border-strong-rgb))]`
+                            }`}
+                          >
+                            {meta.label}
+                          </button>
+                        )
+                      })}
+                      </div>
                     </div>
-                  </div>
-                </div>,
-                document.body,
-              ) : null}
+                  </div>,
+                  document.body,
+                ) : null}
+              </div>
             </div>
-          </div>
+          ) : null}
         </div>
-        <label className="space-y-2">
-          <span className="theme-label">If-Then plan</span>
-          <textarea
-            value={lifeGoalDraft.ifThenPlan}
-            onChange={(event) => setLifeGoalDraft((current) => ({ ...current, ifThenPlan: event.target.value }))}
-            placeholder="If I stall, then I..."
-            spellCheck={true}
-            className="theme-input min-h-[90px] w-full resize-none rounded-2xl border px-4 py-3 text-sm leading-6 outline-none"
-          />
-        </label>
+        {!isCreateMode ? (
+          <>
+            <label className="space-y-2">
+              <span className="theme-label">If-Then plan</span>
+              <textarea
+                value={lifeGoalDraft.ifThenPlan}
+                onChange={(event) => setLifeGoalDraft((current) => ({ ...current, ifThenPlan: event.target.value }))}
+                placeholder="If I stall, then I..."
+                spellCheck={true}
+                className="theme-input min-h-[90px] w-full resize-none rounded-2xl border px-4 py-3 text-sm leading-6 outline-none"
+              />
+            </label>
 
-        <div className="space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <span className="theme-label">Tasks</span>
-            <Button variant="ghost" onClick={addDraftTask}>
-              Add task
-            </Button>
-          </div>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <span className="theme-label">Tasks</span>
+                <Button variant="ghost" onClick={addDraftTask}>
+                  Add task
+                </Button>
+              </div>
 
-          <div className="space-y-2">
-            {lifeGoalDraft.tasks.map((task, index) => (
-              <div key={task.id} className="theme-surface-soft rounded-2xl border px-3.5 py-2.5">
-                <div className="flex items-start gap-3">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      updateDraftTask(task.id, (current) => ({
-                        ...current,
-                        completed: !current.completed,
-                        completedAt: !current.completed ? current.completedAt ?? new Date().toISOString() : null,
-                      }))
-                    }
-                    className={`mt-1 h-4 w-4 rounded-full border transition ${
-                      task.completed
-                        ? 'border-[rgb(var(--theme-accent-rgb)/0.34)] bg-[rgb(var(--theme-accent-rgb)/0.18)]'
-                        : 'border-[rgb(var(--theme-border-subtle-rgb))] bg-transparent'
-                    }`}
-                    aria-label={task.completed ? 'Mark task incomplete' : 'Mark task complete'}
-                  />
-                  <div className="min-w-0 flex-1 space-y-2">
-                    <input
-                      value={task.text}
-                      onChange={(event) => updateDraftTask(task.id, (current) => ({ ...current, text: event.target.value }))}
-                      placeholder={index === 0 ? 'Next task' : 'Planned task'}
-                      spellCheck={true}
-                      className="w-full bg-transparent text-sm text-[rgb(var(--theme-text-primary-rgb))] outline-none placeholder:text-[rgb(var(--theme-text-muted-rgb))]"
-                    />
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="theme-text-faint text-[11px] uppercase tracking-[0.14em]">
-                        {task.completed ? 'Completed task' : index === 0 ? 'Next task' : 'Planned task'}
-                      </span>
-                      <input
-                        type="date"
-                        value={task.dueDate ?? ''}
-                        onChange={(event) =>
+              <div className="space-y-2">
+                {lifeGoalDraft.tasks.map((task, index) => (
+                  <div key={task.id} className="theme-surface-soft rounded-2xl border px-3.5 py-2.5">
+                    <div className="flex items-start gap-3">
+                      <button
+                        type="button"
+                        onClick={() =>
                           updateDraftTask(task.id, (current) => ({
                             ...current,
-                            dueDate: event.target.value || null,
+                            completed: !current.completed,
+                            completedAt: !current.completed ? current.completedAt ?? new Date().toISOString() : null,
                           }))
                         }
-                        className="rounded-full border border-white/[0.08] bg-white/[0.02] px-2.5 py-1 text-[11px] text-white/70 outline-none"
-                        aria-label="Task due date"
+                        className={`mt-1 h-4 w-4 rounded-full border transition ${
+                          task.completed
+                            ? 'border-[rgb(var(--theme-accent-rgb)/0.34)] bg-[rgb(var(--theme-accent-rgb)/0.18)]'
+                            : 'border-[rgb(var(--theme-border-subtle-rgb))] bg-transparent'
+                        }`}
+                        aria-label={task.completed ? 'Mark task incomplete' : 'Mark task complete'}
                       />
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => reorderDraftTask(task.id, 'up')}
-                          disabled={index === 0}
-                          className="theme-text-muted text-xs transition disabled:opacity-30"
-                        >
-                          Up
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => reorderDraftTask(task.id, 'down')}
-                          disabled={index === lifeGoalDraft.tasks.length - 1}
-                          className="theme-text-muted text-xs transition disabled:opacity-30"
-                        >
-                          Down
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => deleteDraftTask(task.id)}
-                          className="theme-text-muted text-xs transition hover:text-[rgb(var(--theme-text-primary-rgb))]"
-                        >
-                          Delete
-                        </button>
+                      <div className="min-w-0 flex-1 space-y-2">
+                        <input
+                          value={task.text}
+                          onChange={(event) => updateDraftTask(task.id, (current) => ({ ...current, text: event.target.value }))}
+                          placeholder={index === 0 ? 'Next task' : 'Planned task'}
+                          spellCheck={true}
+                          className="w-full bg-transparent text-sm text-[rgb(var(--theme-text-primary-rgb))] outline-none placeholder:text-[rgb(var(--theme-text-muted-rgb))]"
+                        />
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="theme-text-faint text-[11px] uppercase tracking-[0.14em]">
+                            {task.completed ? 'Completed task' : index === 0 ? 'Next task' : 'Planned task'}
+                          </span>
+                          <input
+                            type="date"
+                            value={task.dueDate ?? ''}
+                            onChange={(event) =>
+                              updateDraftTask(task.id, (current) => ({
+                                ...current,
+                                dueDate: event.target.value || null,
+                              }))
+                            }
+                            className="rounded-full border border-white/[0.08] bg-white/[0.02] px-2.5 py-1 text-[11px] text-white/70 outline-none"
+                            aria-label="Task due date"
+                          />
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => reorderDraftTask(task.id, 'up')}
+                              disabled={index === 0}
+                              className="theme-text-muted text-xs transition disabled:opacity-30"
+                            >
+                              Up
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => reorderDraftTask(task.id, 'down')}
+                              disabled={index === lifeGoalDraft.tasks.length - 1}
+                              className="theme-text-muted text-xs transition disabled:opacity-30"
+                            >
+                              Down
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => deleteDraftTask(task.id)}
+                              className="theme-text-muted text-xs transition hover:text-[rgb(var(--theme-text-primary-rgb))]"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </div>
+            </div>
+          </>
+        ) : null}
       </div>
+          </>
+        )
+      })()}
 
       {lifeGoalComposerMode === 'edit' && editingLifeGoalId ? (
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[rgb(var(--theme-border-subtle-rgb)/0.7)] pt-4">
@@ -3086,8 +3411,54 @@ const renderLifeGoalOverviewPage = () => (
     const progressWidth = Math.max(selectedLifeGoalProgress.percent, selectedLifeGoal.status === 'complete' ? 100 : 6)
     const isRoadmapMode = lifeGoalDetailTab === 'tasks' || lifeGoalDetailTab === 'roadmap'
     const compactDateRange = `${formatDate(selectedLifeGoal.startDate)} → ${selectedLifeGoal.targetDate ? formatDate(selectedLifeGoal.targetDate) : 'No target'}`
+    const roadmapSections = getRoadmapTaskSections(selectedLifeGoal.tasks)
+    const roadmapRemainingCount = roadmapSections.current ? roadmapSections.upcoming.length + 1 : 0
+    const currentPhaseLabel = roadmapSections.current ? getLifeGoalTaskPhaseLabel(roadmapSections.current) : null
+    const progressTrajectory = getLifeGoalProgressTrajectory(selectedLifeGoal.tasks)
     const goalHeaderChipClassName =
       'inline-flex h-6 shrink-0 items-center justify-center rounded-full border px-2.5 text-[10px] uppercase tracking-[0.14em] leading-none border-white/[0.06]'
+    const renderRoadmapPhaseGroups = (
+      tasks: LifeGoalTask[],
+      keyPrefix: string,
+      renderTask: (task: LifeGoalTask, meta: { groupIndex: number; taskIndex: number }) => any,
+    ) =>
+      getRoadmapPhaseGroups(tasks).map((group, groupIndex) => (
+        <div key={`${keyPrefix}-${groupIndex}-${group.label ?? 'default'}`} className={groupIndex > 0 ? 'pt-4' : ''}>
+          <div className="flex items-center justify-between gap-3 pb-2 pl-[36px]">
+            <button
+              type="button"
+              onClick={(event) => {
+                const targetTask = group.tasks[0]
+                if (!targetTask) return
+                setPendingTaskPeekFocusField('phase')
+                setSelectedRoadmapTaskId(targetTask.id)
+                openTaskPeek(targetTask.id, event.currentTarget)
+              }}
+              title="Phases are assigned per task"
+              aria-label={`Open ${group.label ?? 'General'} phase`}
+              className={`cursor-pointer text-[10px] uppercase tracking-[0.18em] transition hover:text-[rgb(var(--theme-accent-rgb)/0.72)] focus-visible:text-[rgb(var(--theme-accent-rgb)/0.72)] ${
+                group.label === currentPhaseLabel ? 'text-mist/70' : 'text-mist/52'
+              }`}
+            >
+              {group.label ?? 'General'}
+            </button>
+            <p className="text-[10px] tracking-[0.08em] text-mist/40">
+              {group.tasks.filter((task) => task.completed).length}/{group.tasks.length}
+            </p>
+          </div>
+          {group.tasks.map((task, taskIndex) => renderTask(task, { groupIndex, taskIndex }))}
+        </div>
+      ))
+    const renderPriorityChip = (task: LifeGoalTask) => {
+      const priorityMeta = getLifeGoalTaskPriorityMeta(task.priority)
+      if (!priorityMeta) return null
+
+      return (
+        <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium tracking-[0.08em] leading-none ${priorityMeta.chipClassName}`}>
+          {priorityMeta.label}
+        </span>
+      )
+    }
     const goalWorkspaceRail = (
       <div className="rounded-[18px] bg-white/[0.018] px-3 py-2">
         <div className="grid items-center gap-3 lg:grid-cols-[auto_minmax(180px,0.8fr)_auto]">
@@ -3112,6 +3483,243 @@ const renderLifeGoalOverviewPage = () => (
         </div>
       </div>
     )
+    const trajectoryChartContent = (() => {
+      const chartWidth = 100
+      const chartHeight = 100
+      const chartPadding = { top: 8, right: 6, bottom: 12, left: 2 }
+      const innerWidth = chartWidth - chartPadding.left - chartPadding.right
+      const innerHeight = chartHeight - chartPadding.top - chartPadding.bottom
+      const baselineY = chartPadding.top + innerHeight
+      const guideY = chartPadding.top
+      const timeframeDays =
+        GOAL_TRAJECTORY_TIMEFRAME_OPTIONS.find((option) => option.value === goalTrajectoryTimeframe)?.days ?? 30
+      const chartEndDate = getTodayIsoDate()
+      const chartStartDate = shiftIsoDate(chartEndDate, -(timeframeDays - 1))
+      const timeSpanDays = Math.max(
+        0,
+        Math.round((new Date(`${chartEndDate}T00:00:00Z`).getTime() - new Date(`${chartStartDate}T00:00:00Z`).getTime()) / 86400000),
+      )
+      const getXForDay = (day: string) => {
+        if (!isValidIsoDate(day)) return chartPadding.left
+        if (timeSpanDays === 0) return chartPadding.left + innerWidth * 0.08
+        const offset = Math.round(
+          (new Date(`${day}T00:00:00Z`).getTime() - new Date(`${chartStartDate}T00:00:00Z`).getTime()) / 86400000,
+        )
+        return chartPadding.left + (Math.max(0, Math.min(timeSpanDays, offset)) / timeSpanDays) * innerWidth
+      }
+      const getYForPercent = (percent: number) => chartPadding.top + (1 - percent / 100) * innerHeight
+      const completedBeforeRangeCount = progressTrajectory.points.filter((point) => point.day < chartStartDate).length
+      const baselinePercent = Math.round((completedBeforeRangeCount / Math.max(progressTrajectory.totalTasks, 1)) * 100)
+      const visibleProgressPoints = progressTrajectory.dailyPoints
+        .filter((point) => point.day >= chartStartDate && point.day <= chartEndDate)
+        .map((point) => ({
+          ...point,
+          svgX: getXForDay(point.day),
+          svgY: getYForPercent(point.percent),
+        }))
+      const visibleCompletionDays = new Set(visibleProgressPoints.map((point) => point.day)).size
+      const hasMeaningfulHistory = progressTrajectory.completedCount > 0
+      const sparseProgress = visibleCompletionDays < 2
+      const ladderTasks = selectedLifeGoal.tasks
+      const ladderNodeCount = Math.max(ladderTasks.length, 1)
+      const chartPoints = visibleProgressPoints.map((point) => ({
+        ...point,
+      }))
+      const linePath = chartPoints.length > 0
+        ? (() => {
+            const segments = [`M ${chartPadding.left.toFixed(2)} ${getYForPercent(baselinePercent).toFixed(2)}`]
+            let currentPercent = baselinePercent
+            for (const point of chartPoints) {
+              const currentY = getYForPercent(currentPercent)
+              segments.push(`L ${point.svgX.toFixed(2)} ${currentY.toFixed(2)}`)
+              segments.push(`L ${point.svgX.toFixed(2)} ${point.svgY.toFixed(2)}`)
+              currentPercent = point.percent
+            }
+            segments.push(`L ${(chartWidth - chartPadding.right).toFixed(2)} ${getYForPercent(currentPercent).toFixed(2)}`)
+            return segments.join(' ')
+          })()
+        : `M ${chartPadding.left.toFixed(2)} ${getYForPercent(baselinePercent).toFixed(2)} L ${(chartWidth - chartPadding.right).toFixed(2)} ${getYForPercent(baselinePercent).toFixed(2)}`
+      const recentProgressCount = progressTrajectory.points.filter((point) => {
+        const pointDate = new Date(`${point.day}T00:00:00Z`).getTime()
+        const endDate = new Date(`${getTodayIsoDate()}T00:00:00Z`).getTime()
+        return Math.round((endDate - pointDate) / 86400000) <= 4
+      }).length
+      const progressSpanDays =
+        progressTrajectory.firstCompletedDay && progressTrajectory.lastCompletedDay
+          ? Math.max(
+              0,
+              Math.round(
+                (new Date(`${progressTrajectory.lastCompletedDay}T00:00:00Z`).getTime() -
+                  new Date(`${progressTrajectory.firstCompletedDay}T00:00:00Z`).getTime()) /
+                  86400000,
+              ),
+            )
+          : 0
+      const lastProgressDaysAgo = progressTrajectory.lastCompletedAt
+        ? Math.max(0, Math.round((Date.now() - new Date(progressTrajectory.lastCompletedAt).getTime()) / 86400000))
+        : null
+      const progressContext = progressTrajectory.lastCompletedAt
+        ? (() => {
+            if ((lastProgressDaysAgo ?? 0) >= 4) {
+              return {
+                text: `No progress in ${lastProgressDaysAgo} days`,
+                className: 'text-[rgb(var(--theme-warning-rgb)/0.74)]',
+              }
+            }
+            if (recentProgressCount >= 2) {
+              return {
+                text: `${recentProgressCount} tasks completed in last 5 days`,
+                className: 'text-mist/46',
+              }
+            }
+            if (progressTrajectory.completedCount >= 2 && progressSpanDays > 0) {
+              return {
+                text: `${progressTrajectory.completedCount} tasks completed over ${progressSpanDays + 1} days`,
+                className: 'text-mist/46',
+              }
+            }
+            if (lastProgressDaysAgo === 0) {
+              return {
+                text: 'Last progress today',
+                className: 'text-mist/46',
+              }
+            }
+            if (lastProgressDaysAgo === 1) {
+              return {
+                text: 'Last progress 1 day ago',
+                className: 'text-mist/46',
+              }
+            }
+            return {
+              text: `Last progress ${lastProgressDaysAgo} days ago`,
+              className: 'text-mist/46',
+            }
+          })()
+        : null
+      const chartEndLabel = chartEndDate === getTodayIsoDate() ? 'Today' : formatTaskCompletedDate(chartEndDate)
+
+      return (
+        <div className="rounded-[24px] border border-white/[0.05] bg-white/[0.018] px-4 py-4 xl:flex xl:min-h-0 xl:flex-1 xl:flex-col">
+          <div className="flex items-start justify-between gap-3">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-mist/62">Goal progress trajectory</p>
+            <div className="flex flex-wrap items-center justify-end gap-1.5">
+              {GOAL_TRAJECTORY_TIMEFRAME_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setGoalTrajectoryTimeframe(option.value)}
+                  className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium tracking-[0.08em] transition ${
+                    goalTrajectoryTimeframe === option.value
+                      ? 'border-[rgb(var(--theme-accent-rgb)/0.18)] bg-[rgb(var(--theme-accent-rgb)/0.08)] text-[rgb(var(--theme-accent-rgb)/0.82)]'
+                      : 'border-white/[0.05] bg-white/[0.02] text-mist/48 hover:border-white/[0.08] hover:text-mist/62'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-4 min-h-[220px] flex-1">
+            <div className="grid h-full min-h-[220px] grid-cols-[44px_minmax(0,1fr)] gap-4">
+              <div className="relative min-h-0">
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute bottom-[8px] left-[14px] top-[8px] w-px bg-[linear-gradient(180deg,rgb(var(--theme-border-subtle-rgb)/0.08)_0%,rgb(var(--theme-border-subtle-rgb)/0.18)_18%,rgb(var(--theme-border-subtle-rgb)/0.18)_82%,rgb(var(--theme-border-subtle-rgb)/0.08)_100%)]"
+                />
+                <div className="relative flex h-full min-h-[220px] flex-col justify-between py-2">
+                  {Array.from({ length: ladderNodeCount }, (_, index) => {
+                    const task = ladderTasks[index]
+                    const isCompleted = task?.completed ?? false
+                    const isCurrent = !isCompleted && task?.id === roadmapSections.current?.id
+                    return (
+                      <span key={task?.id ?? `trajectory-ladder-${index}`} className="flex justify-start pl-[15px]">
+                        <span
+                          className={`rounded-[1px] ${
+                            isCompleted
+                              ? 'bg-[rgb(var(--theme-accent-rgb)/0.82)]'
+                              : isCurrent
+                                ? 'bg-[rgb(var(--theme-text-primary-rgb)/0.72)]'
+                                : 'bg-[rgb(var(--theme-border-subtle-rgb)/0.34)]'
+                          } ${isCurrent ? 'h-[2px] w-[10px]' : 'h-[1.5px] w-[8px]'}`}
+                        />
+                      </span>
+                    )
+                  })}
+                </div>
+              </div>
+
+              <div className="flex min-h-0 flex-col">
+                <div className="flex items-start justify-between gap-3 text-[10px] uppercase tracking-[0.16em] text-mist/46">
+                  <span>{chartStartDate ? formatTaskCompletedDate(chartStartDate) : 'Start'}</span>
+                  <span>100%</span>
+                </div>
+
+                <div className="mt-3 min-h-0 flex-1">
+                  <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} className="h-full min-h-[188px] w-full" preserveAspectRatio="none" aria-hidden="true">
+                    <defs>
+                      <linearGradient id="goal-trajectory-line" x1="0%" y1="0%" x2="100%" y2="0%">
+                        <stop offset="0%" stopColor="rgb(var(--theme-accent-rgb) / 0.34)" />
+                        <stop offset="100%" stopColor="rgb(var(--theme-accent-rgb) / 0.6)" />
+                      </linearGradient>
+                    </defs>
+                    <line
+                      x1={chartPadding.left}
+                      y1={guideY}
+                      x2={chartWidth - chartPadding.right}
+                      y2={guideY}
+                      stroke="rgb(var(--theme-border-subtle-rgb) / 0.16)"
+                      strokeWidth="0.7"
+                      strokeDasharray="2 3"
+                    />
+                    <line
+                      x1={chartPadding.left}
+                      y1={baselineY}
+                      x2={chartWidth - chartPadding.right}
+                      y2={baselineY}
+                      stroke="rgb(var(--theme-border-subtle-rgb) / 0.2)"
+                      strokeWidth="0.9"
+                    />
+                    <path
+                      d={linePath}
+                      fill="none"
+                      stroke="url(#goal-trajectory-line)"
+                      strokeWidth="1.15"
+                      strokeLinecap="round"
+                      strokeLinejoin="miter"
+                    />
+                    {chartPoints.length > 0
+                      ? chartPoints.map((point) => (
+                          <circle
+                            key={`${point.day}-${point.percent}`}
+                            cx={point.svgX}
+                            cy={point.svgY}
+                            r="1.05"
+                            fill="rgb(var(--theme-accent-rgb) / 0.78)"
+                          />
+                        ))
+                      : null}
+                  </svg>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {hasMeaningfulHistory ? (
+            <div className="mt-2 flex items-center justify-between gap-3 text-[11px] text-mist/46">
+              <span>{formatTaskCompletedDate(chartStartDate)}</span>
+              <span>{chartEndLabel}</span>
+            </div>
+          ) : (
+            <p className="mt-2 text-sm text-mist">Progress will appear as you complete tasks</p>
+          )}
+          {visibleProgressPoints.length === 0 && hasMeaningfulHistory ? (
+            <p className="mt-2 text-sm text-mist">No progress in this period</p>
+          ) : null}
+          {progressContext ? <p className={`mt-2 text-[11px] ${progressContext.className}`}>{progressContext.text}</p> : null}
+        </div>
+      )
+    })()
 
     const tasksTabContent = (
       <div className="rounded-[24px] border border-white/[0.05] bg-white/[0.018] px-4 py-4">
@@ -3128,6 +3736,7 @@ const renderLifeGoalOverviewPage = () => (
             {selectedLifeGoalProgress.plannedTasks.length > 0 ? (
               selectedLifeGoalProgress.plannedTasks.map((task, index) => {
                 const dueMeta = task.dueDate ? getRelativeDueMeta(task.dueDate) : null
+                const visualState = getRoadmapTaskVisualState(task, index === 0 ? 'current' : 'upcoming', false)
                 return (
                   <div
                     key={task.id}
@@ -3136,6 +3745,7 @@ const renderLifeGoalOverviewPage = () => (
                         ? 'border-white/[0.16] bg-white/[0.045]'
                         : 'border-white/[0.06] bg-white/[0.02]'
                     }`}
+                    style={{ ...visualState.rowStyle, opacity: visualState.opacity }}
                   >
                     <button
                       type="button"
@@ -3148,16 +3758,18 @@ const renderLifeGoalOverviewPage = () => (
                             Next
                           </span>
                         ) : null}
-                        <span className={`mt-1 block leading-6 ${index === 0 ? 'text-[15px] font-medium text-white' : 'text-sm text-white/84'}`}>{task.text}</span>
+                        <span className={`mt-1 block leading-6 ${index === 0 ? 'text-[15px] font-medium' : 'text-sm'} ${visualState.titleClassName}`}>{task.text}</span>
                       </div>
                       <div className="flex shrink-0 items-center gap-3 pl-2">
                         {renderSubtaskProgressDots(task.subtasks)}
-                        {task.dueDate ? (
-                          <span className={`text-xs ${dueMeta?.toneClassName ?? 'text-mist/70'}`}>
-                            {dueMeta ? `${dueMeta.compactLabel} · ${formatTaskDueDate(task.dueDate)}` : formatTaskDueDate(task.dueDate)}
-                          </span>
-                        ) : null}
-                        <span className="text-xs uppercase tracking-[0.16em] text-mist/62">Done</span>
+                        <div className="flex items-center gap-2">
+                          {task.dueDate ? (
+                            <span className={`text-xs ${dueMeta?.toneClassName ?? visualState.metaClassName}`}>
+                              {dueMeta ? `${dueMeta.compactLabel} · ${formatTaskDueDate(task.dueDate)}` : formatTaskDueDate(task.dueDate)}
+                            </span>
+                          ) : null}
+                          {renderPriorityChip(task)}
+                        </div>
                       </div>
                     </button>
                   <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
@@ -3314,24 +3926,113 @@ const renderLifeGoalOverviewPage = () => (
             <p className="text-xs uppercase tracking-[0.18em] text-mist/68">Roadmap</p>
             <p className="mt-1 text-sm text-mist">A clean view of the path from the current task to the goal.</p>
           </div>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setRoadmapHighPriorityFocus((current) => !current)}
+              className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] uppercase tracking-[0.14em] transition ${
+                roadmapHighPriorityFocus
+                  ? 'border-[rgb(var(--theme-accent-rgb)/0.16)] bg-[rgb(var(--theme-accent-rgb)/0.08)] text-[rgb(var(--theme-accent-rgb)/0.82)]'
+                  : 'border-white/[0.06] bg-white/[0.02] text-white/54 hover:border-white/[0.1] hover:text-white/74'
+              }`}
+            >
+              Focus: High priority
+            </button>
+            <p className="text-[11px] uppercase tracking-[0.16em] text-mist/54">
+              {selectedLifeGoalProgress.completedTaskItems.length} completed
+              <span className="px-1.5 text-white/24">·</span>
+              {roadmapRemainingCount} remaining
+            </p>
+          </div>
         </div>
 
         {selectedLifeGoal.tasks.length > 0 ? (
-          <div className="mt-5 space-y-7">
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.18em] text-mist/56">Upcoming tasks</p>
-              <div className="mt-3">
-                {selectedLifeGoal.tasks.filter((task) => !task.completed).length > 0 ? (
-                  selectedLifeGoal.tasks
-                    .filter((task) => !task.completed)
-                    .map((task) => {
-                      const isCurrent = selectedLifeGoalProgress.nextTask?.id === task.id
-                      const isSelected = selectedRoadmapTaskId === task.id
-                      const dueMeta = task.dueDate ? getRelativeDueMeta(task.dueDate) : null
+          <div className="relative mt-5">
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute bottom-3 left-[12px] top-3 w-px"
+              style={{
+                background:
+                  roadmapSections.current
+                    ? 'linear-gradient(180deg, rgb(var(--theme-border-subtle-rgb)/0.16) 0%, rgb(var(--theme-accent-rgb)/0.28) 48%, rgb(var(--theme-border-subtle-rgb)/0.16) 100%)'
+                    : 'rgb(var(--theme-border-subtle-rgb) / 0.16)',
+              }}
+            />
 
-                      return (
+            <div className="space-y-7">
+              {roadmapSections.completed.length > 0 ? (
+                <section>
+                  <p className="pb-3 pl-[36px] text-[11px] uppercase tracking-[0.18em] text-mist/52">
+                    Completed ({roadmapSections.completed.length})
+                  </p>
+                  {renderRoadmapPhaseGroups(roadmapSections.completed, 'completed', (task) => {
+                    const dueMeta = task.dueDate ? getRelativeDueMeta(task.dueDate) : null
+                    const visualState = getRoadmapTaskVisualState(task, 'completed', roadmapHighPriorityFocus)
+                    return (
+                      <div
+                        key={task.id}
+                        className={`grid grid-cols-[24px_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-1 border-b border-white/[0.035] py-2.5 last:border-b-0 ${
+                          selectedRoadmapTaskId === task.id ? 'bg-white/[0.012]' : ''
+                        }`}
+                        style={{ opacity: visualState.opacity }}
+                      >
+                        <span aria-hidden="true" className={`pt-0.5 text-[16px] leading-none ${visualState.markerClassName}`}>
+                          ●
+                        </span>
                         <button
-                          key={task.id}
+                          type="button"
+                          onClick={(event) => {
+                            setSelectedRoadmapTaskId(task.id)
+                            openTaskPeek(task.id, event.currentTarget)
+                          }}
+                          className="min-w-0 text-left"
+                        >
+                          <p className={`text-[15px] ${visualState.titleClassName}`}>{task.text}</p>
+                          <div className="mt-1 flex min-h-[18px] items-center justify-between gap-3">
+                            <div className="min-w-0 text-left">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className={`text-[12px] ${task.dueDate ? dueMeta?.toneClassName ?? visualState.metaClassName : visualState.metaClassName}`}>
+                                  {task.dueDate ? (dueMeta ? `${dueMeta.compactLabel} · ${formatTaskDueDate(task.dueDate)}` : formatTaskDueDate(task.dueDate)) : 'Completed'}
+                                </p>
+                                {renderPriorityChip(task)}
+                              </div>
+                            </div>
+                            <div className="flex shrink-0 items-center justify-end gap-2">
+                              {renderSubtaskProgressDots(task.subtasks, 'completed')}
+                              {task.completedAt ? (
+                                <span className="text-[12px] text-mist/56">{formatDate(task.completedAt.slice(0, 10))}</span>
+                              ) : null}
+                            </div>
+                          </div>
+                        </button>
+                        <div className="flex justify-end pt-0.5">
+                          <button
+                            type="button"
+                            onClick={() => restoreTask(selectedLifeGoal.id, task.id)}
+                            className="text-[11px] uppercase tracking-[0.14em] text-[rgb(var(--theme-info-rgb)/0.66)] transition hover:text-[rgb(var(--theme-info-rgb)/0.9)]"
+                          >
+                            Restore
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </section>
+              ) : null}
+
+              {roadmapSections.current ? (
+                <section>
+                  <p className="pb-3 pl-[36px] text-[11px] uppercase tracking-[0.18em] text-mist/56">Current</p>
+                  {renderRoadmapPhaseGroups([roadmapSections.current], 'current', (task) => {
+                    const dueMeta = task.dueDate ? getRelativeDueMeta(task.dueDate) : null
+                    const isSelected = selectedRoadmapTaskId === task.id
+                    const visualState = getRoadmapTaskVisualState(task, 'current', roadmapHighPriorityFocus)
+                    return (
+                      <div key={task.id}>
+                        <p className="pb-2 pl-[36px] text-[10px] font-medium uppercase tracking-[0.18em] text-[rgb(var(--theme-accent-rgb)/0.74)]">
+                          You are here
+                        </p>
+                        <button
                           type="button"
                           onClick={(event) => {
                             setSelectedRoadmapTaskId(task.id)
@@ -3356,31 +4057,28 @@ const renderLifeGoalOverviewPage = () => (
                             setDraggedTaskId(null)
                             setDragOverTaskId(null)
                           }}
-                          className={`grid w-full grid-cols-[24px_minmax(0,1fr)] items-start gap-x-3 gap-y-1 border-b border-white/[0.05] py-3 text-left transition last:border-b-0 hover:border-white/[0.08] ${
-                            isSelected ? 'bg-white/[0.015]' : ''
+                          className={`grid w-full grid-cols-[24px_minmax(0,1fr)] items-start gap-x-3 gap-y-1 border-b border-white/[0.04] py-[18px] text-left transition hover:border-white/[0.07] ${
+                            isSelected ? 'bg-white/[0.018]' : 'bg-white/[0.012]'
                           } ${
                             dragOverTaskId === task.id && draggedTaskId && draggedTaskId !== task.id ? 'bg-white/[0.03]' : ''
                           }`}
+                          style={{ ...visualState.rowStyle, opacity: visualState.opacity }}
                         >
-                          <span
-                            aria-hidden="true"
-                            className={`pt-0.5 text-[16px] leading-none ${
-                              isCurrent ? 'text-white/92' : 'text-white/44'
-                            }`}
-                          >
-                            {isCurrent ? '◎' : '○'}
+                          <span aria-hidden="true" className={`pt-0.5 text-[18px] leading-none ${visualState.markerClassName}`}>
+                            ◎
                           </span>
                           <div className="min-w-0">
-                            <p className={`${isCurrent ? 'text-[15px] font-medium text-white' : 'text-[15px] text-white/84'}`}>
-                              {task.text}
-                            </p>
+                            <p className={`text-[15px] font-medium ${visualState.titleClassName}`}>{task.text}</p>
                             <div className="mt-1 flex min-h-[18px] items-center justify-between gap-3">
                               <div className="min-w-0 text-left">
-                                {task.dueDate ? (
-                                  <p className={`text-[12px] ${dueMeta?.toneClassName ?? 'text-mist/66'}`}>
-                                    {dueMeta ? `${dueMeta.compactLabel} · ${formatTaskDueDate(task.dueDate)}` : formatTaskDueDate(task.dueDate)}
-                                  </p>
-                                ) : null}
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {task.dueDate ? (
+                                    <p className={`text-[12px] ${dueMeta?.toneClassName ?? visualState.metaClassName}`}>
+                                      {dueMeta ? `${dueMeta.compactLabel} · ${formatTaskDueDate(task.dueDate)}` : formatTaskDueDate(task.dueDate)}
+                                    </p>
+                                  ) : null}
+                                  {renderPriorityChip(task)}
+                                </div>
                               </div>
                               <div className="flex shrink-0 justify-end">
                                 {renderSubtaskProgressDots(task.subtasks)}
@@ -3388,84 +4086,92 @@ const renderLifeGoalOverviewPage = () => (
                             </div>
                           </div>
                         </button>
-                      )
-                    })
-                ) : (
-                  <p className="text-sm text-mist">No upcoming tasks yet. Add the first concrete step below.</p>
-                )}
-              </div>
-            </div>
+                      </div>
+                    )
+                  })}
+                </section>
+              ) : null}
 
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.18em] text-mist/56">Goal</p>
-              <div className="mt-3 grid grid-cols-[24px_minmax(0,1fr)] items-start gap-x-3 border-b border-white/[0.05] py-3">
-                <span aria-hidden="true" className="pt-0.5 text-[16px] leading-none text-white/84">
-                  ◉
-                </span>
-                <div className="min-w-0">
-                  <p className="text-[15px] font-medium text-white/88">Goal</p>
-                  <p className="mt-1 text-[12px] text-mist/58">Completion point</p>
-                </div>
-              </div>
-            </div>
-
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.18em] text-mist/56">Completed tasks</p>
-              <div className="mt-3">
-                {selectedLifeGoal.tasks.filter((task) => task.completed).length > 0 ? (
-                  selectedLifeGoal.tasks
-                    .filter((task) => task.completed)
-                    .map((task) => {
-                      const dueMeta = task.dueDate ? getRelativeDueMeta(task.dueDate) : null
-                      return (
-                        <div
-                          key={task.id}
-                          className={`grid grid-cols-[24px_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-1 border-b border-white/[0.05] py-3 last:border-b-0 ${
-                            selectedRoadmapTaskId === task.id ? 'bg-white/[0.015]' : ''
-                          }`}
-                        >
-                          <span aria-hidden="true" className="pt-0.5 text-[16px] leading-none text-white/62">
-                            ●
-                          </span>
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              setSelectedRoadmapTaskId(task.id)
-                              openTaskPeek(task.id, event.currentTarget)
-                            }}
-                            className="min-w-0 text-left"
-                          >
-                            <p className="text-[15px] text-white/56 line-through">{task.text}</p>
-                            <div className="mt-1 flex min-h-[18px] items-center justify-between gap-3">
-                              <div className="min-w-0 text-left">
-                                <p className="text-[12px] text-mist/58">
-                                  {task.dueDate ? (dueMeta ? `${dueMeta.compactLabel} · ${formatTaskDueDate(task.dueDate)}` : formatTaskDueDate(task.dueDate)) : 'Completed'}
-                                </p>
-                              </div>
-                              <div className="flex shrink-0 items-center justify-end gap-2">
-                                {renderSubtaskProgressDots(task.subtasks, 'completed')}
-                                {task.completedAt ? (
-                                  <span className="text-[12px] text-mist/66">{formatDate(task.completedAt.slice(0, 10))}</span>
+              {roadmapSections.upcoming.length > 0 ? (
+                <section>
+                  <p className="pb-3 pl-[36px] text-[11px] uppercase tracking-[0.18em] text-mist/56">Upcoming</p>
+                  {renderRoadmapPhaseGroups(roadmapSections.upcoming, 'upcoming', (task) => {
+                    const dueMeta = task.dueDate ? getRelativeDueMeta(task.dueDate) : null
+                    const isSelected = selectedRoadmapTaskId === task.id
+                    const visualState = getRoadmapTaskVisualState(task, 'upcoming', roadmapHighPriorityFocus)
+                    return (
+                      <button
+                        key={task.id}
+                        type="button"
+                        onClick={(event) => {
+                          setSelectedRoadmapTaskId(task.id)
+                          openTaskPeek(task.id, event.currentTarget)
+                        }}
+                        onKeyDown={(event) => handleTaskRowKeyDown(event, task.id)}
+                        draggable
+                        onDragStart={() => setDraggedTaskId(task.id)}
+                        onDragOver={(event) => {
+                          event.preventDefault()
+                          if (dragOverTaskId !== task.id) setDragOverTaskId(task.id)
+                        }}
+                        onDrop={(event) => {
+                          event.preventDefault()
+                          if (draggedTaskId) {
+                            reorderGoalTask(selectedLifeGoal.id, draggedTaskId, task.id)
+                          }
+                          setDraggedTaskId(null)
+                          setDragOverTaskId(null)
+                        }}
+                        onDragEnd={() => {
+                          setDraggedTaskId(null)
+                          setDragOverTaskId(null)
+                        }}
+                        className={`grid w-full grid-cols-[24px_minmax(0,1fr)] items-start gap-x-3 gap-y-1 border-b border-white/[0.035] py-3 text-left transition last:border-b-0 hover:border-white/[0.07] ${
+                          isSelected ? 'bg-white/[0.012]' : ''
+                        } ${
+                          dragOverTaskId === task.id && draggedTaskId && draggedTaskId !== task.id ? 'bg-white/[0.03]' : ''
+                        }`}
+                        style={{ ...visualState.rowStyle, opacity: visualState.opacity }}
+                      >
+                        <span aria-hidden="true" className={`pt-0.5 text-[16px] leading-none ${visualState.markerClassName}`}>
+                          ○
+                        </span>
+                        <div className="min-w-0">
+                          <p className={`text-[15px] ${visualState.titleClassName}`}>{task.text}</p>
+                          <div className="mt-1 flex min-h-[18px] items-center justify-between gap-3">
+                            <div className="min-w-0 text-left">
+                              <div className="flex flex-wrap items-center gap-2">
+                                {task.dueDate ? (
+                                  <p className={`text-[12px] ${dueMeta?.toneClassName ?? visualState.metaClassName}`}>
+                                    {dueMeta ? `${dueMeta.compactLabel} · ${formatTaskDueDate(task.dueDate)}` : formatTaskDueDate(task.dueDate)}
+                                  </p>
                                 ) : null}
+                                {renderPriorityChip(task)}
                               </div>
                             </div>
-                          </button>
-                          <div className="flex justify-end pt-0.5">
-                            <button
-                              type="button"
-                              onClick={() => restoreTask(selectedLifeGoal.id, task.id)}
-                              className="text-[11px] uppercase tracking-[0.14em] text-[rgb(var(--theme-info-rgb)/0.66)] transition hover:text-[rgb(var(--theme-info-rgb)/0.9)]"
-                            >
-                              Restore
-                            </button>
+                            <div className="flex shrink-0 justify-end">
+                              {renderSubtaskProgressDots(task.subtasks)}
+                            </div>
                           </div>
                         </div>
-                      )
-                    })
-                ) : (
-                  <p className="text-sm text-mist">Completed tasks will appear here as proof of progress.</p>
-                )}
-              </div>
+                      </button>
+                    )
+                  })}
+                </section>
+              ) : null}
+
+              <section>
+                <p className="pb-3 pl-[36px] text-[11px] uppercase tracking-[0.18em] text-mist/56">Goal</p>
+                <div className="grid grid-cols-[24px_minmax(0,1fr)] items-start gap-x-3 border-b border-white/[0.035] py-3">
+                  <span aria-hidden="true" className="pt-0.5 text-[16px] leading-none text-white/84">
+                    ◉
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-[15px] font-medium text-white/88">Goal</p>
+                    <p className="mt-1 text-[12px] text-mist/58">Completion point</p>
+                  </div>
+                </div>
+              </section>
             </div>
 
             <div className="border-t border-white/[0.05] pt-3">
@@ -3601,87 +4307,91 @@ const renderLifeGoalOverviewPage = () => (
 
         <div className="space-y-4">
           <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.22fr)_minmax(0,1fr)]">
-            <div className="self-start rounded-[24px] border border-white/[0.08] bg-white/[0.03] px-5 py-4 transition-[transform,border-color,box-shadow,background-color] duration-150 ease-out hover:-translate-y-[1px] hover:border-white/[0.11] hover:bg-white/[0.034] hover:shadow-[0_16px_30px_rgba(0,0,0,0.16)]">
-              <div className="min-w-0">
-                <div className="flex items-center justify-between gap-4">
-                  <h3 className="theme-page-title min-w-0 flex-1 pr-2">{selectedLifeGoal.title}</h3>
-                  <div className="flex shrink-0 items-center gap-1.5 whitespace-nowrap">
-                    {selectedGoalCategory ? (
+            <div className="space-y-4 self-start xl:flex xl:h-[78vh] xl:flex-col">
+              <div className="rounded-[24px] border border-white/[0.08] bg-white/[0.03] px-5 py-4 transition-[transform,border-color,box-shadow,background-color] duration-150 ease-out hover:-translate-y-[1px] hover:border-white/[0.11] hover:bg-white/[0.034] hover:shadow-[0_16px_30px_rgba(0,0,0,0.16)]">
+                <div className="min-w-0">
+                  <div className="flex items-center justify-between gap-4">
+                    <h3 className="theme-page-title min-w-0 flex-1 pr-2">{selectedLifeGoal.title}</h3>
+                    <div className="flex shrink-0 items-center gap-1.5 whitespace-nowrap">
+                      {selectedGoalCategory ? (
+                        <span
+                          className={`${goalHeaderChipClassName} gap-1.5 text-white/70`}
+                          style={getLifeGoalCategoryChipStyle(selectedGoalCategoryColor)}
+                        >
+                          <span className="h-1.5 w-1.5 rounded-full" style={getLifeGoalCategoryDotStyle(selectedGoalCategoryColor)} />
+                          {selectedGoalCategory}
+                        </span>
+                      ) : null}
+                      {selectedLifeGoal.isPrimary ? (
+                        <span className={`theme-surface-soft theme-text-primary ${goalHeaderChipClassName}`}>
+                          Primary Goal
+                        </span>
+                      ) : null}
                       <span
-                        className={`${goalHeaderChipClassName} gap-1.5 text-white/70`}
-                        style={getLifeGoalCategoryChipStyle(selectedGoalCategoryColor)}
+                        className={`${goalHeaderChipClassName} ${
+                          getLifeGoalStatusMeta(selectedLifeGoal.status, selectedLifeGoal.startDate).badgeClassName
+                        }`}
                       >
-                        <span className="h-1.5 w-1.5 rounded-full" style={getLifeGoalCategoryDotStyle(selectedGoalCategoryColor)} />
-                        {selectedGoalCategory}
+                        {isLifeGoalScheduled(selectedLifeGoal.status, selectedLifeGoal.startDate)
+                          ? 'Scheduled'
+                          : getLifeGoalStatusMeta(selectedLifeGoal.status, selectedLifeGoal.startDate).label}
                       </span>
-                    ) : null}
-                    {selectedLifeGoal.isPrimary ? (
-                      <span className={`theme-surface-soft theme-text-primary ${goalHeaderChipClassName}`}>
-                        Primary Goal
-                      </span>
-                    ) : null}
-                    <span
-                      className={`${goalHeaderChipClassName} ${
-                        getLifeGoalStatusMeta(selectedLifeGoal.status, selectedLifeGoal.startDate).badgeClassName
-                      }`}
-                    >
-                      {isLifeGoalScheduled(selectedLifeGoal.status, selectedLifeGoal.startDate)
-                        ? 'Scheduled'
-                        : getLifeGoalStatusMeta(selectedLifeGoal.status, selectedLifeGoal.startDate).label}
-                    </span>
+                    </div>
                   </div>
+                  <div className="mt-2 h-px bg-[linear-gradient(90deg,rgb(var(--theme-border-subtle-rgb)/0.72)_0%,rgb(var(--theme-border-subtle-rgb)/0.22)_82%,transparent_100%)]" />
                 </div>
-                <div className="mt-2 h-px bg-[linear-gradient(90deg,rgb(var(--theme-border-subtle-rgb)/0.72)_0%,rgb(var(--theme-border-subtle-rgb)/0.22)_82%,transparent_100%)]" />
+
+                <div className="mt-2.5 space-y-3.5">
+                  {anchorText ? (
+                    <div className="space-y-0.5">
+                      <p className="text-[11px] text-mist/56">Why</p>
+                      <p className="text-[13px] font-medium leading-5 text-white/68">{compactWhyText}</p>
+                    </div>
+                  ) : null}
+                  <div className="space-y-1.5 pt-1.5">
+                    <p className="text-[11px] text-mist/62">Next task</p>
+                    <p className="text-[22px] font-semibold leading-[1.28] text-white">
+                      {selectedLifeGoalProgress.nextTask?.text ?? 'No next task currently planned.'}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedLifeGoalProgress.nextTask ? (
+                      <Button
+                        variant="soft"
+                        onClick={(event) => toggleTaskCompletion(selectedLifeGoal.id, selectedLifeGoalProgress.nextTask!.id, event.currentTarget)}
+                        className="px-3 py-1.5 text-[13px] text-[rgb(var(--theme-text-primary-rgb))] shadow-[0_0_0_1px_rgb(var(--theme-accent-rgb)/0.04),0_8px_18px_rgb(var(--theme-accent-rgb)/0.08)] transition-transform duration-150 ease-out hover:-translate-y-[1px]"
+                        style={{
+                          borderColor: 'rgb(var(--theme-accent-rgb) / 0.18)',
+                          backgroundColor: 'rgb(var(--theme-accent-rgb) / 0.12)',
+                        }}
+                        onMouseEnter={(event) => {
+                          event.currentTarget.style.backgroundColor = 'rgb(var(--theme-accent-rgb) / 0.16)'
+                          event.currentTarget.style.borderColor = 'rgb(var(--theme-accent-rgb) / 0.24)'
+                        }}
+                        onMouseLeave={(event) => {
+                          event.currentTarget.style.backgroundColor = 'rgb(var(--theme-accent-rgb) / 0.12)'
+                          event.currentTarget.style.borderColor = 'rgb(var(--theme-accent-rgb) / 0.18)'
+                        }}
+                      >
+                        Done — continue
+                      </Button>
+                    ) : null}
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
+                        onSetLifeGoalAsTodayTask(selectedLifeGoal)
+                        setLifeGoalActionFeedback('Focused for today.')
+                      }}
+                      className="border-white/[0.06] px-3 py-1.5 text-[13px] transition-transform duration-150 ease-out hover:-translate-y-[1px]"
+                    >
+                      Focus this today
+                    </Button>
+                  </div>
+                  {lifeGoalActionFeedback ? <p className="text-sm text-mist">{lifeGoalActionFeedback}</p> : null}
+                </div>
               </div>
 
-              <div className="mt-3 space-y-3">
-                {anchorText ? (
-                  <div className="space-y-1">
-                    <p className="text-[11px] text-mist/56">Why</p>
-                    <p className="text-[13px] leading-5 text-white/62">{compactWhyText}</p>
-                  </div>
-                ) : null}
-                <div className="space-y-1.5">
-                  <p className="text-[11px] text-mist/62">Next task</p>
-                  <p className="text-[22px] font-semibold leading-[1.28] text-white">
-                    {selectedLifeGoalProgress.nextTask?.text ?? 'No next task currently planned.'}
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {selectedLifeGoalProgress.nextTask ? (
-                    <Button
-                      variant="soft"
-                      onClick={(event) => toggleTaskCompletion(selectedLifeGoal.id, selectedLifeGoalProgress.nextTask!.id, event.currentTarget)}
-                      className="px-3 py-1.5 text-[13px] text-[rgb(var(--theme-text-primary-rgb))] shadow-[0_0_0_1px_rgb(var(--theme-accent-rgb)/0.04),0_8px_18px_rgb(var(--theme-accent-rgb)/0.08)] transition-transform duration-150 ease-out hover:-translate-y-[1px]"
-                      style={{
-                        borderColor: 'rgb(var(--theme-accent-rgb) / 0.18)',
-                        backgroundColor: 'rgb(var(--theme-accent-rgb) / 0.12)',
-                      }}
-                      onMouseEnter={(event) => {
-                        event.currentTarget.style.backgroundColor = 'rgb(var(--theme-accent-rgb) / 0.16)'
-                        event.currentTarget.style.borderColor = 'rgb(var(--theme-accent-rgb) / 0.24)'
-                      }}
-                      onMouseLeave={(event) => {
-                        event.currentTarget.style.backgroundColor = 'rgb(var(--theme-accent-rgb) / 0.12)'
-                        event.currentTarget.style.borderColor = 'rgb(var(--theme-accent-rgb) / 0.18)'
-                      }}
-                    >
-                      Done — continue
-                    </Button>
-                  ) : null}
-                  <Button
-                    variant="ghost"
-                    onClick={() => {
-                      onSetLifeGoalAsTodayTask(selectedLifeGoal)
-                      setLifeGoalActionFeedback('Focused for today.')
-                    }}
-                    className="border-white/[0.06] px-3 py-1.5 text-[13px] transition-transform duration-150 ease-out hover:-translate-y-[1px]"
-                  >
-                    Focus this today
-                  </Button>
-                </div>
-                {lifeGoalActionFeedback ? <p className="text-sm text-mist">{lifeGoalActionFeedback}</p> : null}
-              </div>
+              {trajectoryChartContent}
             </div>
 
             <div className="self-start rounded-[24px] border border-white/[0.045] bg-[rgb(var(--theme-surface-elevated-rgb)/0.72)] shadow-[inset_0_1px_0_rgba(255,255,255,0.02)] xl:flex xl:h-[78vh] xl:flex-col">
@@ -3689,13 +4399,33 @@ const renderLifeGoalOverviewPage = () => (
                 <div>
                   <p className="text-xs uppercase tracking-[0.18em] text-mist/68">Task roadmap</p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setLifeGoalDetailTab('roadmap')}
-                  className="inline-flex items-center rounded-full border border-white/[0.06] bg-white/[0.02] px-2.5 py-1 text-[11px] uppercase tracking-[0.14em] text-white/54 transition hover:border-white/[0.1] hover:text-white/74"
-                >
-                  Open roadmap
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setLifeGoalDetailTab('roadmap')}
+                    className="inline-flex items-center rounded-full border border-white/[0.06] bg-white/[0.02] px-2.5 py-1 text-[11px] uppercase tracking-[0.14em] text-white/54 transition hover:border-white/[0.1] hover:text-white/74"
+                  >
+                    Organize roadmap
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRoadmapHighPriorityFocus((current) => !current)}
+                    className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] uppercase tracking-[0.14em] transition ${
+                      roadmapHighPriorityFocus
+                        ? 'border-[rgb(var(--theme-accent-rgb)/0.16)] bg-[rgb(var(--theme-accent-rgb)/0.08)] text-[rgb(var(--theme-accent-rgb)/0.82)]'
+                        : 'border-white/[0.06] bg-white/[0.02] text-white/54 hover:border-white/[0.1] hover:text-white/74'
+                    }`}
+                  >
+                    Focus: High priority
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLifeGoalDetailTab('roadmap')}
+                    className="inline-flex items-center rounded-full border border-white/[0.06] bg-white/[0.02] px-2.5 py-1 text-[11px] uppercase tracking-[0.14em] text-white/54 transition hover:border-white/[0.1] hover:text-white/74"
+                  >
+                    Open roadmap
+                  </button>
+                </div>
               </div>
 
               <div
@@ -3713,79 +4443,153 @@ const renderLifeGoalOverviewPage = () => (
                     <span
                       aria-hidden="true"
                       className="pointer-events-none absolute bottom-3 left-[12px] top-3 w-px bg-white/[0.14]"
+                      style={{
+                        background:
+                          roadmapSections.current
+                            ? 'linear-gradient(180deg, rgb(var(--theme-border-subtle-rgb)/0.16) 0%, rgb(var(--theme-accent-rgb)/0.26) 42%, rgb(var(--theme-border-subtle-rgb)/0.16) 100%)'
+                            : undefined,
+                      }}
                     />
-                    {selectedLifeGoalProgress.plannedTasks.map((task, index) => {
-                      const dueMeta = task.dueDate ? getRelativeDueMeta(task.dueDate) : null
-                      return (
-                        <button
-                          key={task.id}
-                          type="button"
-                          onClick={(event) => openTaskPeek(task.id, event.currentTarget)}
-                          onKeyDown={(event) => handleTaskRowKeyDown(event, task.id)}
-                          draggable
-                          onDragStart={() => setDraggedTaskId(task.id)}
-                          onDragOver={(event) => {
-                            event.preventDefault()
-                            if (dragOverTaskId !== task.id) setDragOverTaskId(task.id)
-                          }}
-                          onDrop={(event) => {
-                            event.preventDefault()
-                            if (draggedTaskId) {
-                              reorderGoalTask(selectedLifeGoal.id, draggedTaskId, task.id)
-                            }
-                            setDraggedTaskId(null)
-                            setDragOverTaskId(null)
-                          }}
-                          onDragEnd={() => {
-                            setDraggedTaskId(null)
-                            setDragOverTaskId(null)
-                          }}
-                          className={`relative grid w-full grid-cols-[24px_minmax(0,1fr)] items-start gap-x-3 gap-y-1 text-left transition ${
-                            index === 0 ? 'bg-white/[0.015] py-4' : 'py-2.5'
-                          } ${
-                            dragOverTaskId === task.id && draggedTaskId && draggedTaskId !== task.id ? 'bg-white/[0.03]' : ''
-                          }`}
-                        >
-                          <span
-                            aria-hidden="true"
-                            className="relative z-[1] justify-self-center mt-[2px] flex h-4 w-4 items-center justify-center"
-                          >
-                            {index === 0 ? (
-                              <span className="h-2.5 w-2.5 rounded-full bg-[rgb(var(--theme-accent-rgb))]" />
-                            ) : (
-                              <span className="h-2.5 w-2.5 rounded-full border border-[rgb(var(--theme-accent-rgb)/0.8)] bg-[rgb(var(--theme-surface-rgb)/0.92)]" />
-                            )}
-                          </span>
-                        <div
-                          className={`min-w-0 ${index < selectedLifeGoalProgress.plannedTasks.length - 1 ? 'border-b border-white/[0.05]' : ''} ${
-                            index === 0 ? 'pb-3 pt-0.5' : 'pb-2.5'
-                          }`}
-                        >
-                          <div className="min-w-0">
-                            <p className={`${index === 0 ? 'text-[15px] font-medium text-white/98' : 'text-[15px] text-white/84'}`}>
-                              {task.text}
-                            </p>
-                            <div className="mt-1 flex min-h-[18px] items-center justify-between gap-3">
-                              <div className="min-w-0 text-left">
-                                {task.dueDate ? (
-                                  <p className={`text-[12px] ${dueMeta?.toneClassName ?? 'text-mist/66'}`}>
-                                    {dueMeta ? `${dueMeta.compactLabel} · ${formatTaskDueDate(task.dueDate)}` : formatTaskDueDate(task.dueDate)}
-                                  </p>
-                                ) : null}
-                              </div>
-                              <div className="flex shrink-0 justify-end">
-                                {renderSubtaskProgressDots(task.subtasks)}
-                              </div>
+                    {roadmapSections.current ? (
+                      <div className="pb-4">
+                        <p className="pb-2 pl-[36px] text-[11px] uppercase tracking-[0.18em] text-mist/56">Current</p>
+                        {renderRoadmapPhaseGroups([roadmapSections.current], 'panel-current', (task) => {
+                          const dueMeta = task.dueDate ? getRelativeDueMeta(task.dueDate) : null
+                          const visualState = getRoadmapTaskVisualState(task, 'current', roadmapHighPriorityFocus)
+                          return (
+                            <div key={task.id}>
+                              <p className="pb-2 pl-[36px] text-[10px] font-medium uppercase tracking-[0.18em] text-[rgb(var(--theme-accent-rgb)/0.74)]">
+                                You are here
+                              </p>
+                              <button
+                                type="button"
+                                onClick={(event) => openTaskPeek(task.id, event.currentTarget)}
+                                onKeyDown={(event) => handleTaskRowKeyDown(event, task.id)}
+                                draggable
+                                onDragStart={() => setDraggedTaskId(task.id)}
+                                onDragOver={(event) => {
+                                  event.preventDefault()
+                                  if (dragOverTaskId !== task.id) setDragOverTaskId(task.id)
+                                }}
+                                onDrop={(event) => {
+                                  event.preventDefault()
+                                  if (draggedTaskId) {
+                                    reorderGoalTask(selectedLifeGoal.id, draggedTaskId, task.id)
+                                  }
+                                  setDraggedTaskId(null)
+                                  setDragOverTaskId(null)
+                                }}
+                                onDragEnd={() => {
+                                  setDraggedTaskId(null)
+                                  setDragOverTaskId(null)
+                                }}
+                                className={`relative grid w-full grid-cols-[24px_minmax(0,1fr)] items-start gap-x-3 gap-y-1 border-b border-white/[0.04] bg-white/[0.012] py-[18px] text-left transition ${
+                                  dragOverTaskId === task.id && draggedTaskId && draggedTaskId !== task.id ? 'bg-white/[0.03]' : ''
+                                }`}
+                                style={{ ...visualState.rowStyle, opacity: visualState.opacity }}
+                              >
+                                <span
+                                  aria-hidden="true"
+                                  className="relative z-[1] mt-[2px] flex h-[18px] w-[18px] items-center justify-center justify-self-center"
+                                >
+                                  <span className={`h-3 w-3 rounded-full ${getPriorityScore(task) === 3 ? 'bg-[rgb(var(--theme-accent-rgb)/0.96)]' : 'bg-[rgb(var(--theme-accent-rgb)/0.9)]'}`} />
+                                </span>
+                                <div className="min-w-0 pb-4 pt-0.5">
+                                  <div className="min-w-0">
+                                    <p className={`text-[15px] font-medium ${visualState.titleClassName}`}>{task.text}</p>
+                                    <div className="mt-1 flex min-h-[18px] items-center justify-between gap-3">
+                                      <div className="min-w-0 text-left">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                          {task.dueDate ? (
+                                            <p className={`text-[12px] ${dueMeta?.toneClassName ?? visualState.metaClassName}`}>
+                                              {dueMeta ? `${dueMeta.compactLabel} · ${formatTaskDueDate(task.dueDate)}` : formatTaskDueDate(task.dueDate)}
+                                            </p>
+                                          ) : null}
+                                          {renderPriorityChip(task)}
+                                        </div>
+                                      </div>
+                                      <div className="flex shrink-0 justify-end">
+                                        {renderSubtaskProgressDots(task.subtasks)}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </button>
                             </div>
-                          </div>
-                        </div>
-                      </button>
-                      )
-                    })}
+                          )
+                        })}
+                      </div>
+                    ) : null}
+                    {roadmapSections.upcoming.length > 0 ? (
+                      <div>
+                        <p className="pb-2 pl-[36px] text-[11px] uppercase tracking-[0.18em] text-mist/56">Upcoming</p>
+                        {renderRoadmapPhaseGroups(roadmapSections.upcoming, 'panel-upcoming', (task) => {
+                          const dueMeta = task.dueDate ? getRelativeDueMeta(task.dueDate) : null
+                          const visualState = getRoadmapTaskVisualState(task, 'upcoming', roadmapHighPriorityFocus)
+                          return (
+                            <button
+                              key={task.id}
+                              type="button"
+                              onClick={(event) => openTaskPeek(task.id, event.currentTarget)}
+                              onKeyDown={(event) => handleTaskRowKeyDown(event, task.id)}
+                              draggable
+                              onDragStart={() => setDraggedTaskId(task.id)}
+                              onDragOver={(event) => {
+                                event.preventDefault()
+                                if (dragOverTaskId !== task.id) setDragOverTaskId(task.id)
+                              }}
+                              onDrop={(event) => {
+                                event.preventDefault()
+                                if (draggedTaskId) {
+                                  reorderGoalTask(selectedLifeGoal.id, draggedTaskId, task.id)
+                                }
+                                setDraggedTaskId(null)
+                                setDragOverTaskId(null)
+                              }}
+                              onDragEnd={() => {
+                                setDraggedTaskId(null)
+                                setDragOverTaskId(null)
+                              }}
+                              className={`relative grid w-full grid-cols-[24px_minmax(0,1fr)] items-start gap-x-3 gap-y-1 text-left transition py-2.5 ${
+                                dragOverTaskId === task.id && draggedTaskId && draggedTaskId !== task.id ? 'bg-white/[0.03]' : ''
+                              }`}
+                              style={{ ...visualState.rowStyle, opacity: visualState.opacity }}
+                            >
+                              <span
+                                aria-hidden="true"
+                                className="relative z-[1] justify-self-center mt-[2px] flex h-4 w-4 items-center justify-center"
+                              >
+                                <span className={`h-2.5 w-2.5 rounded-full border border-[rgb(var(--theme-accent-rgb)/0.8)] bg-[rgb(var(--theme-surface-rgb)/0.92)] ${getPriorityScore(task) === 3 ? 'shadow-[0_0_0_1px_rgb(var(--theme-accent-rgb)/0.12)]' : ''}`} />
+                              </span>
+                              <div className="min-w-0 border-b border-white/[0.035] pb-2.5">
+                                <div className="min-w-0">
+                                  <p className={`text-[15px] ${visualState.titleClassName}`}>{task.text}</p>
+                                  <div className="mt-1 flex min-h-[18px] items-center justify-between gap-3">
+                                    <div className="min-w-0 text-left">
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        {task.dueDate ? (
+                                          <p className={`text-[12px] ${dueMeta?.toneClassName ?? visualState.metaClassName}`}>
+                                            {dueMeta ? `${dueMeta.compactLabel} · ${formatTaskDueDate(task.dueDate)}` : formatTaskDueDate(task.dueDate)}
+                                          </p>
+                                        ) : null}
+                                        {renderPriorityChip(task)}
+                                      </div>
+                                    </div>
+                                    <div className="flex shrink-0 justify-end">
+                                      {renderSubtaskProgressDots(task.subtasks)}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    ) : null}
                   </div>
                 ) : (
                   <p className="py-2 text-sm text-mist">
-                    No upcoming tasks yet. Add the next concrete step.
+                    {roadmapSections.completed.length > 0 ? 'All roadmap tasks are complete.' : 'No upcoming tasks yet. Add the next concrete step.'}
                   </p>
                 )}
               </div>
@@ -3818,9 +4622,9 @@ const renderLifeGoalOverviewPage = () => (
                 <div className={`${taskDraftEntryOpen ? 'mt-3 border-t border-white/[0.05] pt-3' : ''} flex flex-wrap items-end justify-between gap-3`}>
                   <div className="space-y-1 text-xs text-mist">
                     <p>
-                      {selectedLifeGoalProgress.plannedTasks.length} upcoming
-                      <span className="px-1.5 text-white/26">•</span>
                       {selectedLifeGoalProgress.completedTaskItems.length} completed
+                      <span className="px-1.5 text-white/26">•</span>
+                      {roadmapRemainingCount} remaining
                     </p>
                     {selectedLifeGoalProgress.lastCompletedTask ? (
                       <p>Last: {selectedLifeGoalProgress.lastCompletedTask.text}</p>
@@ -4362,14 +5166,14 @@ const renderLifeGoalOverviewPage = () => (
                                 description: event.target.value,
                               }))
                             }
-                            rows={3}
+                            rows={2}
                             spellCheck={true}
                             className="w-full resize-none rounded-[20px] border border-white/[0.05] bg-white/[0.025] px-4 py-2.5 text-sm leading-6 text-white outline-none placeholder:text-white/24"
                             placeholder="Short context for the task..."
                           />
                         </div>
 
-                        <div className="space-y-1.5">
+                        <div className="space-y-1.5 pt-2">
                           <div className="flex items-center justify-between gap-3">
                             <p className="text-[11px] uppercase tracking-[0.18em] text-mist/58">Subtasks</p>
                             <p className="text-[11px] text-mist/42">{selectedTaskPeekCompletedSubtasks.length}/{selectedTaskPeek.subtasks.length}</p>
@@ -4405,7 +5209,7 @@ const renderLifeGoalOverviewPage = () => (
                                 <button
                                   type="button"
                                   onClick={(event) => toggleSelectedTaskPeekSubtaskCompletion(subtask.id, event.currentTarget)}
-                                  className={`h-4 w-4 shrink-0 rounded-full border transition ${
+                                  className={`h-[17px] w-[17px] shrink-0 rounded-full border transition ${
                                     subtask.completed
                                       ? 'border-[rgb(var(--theme-accent-rgb)/0.95)] bg-[rgb(var(--theme-accent-rgb)/0.95)]'
                                       : 'border-white/[0.22] bg-transparent hover:border-white/[0.34]'
@@ -4439,7 +5243,7 @@ const renderLifeGoalOverviewPage = () => (
                                     }
                                   }}
                                   spellCheck={true}
-                                  className="w-full bg-transparent text-sm leading-5 text-white/84 outline-none placeholder:text-white/24"
+                                  className="w-full bg-transparent text-sm font-medium leading-5 text-white/88 outline-none placeholder:text-white/24"
                                   placeholder="Subtask"
                                 />
                                 <button
@@ -4591,6 +5395,27 @@ const renderLifeGoalOverviewPage = () => (
                       </div>
 
                       <div className="space-y-2 border-t border-white/[0.05] pt-2.5 lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
+                        <div className="space-y-0.5">
+                          <p className="text-[11px] uppercase tracking-[0.18em] text-mist/58">Phase</p>
+                          <select
+                            ref={taskPeekPhaseFieldRef}
+                            value={normalizeLifeGoalPhaseValue(selectedTaskPeek.phase)}
+                            onChange={(event) =>
+                              updateSelectedTaskPeek((task) => ({
+                                ...task,
+                                phase: event.target.value,
+                              }))
+                            }
+                            className="w-full rounded-[18px] border border-white/[0.05] bg-white/[0.025] px-3 py-1.5 text-sm text-white outline-none placeholder:text-white/24"
+                          >
+                            {LIFE_GOAL_PHASE_OPTIONS.map((option) => (
+                              <option key={option} value={option} className="bg-[rgb(var(--theme-surface-elevated-rgb))] text-white">
+                                {option}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
                         <div className="space-y-0.5">
                           <p className="text-[11px] uppercase tracking-[0.18em] text-mist/58">Due date</p>
                           <div ref={taskPeekDateFieldRef} className="relative">
@@ -4773,8 +5598,8 @@ const renderLifeGoalOverviewPage = () => (
                     </div>
                   </div>
 
-                  <div className="sticky bottom-0 flex items-center justify-between gap-3 border-t border-white/[0.08] bg-[rgb(var(--theme-surface-elevated-rgb)/0.985)] px-6 py-2.5 shadow-[0_-10px_20px_rgba(0,0,0,0.12)] backdrop-blur-[10px]">
-                    <p className="max-w-[18rem] text-[11px] leading-4 text-mist/46">Enter confirms text changes and creates subtasks. Completion requires explicit action.</p>
+                  <div className="sticky bottom-0 flex items-center justify-between gap-3 border-t border-white/[0.08] bg-[rgb(var(--theme-surface-elevated-rgb)/0.985)] px-6 py-2 shadow-[0_-10px_20px_rgba(0,0,0,0.12)] backdrop-blur-[10px]">
+                    <p className="max-w-[16rem] text-[10px] leading-3.5 text-mist/38">Enter confirms text changes and creates subtasks. Completion requires explicit action.</p>
                     <div className="flex flex-wrap items-center gap-1.5">
                       <Button
                         variant="ghost"

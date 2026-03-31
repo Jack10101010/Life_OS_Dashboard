@@ -326,6 +326,7 @@ export interface LifeGoalTaskSubtask {
 export interface LifeGoalTask {
   id: string
   text: string
+  phase?: string
   description: string
   notes: string
   dueDate: string | null

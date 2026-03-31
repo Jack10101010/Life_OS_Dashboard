@@ -32,6 +32,13 @@ import {
   TrackerViewMode,
 } from '../../types'
 
+const LIFE_GOAL_PHASE_OPTIONS = new Set(['Define', 'Build', 'Refine', 'Launch', 'General'])
+
+function normalizeLifeGoalTaskPhase(phase: unknown) {
+  const trimmed = typeof phase === 'string' ? phase.trim() : ''
+  return LIFE_GOAL_PHASE_OPTIONS.has(trimmed) ? trimmed : 'General'
+}
+
 export interface PersistedAppState {
   dataByYear: Record<number, ReturnType<typeof createMockData>>
   habits: Habit[]
@@ -392,6 +399,7 @@ function normalizeLifeGoal(goal: Partial<LifeGoal>, index: number): LifeGoal {
         const candidate = (task ?? {}) as {
           id?: unknown
           text?: unknown
+          phase?: unknown
           description?: unknown
           notes?: unknown
           dueDate?: unknown
@@ -415,6 +423,7 @@ function normalizeLifeGoal(goal: Partial<LifeGoal>, index: number): LifeGoal {
               ? candidate.id
               : `life-goal-task-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
           text: typeof candidate.text === 'string' ? candidate.text.trim() : '',
+          phase: normalizeLifeGoalTaskPhase(candidate.phase),
           description: typeof candidate.description === 'string' ? candidate.description.trim() : '',
           notes: typeof candidate.notes === 'string' ? candidate.notes : '',
           dueDate: typeof candidate.dueDate === 'string' && candidate.dueDate ? candidate.dueDate : null,
