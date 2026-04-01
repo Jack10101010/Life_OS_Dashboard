@@ -1,4 +1,4 @@
-import { ReactNode } from 'react'
+import { ReactNode, useEffect, useRef, useState } from 'react'
 
 type LifeGoalRoadmapPanelProps = {
   data: {
@@ -7,6 +7,7 @@ type LifeGoalRoadmapPanelProps = {
     remainingCount: number
     lastCompletedText: string | null
     executionSummaryText: string
+    sortControl?: ReactNode
     currentContent: ReactNode
     upcomingContent: ReactNode
     completedContent: ReactNode
@@ -14,6 +15,7 @@ type LifeGoalRoadmapPanelProps = {
   }
   actions: {
     onToggleHighPriorityFocus: () => void
+    onToggleOrganizationMode: () => void
     onOpenRoadmap: () => void
     onRoadmapKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void
     onAddTask: (trigger?: HTMLElement | null) => void
@@ -23,6 +25,8 @@ type LifeGoalRoadmapPanelProps = {
     roadmapHighPriorityFocus: boolean
     completedOpen: boolean
     showHighPriorityFocus: boolean
+    organizationMode: 'default' | 'tag'
+    showTagGrouping: boolean
   }
 }
 
@@ -31,34 +35,111 @@ export function LifeGoalRoadmapPanel({
   actions,
   uiState,
 }: LifeGoalRoadmapPanelProps) {
+  const [controlsOpen, setControlsOpen] = useState(false)
+  const controlsRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (!controlsOpen) return
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!controlsRef.current?.contains(event.target as Node)) {
+        setControlsOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    return () => document.removeEventListener('mousedown', handlePointerDown)
+  }, [controlsOpen])
+
   return (
     <div className="self-start rounded-[24px] border border-white/[0.045] bg-[rgb(var(--theme-surface-elevated-rgb)/0.72)] shadow-[inset_0_1px_0_rgba(255,255,255,0.02)] xl:flex xl:h-[78vh] xl:flex-col">
-      <div className="flex flex-wrap items-center justify-between gap-3 px-4 pb-3 pt-4">
-        <div>
-          <p className="text-xs uppercase tracking-[0.18em] text-mist/68">Task roadmap</p>
-          <p className="mt-1 text-[11px] text-mist/46">{data.executionSummaryText}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {uiState.showHighPriorityFocus ? (
+      <div className="px-4 pb-3 pt-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-xs uppercase tracking-[0.18em] text-mist/68">Task roadmap</p>
+            <p className="mt-1 text-[11px] text-mist/46">{data.executionSummaryText}</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {uiState.showHighPriorityFocus ? (
+              <button
+                type="button"
+                onClick={actions.onToggleHighPriorityFocus}
+                className={`inline-flex items-center rounded-full border px-2.5 py-[5px] text-[10px] uppercase tracking-[0.14em] transition ${
+                  uiState.roadmapHighPriorityFocus
+                    ? 'border-[rgb(var(--theme-accent-rgb)/0.12)] bg-[rgb(var(--theme-accent-rgb)/0.06)] text-[rgb(var(--theme-accent-rgb)/0.72)] hover:border-[rgb(var(--theme-accent-rgb)/0.16)] hover:text-[rgb(var(--theme-accent-rgb)/0.82)]'
+                    : 'border-white/[0.045] bg-white/[0.018] text-white/50 hover:border-white/[0.08] hover:text-white/70'
+                }`}
+              >
+                High priority
+              </button>
+            ) : null}
             <button
               type="button"
-              onClick={actions.onToggleHighPriorityFocus}
-              className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] uppercase tracking-[0.14em] transition ${
-                uiState.roadmapHighPriorityFocus
-                  ? 'border-[rgb(var(--theme-accent-rgb)/0.16)] bg-[rgb(var(--theme-accent-rgb)/0.08)] text-[rgb(var(--theme-accent-rgb)/0.82)]'
-                  : 'border-white/[0.06] bg-white/[0.02] text-white/54 hover:border-white/[0.1] hover:text-white/74'
-              }`}
+              onClick={actions.onOpenRoadmap}
+              className="inline-flex items-center rounded-full border border-white/[0.045] bg-white/[0.018] px-2.5 py-[5px] text-[10px] uppercase tracking-[0.14em] text-white/50 transition hover:border-white/[0.08] hover:text-white/70"
             >
-              Focus: High priority
+              Open roadmap
             </button>
-          ) : null}
-          <button
-            type="button"
-            onClick={actions.onOpenRoadmap}
-            className="inline-flex items-center rounded-full border border-white/[0.06] bg-white/[0.02] px-2.5 py-1 text-[11px] uppercase tracking-[0.14em] text-white/54 transition hover:border-white/[0.1] hover:text-white/74"
-          >
-            Open roadmap
-          </button>
+            <div className="relative" ref={controlsRef}>
+              <button
+                type="button"
+                onClick={() => setControlsOpen((current) => !current)}
+                aria-label="Roadmap controls"
+                className="inline-flex h-[28px] w-[28px] items-center justify-center rounded-full border border-white/[0.045] bg-white/[0.018] text-white/44 transition hover:border-white/[0.08] hover:text-white/68"
+              >
+                <span className="text-[11px] leading-none">▾</span>
+              </button>
+              {controlsOpen ? (
+                <div className="absolute right-0 top-[calc(100%+8px)] z-30 min-w-[220px] rounded-[18px] border border-white/[0.07] bg-[rgb(var(--theme-surface-elevated-rgb)/0.98)] p-3 shadow-[0_18px_48px_rgba(0,0,0,0.34)]">
+                  <div className="space-y-3">
+                    <div>
+                      <p className="mb-2 text-[10px] uppercase tracking-[0.16em] text-mist/44">Sort</p>
+                      <div className="flex">{data.sortControl ?? null}</div>
+                    </div>
+                    <div>
+                      <p className="mb-2 text-[10px] uppercase tracking-[0.16em] text-mist/44">View</p>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (uiState.organizationMode !== 'default') {
+                              actions.onToggleOrganizationMode()
+                            }
+                            setControlsOpen(false)
+                          }}
+                          className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[9px] uppercase tracking-[0.14em] transition ${
+                            uiState.organizationMode === 'default'
+                              ? 'border-white/[0.08] bg-white/[0.04] text-white/74'
+                              : 'border-white/[0.04] bg-white/[0.014] text-white/42 hover:border-white/[0.07] hover:text-white/62'
+                          }`}
+                        >
+                          Default
+                        </button>
+                        {uiState.showTagGrouping ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (uiState.organizationMode !== 'tag') {
+                                actions.onToggleOrganizationMode()
+                              }
+                              setControlsOpen(false)
+                            }}
+                            className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[9px] uppercase tracking-[0.14em] transition ${
+                              uiState.organizationMode === 'tag'
+                                ? 'border-white/[0.08] bg-white/[0.04] text-white/74'
+                                : 'border-white/[0.04] bg-white/[0.014] text-white/42 hover:border-white/[0.07] hover:text-white/62'
+                            }`}
+                          >
+                            Group by tag
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </div>
         </div>
       </div>
 

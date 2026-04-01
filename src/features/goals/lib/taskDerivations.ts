@@ -229,6 +229,87 @@ export function getRoadmapPhaseGroups(tasks: LifeGoalTask[]) {
   return groups
 }
 
+export function normalizeTaskTag(tag: string) {
+  const collapsed = tag.trim().toLowerCase().replace(/\s+/g, ' ')
+  return collapsed
+}
+
+export function normalizeTaskTags(tags: string[]) {
+  const seen = new Set<string>()
+  const normalized: string[] = []
+
+  for (const tag of tags) {
+    const nextTag = normalizeTaskTag(tag)
+    if (!nextTag || seen.has(nextTag)) continue
+    seen.add(nextTag)
+    normalized.push(nextTag)
+  }
+
+  return normalized
+}
+
+export function getRoadmapTagGroups(tasks: LifeGoalTask[]) {
+  const groups: Array<{ label: string; tasks: LifeGoalTask[] }> = []
+  const groupMap = new Map<string, { label: string; tasks: LifeGoalTask[] }>()
+
+  for (const task of tasks) {
+    const normalizedTags = normalizeTaskTags(task.tags)
+    const label = normalizedTags[0] ?? 'untagged'
+    const existing = groupMap.get(label)
+
+    if (existing) {
+      existing.tasks.push(task)
+      continue
+    }
+
+    const nextGroup = { label, tasks: [task] }
+    groupMap.set(label, nextGroup)
+    groups.push(nextGroup)
+  }
+
+  return groups
+}
+
+export function sortTasksForDisplay(
+  tasks: LifeGoalTask[],
+  mode: 'default' | 'due' | 'priority',
+) {
+  if (mode === 'default') return tasks
+
+  const withIndex = tasks.map((task, index) => ({ task, index }))
+
+  return [...withIndex]
+    .sort((left, right) => {
+      if (mode === 'priority') {
+        const priorityDiff = getPriorityScore(right.task) - getPriorityScore(left.task)
+        if (priorityDiff !== 0) return priorityDiff
+        return left.index - right.index
+      }
+
+      const leftDiff = left.task.dueDate ? getDaysFromToday(left.task.dueDate) : null
+      const rightDiff = right.task.dueDate ? getDaysFromToday(right.task.dueDate) : null
+
+      const getDueBucket = (diff: number | null) => {
+        if (diff == null) return 3
+        if (diff < 0) return 0
+        if (diff === 0) return 1
+        return 2
+      }
+
+      const leftBucket = getDueBucket(leftDiff)
+      const rightBucket = getDueBucket(rightDiff)
+      if (leftBucket !== rightBucket) return leftBucket - rightBucket
+
+      if (leftDiff != null && rightDiff != null) {
+        if (leftBucket === 0 && leftDiff !== rightDiff) return leftDiff - rightDiff
+        if (leftBucket !== 0 && leftDiff !== rightDiff) return leftDiff - rightDiff
+      }
+
+      return left.index - right.index
+    })
+    .map(({ task }) => task)
+}
+
 export function getRoadmapTaskSections(tasks: LifeGoalTask[]) {
   const completed = tasks.filter((task) => task.completed)
   const incomplete = tasks.filter((task) => !task.completed)

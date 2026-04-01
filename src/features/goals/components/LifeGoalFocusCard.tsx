@@ -1,4 +1,5 @@
 import { ReactNode } from 'react'
+import { AnimatePresence, motion } from 'framer-motion'
 import { Button } from '../../../components/ui/Button'
 
 export function LifeGoalFocusCard({
@@ -9,7 +10,10 @@ export function LifeGoalFocusCard({
   whyText,
   nextTaskText,
   actionFeedback,
-  onCompleteNext,
+  primaryActionLabel,
+  onPrimaryAction,
+  completeNextVisualState = 'idle',
+  nextTaskVisualState = 'idle',
   onFocusToday,
 }: {
   title: string
@@ -19,7 +23,10 @@ export function LifeGoalFocusCard({
   whyText: string | null
   nextTaskText: string
   actionFeedback: string | null
-  onCompleteNext?: (event: React.MouseEvent<HTMLButtonElement>) => void
+  primaryActionLabel?: string
+  onPrimaryAction?: (event: React.MouseEvent<HTMLButtonElement>) => void
+  completeNextVisualState?: 'idle' | 'active'
+  nextTaskVisualState?: 'idle' | 'active'
   onFocusToday: () => void
 }) {
   return (
@@ -43,16 +50,43 @@ export function LifeGoalFocusCard({
             <p className="text-[13px] font-medium leading-5 text-white/68">{whyText}</p>
           </div>
         ) : null}
-        <div className="space-y-1.5 pt-1.5">
-          <p className="text-[11px] text-mist/62">Next task</p>
-          <p className="text-[22px] font-semibold leading-[1.28] text-white">{nextTaskText}</p>
+        <div
+          className={`group flex items-stretch gap-3 rounded-[18px] border border-white/[0.07] bg-white/[0.024] px-4 py-3 transition-[border-color,background-color,box-shadow,transform,filter] duration-200 ease-out hover:border-white/[0.1] hover:bg-white/[0.034] hover:shadow-[0_10px_24px_rgba(0,0,0,0.12)] ${
+            nextTaskVisualState === 'active'
+              ? 'goal-card-next-task-activate border-[rgb(var(--theme-accent-rgb)/0.14)] bg-[rgb(var(--theme-accent-rgb)/0.04)]'
+              : ''
+          }`}
+        >
+          <div
+            aria-hidden="true"
+            className="mt-0.5 w-[2px] shrink-0 rounded-full bg-[rgb(var(--theme-accent-rgb)/0.42)]"
+          />
+          <div className="min-w-0 space-y-1">
+            <p className="text-[11px] text-mist/58">Next task</p>
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.p
+                key={nextTaskText}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.22, ease: 'easeOut' }}
+                className="text-[22px] font-semibold leading-[1.28] text-white"
+              >
+                {nextTaskText}
+              </motion.p>
+            </AnimatePresence>
+          </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          {onCompleteNext ? (
+          {onPrimaryAction ? (
             <Button
               variant="soft"
-              onClick={onCompleteNext}
-              className="px-3 py-1.5 text-[13px] text-[rgb(var(--theme-text-primary-rgb))] shadow-[0_0_0_1px_rgb(var(--theme-accent-rgb)/0.04),0_8px_18px_rgb(var(--theme-accent-rgb)/0.08)] transition-transform duration-150 ease-out hover:-translate-y-[1px]"
+              onClick={onPrimaryAction}
+              className={`px-3 py-1.5 text-[13px] text-[rgb(var(--theme-text-primary-rgb))] shadow-[0_0_0_1px_rgb(var(--theme-accent-rgb)/0.04),0_8px_18px_rgb(var(--theme-accent-rgb)/0.08)] transition-[transform,box-shadow] duration-150 ease-out hover:-translate-y-[1px] ${
+                completeNextVisualState === 'active'
+                  ? 'scale-[0.97] shadow-[0_0_0_1px_rgb(var(--theme-accent-rgb)/0.12),0_0_20px_rgb(var(--theme-accent-rgb)/0.16)]'
+                  : ''
+              }`}
               style={{
                 borderColor: 'rgb(var(--theme-accent-rgb) / 0.18)',
                 backgroundColor: 'rgb(var(--theme-accent-rgb) / 0.12)',
@@ -66,7 +100,9 @@ export function LifeGoalFocusCard({
                 event.currentTarget.style.borderColor = 'rgb(var(--theme-accent-rgb) / 0.18)'
               }}
             >
-              Done — continue
+              {completeNextVisualState === 'active' && primaryActionLabel === 'Done — continue'
+                ? 'Completing...'
+                : primaryActionLabel}
             </Button>
           ) : null}
           <Button
@@ -77,7 +113,20 @@ export function LifeGoalFocusCard({
             Focus this today
           </Button>
         </div>
-        {actionFeedback ? <p className="text-sm text-mist">{actionFeedback}</p> : null}
+        <AnimatePresence initial={false}>
+          {actionFeedback ? (
+            <motion.p
+              key={actionFeedback}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.2, ease: 'easeOut' }}
+              className="text-sm text-mist"
+            >
+              {actionFeedback}
+            </motion.p>
+          ) : null}
+        </AnimatePresence>
       </div>
     </div>
   )

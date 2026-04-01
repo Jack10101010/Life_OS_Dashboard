@@ -3,7 +3,6 @@ import { RefObject } from 'react'
 import { Button } from '../../../components/ui/Button'
 import { FloatingPanelPosition, ModalSurface, OverlayBackdrop, OverlayRoot, PopoverSurface, DialogSurface } from '../../../components/layout/OverlayPrimitives'
 import { LifeGoalTask, LifeGoalTaskPriority } from '../../../types'
-import { LIFE_GOAL_PHASE_OPTIONS } from '../lib/taskDerivations'
 
 type DeleteConfirmation =
   | { kind: 'task'; taskId: string }
@@ -37,7 +36,6 @@ type LifeGoalTaskPeekProps = {
   refs: {
     panelRef: RefObject<HTMLDivElement | null>
     titleRef: RefObject<HTMLTextAreaElement | null>
-    phaseFieldRef: RefObject<HTMLSelectElement | null>
     dateFieldRef: RefObject<HTMLDivElement | null>
     datePanelRef: RefObject<HTMLDivElement | null>
     subtaskDraftRef: RefObject<HTMLInputElement | null>
@@ -53,9 +51,12 @@ type LifeGoalTaskPeekProps = {
     onTitleChange: (value: string) => void
     onDescriptionChange: (value: string) => void
     onNotesChange: (value: string) => void
-    onPhaseChange: (value: string) => void
     onPriorityChange: (value: LifeGoalTaskPriority) => void
-    onTagsChange: (value: string) => void
+    tagDraft: string
+    setTagDraft: (value: string) => void
+    onTagKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => void
+    onAddTag: () => void
+    onRemoveTag: (tag: string) => void
     onOpenDatePicker: () => void
     onCloseDatePicker: () => void
     onApplyDate: (value: string) => void
@@ -325,22 +326,6 @@ export function LifeGoalTaskPeek({
 
                   <div className="space-y-2 border-t border-white/[0.05] pt-2.5 lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
                     <div className="space-y-0.5">
-                      <p className="text-[11px] uppercase tracking-[0.18em] text-mist/58">Phase</p>
-                      <select
-                        ref={refs.phaseFieldRef}
-                        value={task.phase?.trim() ? task.phase : 'General'}
-                        onChange={(event) => actions.onPhaseChange(event.target.value)}
-                        className="w-full rounded-[18px] border border-white/[0.05] bg-white/[0.025] px-3 py-1.5 text-sm text-white outline-none placeholder:text-white/24"
-                      >
-                        {LIFE_GOAL_PHASE_OPTIONS.map((option) => (
-                          <option key={option} value={option} className="bg-[rgb(var(--theme-surface-elevated-rgb))] text-white">
-                            {option}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div className="space-y-0.5">
                       <p className="text-[11px] uppercase tracking-[0.18em] text-mist/58">Due date</p>
                       <div ref={refs.dateFieldRef} className="relative">
                         <button
@@ -458,7 +443,9 @@ export function LifeGoalTaskPeek({
                             onClick={() => actions.onPriorityChange(option.value)}
                             className={`inline-flex h-6 items-center rounded-full border px-2.5 text-[10px] uppercase tracking-[0.12em] transition ${
                               task.priority === option.value
-                                ? 'border-white/[0.12] bg-white/[0.08] text-white'
+                                ? option.value === 'high'
+                                  ? 'border-[rgb(var(--theme-negative-rgb)/0.28)] bg-[rgb(var(--theme-negative-rgb)/0.08)] text-[rgb(var(--theme-negative-rgb)/0.95)]'
+                                  : 'border-white/[0.12] bg-white/[0.08] text-white'
                                 : 'border-white/[0.05] bg-white/[0.02] text-white/56 hover:text-white/78'
                             }`}
                           >
@@ -470,13 +457,38 @@ export function LifeGoalTaskPeek({
 
                     <div className="space-y-0.5">
                       <p className="text-[11px] uppercase tracking-[0.18em] text-mist/58">Tags</p>
-                      <input
-                        value={task.tags.join(', ')}
-                        onChange={(event) => actions.onTagsChange(event.target.value)}
-                        spellCheck={false}
-                        className="w-full rounded-[18px] border border-white/[0.05] bg-white/[0.025] px-3 py-1.5 text-sm text-white outline-none placeholder:text-white/24"
-                        placeholder="Focus, Deep work"
-                      />
+                      <div className="rounded-[18px] border border-white/[0.03] bg-white/[0.018] px-3 py-2 transition focus-within:border-white/[0.08] focus-within:bg-white/[0.025]">
+                        {task.tags.length > 0 ? (
+                          <div className="mb-1.5 flex flex-wrap gap-1.5">
+                            {task.tags.map((tag) => (
+                              <span
+                                key={tag}
+                                className="inline-flex items-center gap-1 rounded-full border border-white/[0.06] bg-white/[0.03] px-2 py-0.5 text-[10px] tracking-[0.04em] text-white/62"
+                              >
+                                <span>{tag}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => actions.onRemoveTag(tag)}
+                                  className="text-white/42 transition hover:text-white/74"
+                                  aria-label={`Remove ${tag} tag`}
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
+                        <div className="flex items-center gap-2">
+                          <input
+                            value={actions.tagDraft}
+                            onChange={(event) => actions.setTagDraft(event.target.value)}
+                            onKeyDown={actions.onTagKeyDown}
+                            spellCheck={false}
+                            className="w-full bg-transparent text-sm text-white outline-none placeholder:text-white/24"
+                            placeholder="Add tag..."
+                          />
+                        </div>
+                      </div>
                     </div>
 
                     <div className="text-[11px] leading-4 text-mist/34">
@@ -494,8 +506,7 @@ export function LifeGoalTaskPeek({
                 </div>
               </div>
 
-              <div className="sticky bottom-0 flex items-center justify-between gap-3 border-t border-white/[0.08] bg-[rgb(var(--theme-surface-elevated-rgb)/0.985)] px-6 py-2 shadow-[0_-10px_20px_rgba(0,0,0,0.12)] backdrop-blur-[10px]">
-                <p className="max-w-[16rem] text-[10px] leading-3.5 text-mist/38">Enter confirms text changes and creates subtasks. Completion requires explicit action.</p>
+              <div className="sticky bottom-0 flex items-center justify-end gap-1.5 border-t border-white/[0.08] bg-[rgb(var(--theme-surface-elevated-rgb)/0.985)] px-6 py-2 shadow-[0_-10px_20px_rgba(0,0,0,0.12)] backdrop-blur-[10px]">
                 <div className="flex flex-wrap items-center gap-1.5">
                   <Button
                     variant="ghost"
@@ -515,9 +526,6 @@ export function LifeGoalTaskPeek({
                     </Button>
                   ) : (
                     <>
-                      <Button variant="ghost" onClick={(event) => actions.onCompleteNext(event.currentTarget)}>
-                        Complete + next
-                      </Button>
                       <Button variant="soft" onClick={(event) => actions.onCompleteTask(event.currentTarget)}>
                         Complete task
                       </Button>
