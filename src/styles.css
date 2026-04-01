@@ -283,6 +283,12 @@ body {
   background: rgb(var(--theme-text-faint-rgb) / 0.4);
 }
 
+.cursor-middle-finger {
+  cursor:
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'><text x='16' y='22' text-anchor='middle' font-size='20'>%F0%9F%96%95</text></svg>") 16 16,
+    pointer;
+}
+
 .theme-section-title {
   font-size: 14px;
   line-height: 1.2;
@@ -535,12 +541,40 @@ body {
   }
 }
 
+@keyframes roadmap-current-node-pulse {
+  0%,
+  100% {
+    opacity: 0.18;
+    transform: scale(0.92);
+  }
+
+  50% {
+    opacity: 0.3;
+    transform: scale(1.06);
+  }
+}
+
 .dailylog-reveal {
   animation: dailylog-reveal 140ms ease-out;
 }
 
 .tag-pill-select {
   animation: tag-pill-select 120ms ease-out;
+}
+
+.roadmap-current-node-pulse {
+  animation: roadmap-current-node-pulse 3s ease-in-out infinite;
+}
+
+.group:hover .roadmap-current-node-pulse,
+.group:focus-visible .roadmap-current-node-pulse {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .roadmap-current-node-pulse {
+    animation: none;
+  }
 }
 
 :root[data-theme='light'] [class*='text-white'] {

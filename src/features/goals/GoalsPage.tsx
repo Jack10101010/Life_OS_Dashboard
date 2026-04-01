@@ -75,6 +75,7 @@ type GoalsView = 'life-overview' | 'life-detail' | 'habit-goals'
 type LifeGoalDetailTab = 'focus' | 'tasks' | 'roadmap' | 'why' | 'progress'
 type LifeGoalComposerMode = 'create' | 'edit'
 type LifeGoalOverviewMode = 'manual' | 'grouped'
+type LifeGoalOverviewDensity = 'compact' | 'expanded'
 
 type LifeGoalDraftTask = {
   id: string
@@ -1153,6 +1154,7 @@ export function GoalsPage({
   const [lifeGoalActiveDateField, setLifeGoalActiveDateField] = useState<'startDate' | 'targetDate' | null>(null)
   const [lifeGoalStatusMenuOpen, setLifeGoalStatusMenuOpen] = useState(false)
   const [lifeGoalOverviewMode, setLifeGoalOverviewMode] = useState<LifeGoalOverviewMode>('manual')
+  const [lifeGoalOverviewDensity, setLifeGoalOverviewDensity] = useState<LifeGoalOverviewDensity>('compact')
   const [lifeGoalDateViewMonth, setLifeGoalDateViewMonth] = useState(() => startOfCalendarMonth(getCalendarMonthDate()))
   const [lifeGoalCategoryPanelPosition, setLifeGoalCategoryPanelPosition] = useState<FloatingPanelPosition | null>(null)
   const [lifeGoalDatePanelPosition, setLifeGoalDatePanelPosition] = useState<FloatingPanelPosition | null>(null)
@@ -3015,6 +3017,25 @@ const renderLifeGoalOverviewPage = () => (
             )
           })}
         </div>
+        <div className="theme-surface-soft inline-flex rounded-full border p-1">
+          {(['compact', 'expanded'] as LifeGoalOverviewDensity[]).map((density) => {
+            const active = lifeGoalOverviewDensity === density
+            return (
+              <button
+                key={density}
+                type="button"
+                onClick={() => setLifeGoalOverviewDensity(density)}
+                className={`rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                  active
+                    ? 'theme-button-secondary theme-text-primary'
+                    : 'theme-text-muted hover:text-[rgb(var(--theme-text-primary-rgb))]'
+                }`}
+              >
+                {density === 'compact' ? 'Compact' : 'Expanded'}
+              </button>
+            )
+          })}
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -3045,6 +3066,124 @@ const renderLifeGoalOverviewPage = () => (
       ) : null}
 
       {visibleLifeGoals.length > 0 ? (() => {
+        const renderOverviewGoalRow = (goal: LifeGoal) => {
+            const statusMeta = getLifeGoalStatusMeta(goal.status, goal.startDate)
+            const goalDueMeta = isValidIsoDate(goal.targetDate) ? getRelativeDueMeta(goal.targetDate) : null
+            const progress = getLifeGoalProgress(goal)
+            const categoryColor = goal.category ? getLifeGoalCategoryColor(goal.category, lifeGoalCategories) : 'neutral'
+            const isPrimary = goal.id === featuredOverviewGoalId
+            const isSelected = goal.id === selectedLifeGoalId
+            const canDrag = lifeGoalOverviewMode === 'manual' && !goal.isPrimary
+            const dueText = goalDueMeta
+              ? goalDueMeta.label
+              : goal.targetDate
+                ? formatDate(goal.targetDate)
+                : null
+
+            return (
+              <button
+                key={goal.id}
+                type="button"
+                draggable={canDrag}
+                onDragStart={() => {
+                  if (!canDrag) return
+                  setDraggedLifeGoalId(goal.id)
+                  setDragOverLifeGoalId(goal.id)
+                }}
+                onDragEnd={() => {
+                  if (!canDrag) return
+                  setDraggedLifeGoalId(null)
+                  setDragOverLifeGoalId(null)
+                }}
+                onDragOver={(event) => {
+                  if (!canDrag || goal.isPrimary) return
+                  event.preventDefault()
+                  if (dragOverLifeGoalId !== goal.id) {
+                    setDragOverLifeGoalId(goal.id)
+                  }
+                }}
+                onDrop={(event) => {
+                  if (!canDrag || goal.isPrimary) return
+                  event.preventDefault()
+                  if (!draggedLifeGoalId || draggedLifeGoalId === goal.id) {
+                    setDraggedLifeGoalId(null)
+                    setDragOverLifeGoalId(null)
+                    return
+                  }
+                  const nextVisibleOrder = [...visibleLifeGoals]
+                  const fromIndex = nextVisibleOrder.findIndex((item) => item.id === draggedLifeGoalId)
+                  const toIndex = nextVisibleOrder.findIndex((item) => item.id === goal.id)
+                  if (fromIndex === -1 || toIndex === -1) return
+                  const [moved] = nextVisibleOrder.splice(fromIndex, 1)
+                  nextVisibleOrder.splice(toIndex, 0, moved)
+
+                  const reorderedVisibleIds = nextVisibleOrder.map((item) => item.id)
+                  let visibleCursor = 0
+                  const nextFullOrder = sortedLifeGoals.map((item) =>
+                    reorderedVisibleIds.includes(item.id)
+                      ? nextVisibleOrder[visibleCursor++]
+                      : item,
+                  )
+                  onReorderLifeGoals(nextFullOrder.map((item) => item.id))
+                  setDraggedLifeGoalId(null)
+                  setDragOverLifeGoalId(null)
+                }}
+                onClick={() => {
+                  onSelectLifeGoal(goal.id)
+                  setLifeGoalComposerOpen(false)
+                  setLifeGoalActionFeedback(null)
+                  onChangeGoalsView('life-detail')
+                }}
+                className={`cursor-middle-finger group relative isolate flex w-full cursor-pointer items-center justify-between gap-4 overflow-hidden rounded-[16px] border px-4 py-3 text-left transition duration-200 ease-out hover:scale-[1.005] hover:bg-[rgb(var(--theme-surface-elevated-rgb)/0.62)] hover:border-[rgb(var(--theme-border-strong-rgb)/0.84)] hover:shadow-[inset_0_1px_0_rgb(255_255_255_/_0.04),0_0_0_1px_rgb(var(--theme-border-strong-rgb)/0.08)] ${
+                  isPrimary
+                    ? 'border-[rgb(var(--theme-border-strong-rgb))] bg-[rgb(var(--theme-surface-elevated-rgb))]'
+                    : 'border-[rgb(var(--theme-border-subtle-rgb)/0.8)] bg-[rgb(var(--theme-surface-rgb)/0.94)]'
+                } ${canDrag ? 'cursor-grab active:cursor-grabbing' : ''} ${draggedLifeGoalId === goal.id ? 'opacity-60' : ''} ${dragOverLifeGoalId === goal.id && draggedLifeGoalId && draggedLifeGoalId !== goal.id ? 'border-[rgb(var(--theme-info-rgb)/0.62)]' : ''}`}
+                style={{
+                  ...(isSelected ? getLifeGoalCardHighlightStyle(categoryColor) : {}),
+                  pointerEvents: 'auto',
+                }}
+              >
+                <span
+                  aria-hidden="true"
+                  className={`pointer-events-none absolute left-0 top-2.5 bottom-2.5 rounded-full ${isPrimary ? 'w-[3px]' : 'w-[2px]'}`}
+                  style={getLifeGoalAccentBarStyle(categoryColor, isPrimary)}
+                />
+
+                <div className="min-w-0 pl-3">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <p className="truncate text-[15px] font-medium text-white">{formatGoalCardTitle(goal.title)}</p>
+                    {goal.category ? (
+                      <span
+                        className="inline-flex items-center gap-1.5 rounded-full border px-2 py-[3px] text-[10px] font-medium tracking-[0.06em] leading-none text-[rgb(var(--theme-text-muted-rgb))]"
+                        style={getLifeGoalCategoryChipStyle(categoryColor)}
+                      >
+                        <span className="h-1.5 w-1.5 rounded-full" style={getLifeGoalCategoryDotStyle(categoryColor)} />
+                        <span>{goal.category}</span>
+                      </span>
+                    ) : null}
+                    {goal.isPrimary ? (
+                      <span className="inline-flex items-center rounded-full border border-white/[0.08] bg-white/[0.02] px-2 py-[3px] text-[10px] font-medium uppercase tracking-[0.1em] leading-none text-white/58">
+                        Primary
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="flex shrink-0 items-center gap-3 text-right">
+                  {dueText ? (
+                    <span className={`text-[12px] ${goalDueMeta?.toneClassName ?? 'text-mist/56'}`}>
+                      {dueText}
+                    </span>
+                  ) : null}
+                  <span className={`${goalStatusChipClassName} h-6 shrink-0 px-2.5 py-0 text-[10px] ${statusMeta.badgeClassName}`}>
+                    {isLifeGoalScheduled(goal.status, goal.startDate) ? 'Scheduled' : statusMeta.label}
+                  </span>
+                </div>
+              </button>
+            )
+          }
+
         const renderOverviewGoalCard = (goal: LifeGoal) => {
             const statusMeta = getLifeGoalStatusMeta(goal.status, goal.startDate)
             const secondaryContext = getLifeGoalSecondaryContext(goal)
@@ -3115,7 +3254,7 @@ const renderLifeGoalOverviewPage = () => (
                   setLifeGoalActionFeedback(null)
                   onChangeGoalsView('life-detail')
                 }}
-                className={`group relative block w-full overflow-hidden rounded-[26px] border px-5 pt-4 pb-[15px] text-left transition-all duration-150 ease-out hover:-translate-y-0.5 active:scale-[0.995] ${
+                className={`cursor-middle-finger group relative block w-full overflow-hidden rounded-[26px] border px-5 pt-4 pb-[15px] text-left transition-all duration-150 ease-out hover:-translate-y-0.5 active:scale-[0.995] ${
                   isPrimary
                     ? 'border-[rgb(var(--theme-border-strong-rgb))] bg-[rgb(var(--theme-surface-elevated-rgb))] shadow-[inset_0_1px_0_rgb(255_255_255_/_0.06),0_0_0_1px_rgb(var(--theme-border-strong-rgb)/0.16)] hover:bg-[rgb(var(--theme-surface-elevated-rgb))]'
                     : 'border-[rgb(var(--theme-border-subtle-rgb))] bg-[rgb(var(--theme-surface-rgb))] shadow-[inset_0_1px_0_rgb(255_255_255_/_0.04),0_0_0_1px_rgb(var(--theme-border-subtle-rgb)/0.14)] hover:border-[rgb(var(--theme-border-strong-rgb)/0.88)] hover:bg-[rgb(var(--theme-surface-elevated-rgb)/0.62)]'
@@ -3275,8 +3414,11 @@ const renderLifeGoalOverviewPage = () => (
             )
           }
 
+        const renderGoalItem = (goal: LifeGoal) =>
+          lifeGoalOverviewDensity === 'compact' ? renderOverviewGoalRow(goal) : renderOverviewGoalCard(goal)
+
         if (lifeGoalOverviewMode === 'manual') {
-          return <div className="space-y-3">{visibleLifeGoals.map((goal) => renderOverviewGoalCard(goal))}</div>
+          return <div className={lifeGoalOverviewDensity === 'compact' ? 'space-y-2' : 'space-y-3'}>{visibleLifeGoals.map((goal) => renderGoalItem(goal))}</div>
         }
 
         const primaryGoal = visibleLifeGoals.find((goal) => goal.isPrimary) ?? null
@@ -3300,7 +3442,7 @@ const renderLifeGoalOverviewPage = () => (
 
         return (
           <div className="space-y-4">
-            {primaryGoal ? <div className="space-y-3">{renderOverviewGoalCard(primaryGoal)}</div> : null}
+            {primaryGoal ? <div className={lifeGoalOverviewDensity === 'compact' ? 'space-y-2' : 'space-y-3'}>{renderGoalItem(primaryGoal)}</div> : null}
             {orderedGroupedKeys.map((categoryKey) => {
               const goals = groupedByCategory.get(categoryKey)
               if (!goals || goals.length === 0) return null
@@ -3318,12 +3460,12 @@ const renderLifeGoalOverviewPage = () => (
                         {categoryName}
                       </h3>
                     </div>
-                    <div
+                  <div
                       aria-hidden="true"
                       className="h-px bg-[linear-gradient(90deg,transparent_0%,rgb(var(--theme-border-subtle-rgb)/0.16)_10%,rgb(var(--theme-border-subtle-rgb)/0.1)_56%,transparent_100%)]"
                     />
                   </div>
-                  <div className="space-y-3">{goals.map((goal) => renderOverviewGoalCard(goal))}</div>
+                  <div className={lifeGoalOverviewDensity === 'compact' ? 'space-y-2' : 'space-y-3'}>{goals.map((goal) => renderGoalItem(goal))}</div>
                 </section>
               )
             })}
@@ -4309,11 +4451,11 @@ const renderLifeGoalOverviewPage = () => (
                           type="button"
                           onClick={(event) => openTaskPeek(task.id, event.currentTarget)}
                           onKeyDown={(event) => handleTaskRowKeyDown(event, task.id)}
-                          className="grid w-full grid-cols-[24px_minmax(0,1fr)] items-start gap-x-3 gap-y-1 py-[10px] text-left transition hover:bg-white/[0.012]"
+                          className="group grid w-full grid-cols-[24px_minmax(0,1fr)] items-start gap-x-3 gap-y-1 rounded-[12px] py-[10px] text-left transition duration-200 ease-out hover:bg-white/[0.014]"
                           style={{ opacity: visualState.opacity }}
                         >
                           <span aria-hidden="true" className="relative z-[1] mt-[2px] flex h-4 w-4 items-center justify-center justify-self-center">
-                            <span className="h-1.5 w-1.5 rounded-full bg-[rgb(var(--theme-accent-rgb)/0.5)]" />
+                            <span className="h-1.5 w-1.5 rounded-full bg-[rgb(var(--theme-accent-rgb)/0.5)] transition-transform duration-200 ease-out group-hover:scale-110" />
                           </span>
                           <div className="min-w-0 border-b border-white/[0.02] pb-[10px]">
                             <p className={`text-[14px] ${visualState.titleClassName}`}>{task.text}</p>
@@ -4344,7 +4486,7 @@ const renderLifeGoalOverviewPage = () => (
                       const visualState = getRoadmapTaskVisualState(task, 'current', roadmapHighPriorityFocus)
                       return (
                         <div key={task.id}>
-                          <p className="pb-2 pl-[36px] text-[10px] font-medium uppercase tracking-[0.18em] text-[rgb(var(--theme-accent-rgb)/0.72)]">
+                          <p className="pb-2 pl-[36px] text-[10px] font-medium uppercase tracking-[0.18em] text-[rgb(var(--theme-accent-rgb)/0.96)] [text-shadow:0_0_10px_rgb(var(--theme-accent-rgb)/0.42),0_0_18px_rgb(var(--theme-accent-rgb)/0.18)]">
                             You are here
                           </p>
                           <button
@@ -4367,15 +4509,16 @@ const renderLifeGoalOverviewPage = () => (
                               setDraggedTaskId(null)
                               setDragOverTaskId(null)
                             }}
-                            className={`relative grid w-full grid-cols-[24px_minmax(0,1fr)] items-start gap-x-3 gap-y-1 rounded-[16px] border border-transparent bg-[rgb(var(--theme-accent-rgb)/0.04)] py-[18px] text-left transition hover:bg-[rgb(var(--theme-accent-rgb)/0.055)] ${
+                            className={`group relative grid w-full grid-cols-[24px_minmax(0,1fr)] items-start gap-x-3 gap-y-1 rounded-none border border-[rgb(var(--theme-accent-rgb)/0.14)] bg-white/[0.014] py-[18px] text-left transition duration-200 ease-out hover:bg-white/[0.022] hover:border-[rgb(var(--theme-accent-rgb)/0.18)] ${
                               dragOverTaskId === task.id && draggedTaskId && draggedTaskId !== task.id
-                                ? 'bg-[rgb(var(--theme-accent-rgb)/0.07)]'
+                                ? 'bg-white/[0.03]'
                                 : ''
                             }`}
                             style={{ ...visualState.rowStyle, opacity: visualState.opacity }}
                           >
                             <span aria-hidden="true" className="relative z-[1] mt-[2px] flex h-[18px] w-[18px] items-center justify-center justify-self-center">
-                              <span className={`h-[10px] w-[10px] rounded-full ${getPriorityScore(task) === 3 ? 'bg-[rgb(var(--theme-accent-rgb)/0.98)] shadow-[0_0_10px_rgb(var(--theme-accent-rgb)/0.18)]' : 'bg-[rgb(var(--theme-accent-rgb)/0.92)] shadow-[0_0_8px_rgb(var(--theme-accent-rgb)/0.12)]'}`} />
+                              <span className="roadmap-current-node-pulse absolute h-[20px] w-[20px] rounded-full bg-[rgb(var(--theme-accent-rgb)/0.22)] blur-[6px]" />
+                              <span className={`relative h-[10px] w-[10px] rounded-full transition-transform duration-200 ease-out group-hover:scale-110 ${getPriorityScore(task) === 3 ? 'bg-[rgb(var(--theme-accent-rgb)/0.98)] shadow-[0_0_8px_rgb(var(--theme-accent-rgb)/0.1)]' : 'bg-[rgb(var(--theme-accent-rgb)/0.92)] shadow-[0_0_6px_rgb(var(--theme-accent-rgb)/0.08)]'}`} />
                             </span>
                             <div className="min-w-0 px-1 pb-4 pt-0.5">
                               <div className="min-w-0">
@@ -4429,13 +4572,13 @@ const renderLifeGoalOverviewPage = () => (
                             setDraggedTaskId(null)
                             setDragOverTaskId(null)
                           }}
-                          className={`relative grid w-full grid-cols-[24px_minmax(0,1fr)] items-start gap-x-3 gap-y-1 rounded-[14px] py-[10px] text-left transition hover:bg-white/[0.015] ${
+                          className={`group relative grid w-full grid-cols-[24px_minmax(0,1fr)] items-start gap-x-3 gap-y-1 rounded-[14px] py-[10px] text-left transition duration-200 ease-out hover:bg-white/[0.015] ${
                             dragOverTaskId === task.id && draggedTaskId && draggedTaskId !== task.id ? 'bg-white/[0.028]' : ''
                           }`}
                           style={{ ...visualState.rowStyle, opacity: visualState.opacity }}
                         >
-                          <span aria-hidden="true" className="relative z-[1] justify-self-center mt-[2px] flex h-4 w-4 items-center justify-center transition group-hover:scale-[1.04]">
-                            <span className={`h-1.5 w-1.5 rounded-full border border-white/[0.26] bg-transparent ${getPriorityScore(task) === 3 ? 'shadow-[0_0_0_1px_rgb(var(--theme-accent-rgb)/0.08)]' : ''}`} />
+                          <span aria-hidden="true" className="relative z-[1] justify-self-center mt-[2px] flex h-4 w-4 items-center justify-center">
+                            <span className={`h-1.5 w-1.5 rounded-full border border-white/[0.26] bg-transparent transition-transform duration-200 ease-out group-hover:scale-110 ${getPriorityScore(task) === 3 ? 'shadow-[0_0_0_1px_rgb(var(--theme-accent-rgb)/0.08)]' : ''}`} />
                           </span>
                           <div className="min-w-0 border-b border-white/[0.02] pb-[10px]">
                             <div className="min-w-0">
