@@ -302,6 +302,7 @@ export default function App() {
           days={dataset.days}
           tags={tags}
           tasks={tasks}
+          lifeGoals={lifeGoals}
           habitTrackers={habitTrackers}
           year={filters.year}
           badHabitStreaks={visibleBadHabitStreaks}
@@ -315,6 +316,8 @@ export default function App() {
                 dueDate: new Date().toISOString().slice(0, 10),
                 starred: false,
                 important: false,
+                linkedGoalId: null,
+                linkedDirectionId: null,
                 completed: false,
                 completedAt: null,
               },
@@ -359,6 +362,11 @@ export default function App() {
             )
           }
           onDeleteTask={(taskId) => setTasks((current) => current.filter((task) => task.id !== taskId))}
+          onUpdateTask={(taskId, updater) =>
+            setTasks((current) =>
+              current.map((task) => (task.id === taskId ? updater(task) : task)),
+            )
+          }
           onOpenToday={() => openToday(false, setPage)}
           onOpenFullNote={() => openToday(true, setPage)}
           onOpenTracker={() => {
@@ -564,6 +572,7 @@ export default function App() {
           habitTrackers={habitTrackers}
           lifeGoals={lifeGoals}
           lifeGoalCategories={lifeGoalCategories}
+          tasks={tasks}
           days={dataset.days}
           badHabitDateMap={badHabitDateMap}
           year={filters.year}
@@ -675,6 +684,7 @@ export default function App() {
               },
             }))
           }}
+          onOpenGlobalTasks={() => setPage('dashboard')}
         />
       )
     }

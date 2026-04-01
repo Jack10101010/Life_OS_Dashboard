@@ -17,6 +17,7 @@ import {
   LifeGoalCategoryColor,
   LifeGoalCategoryDefinition,
   LifeGoal,
+  LifeGoalType,
   LifeGoalTaskPriority,
   PageId,
   SettingsState,
@@ -376,10 +377,18 @@ function ensureYearDataset(
 function normalizeLifeGoal(goal: Partial<LifeGoal>, index: number): LifeGoal {
   const createdAt = typeof goal.createdAt === 'string' && goal.createdAt ? goal.createdAt : new Date().toISOString()
   const defaultStartDate = createdAt.slice(0, 10)
+  const goalType: LifeGoalType =
+    goal.goalType === 'system' || goal.goalType === 'directional' || goal.goalType === 'outcome'
+      ? goal.goalType
+      : 'outcome'
   return {
     id: typeof goal.id === 'string' && goal.id ? goal.id : `life-goal-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
     title: typeof goal.title === 'string' ? goal.title.trim() : '',
     category: typeof goal.category === 'string' ? goal.category.trim() : '',
+    goalType,
+    relatedGoalIds: Array.isArray(goal.relatedGoalIds)
+      ? goal.relatedGoalIds.filter((relatedGoalId): relatedGoalId is string => typeof relatedGoalId === 'string' && relatedGoalId.length > 0)
+      : [],
     whyItMatters: typeof goal.whyItMatters === 'string' ? goal.whyItMatters.trim() : '',
     visionStatement:
       typeof (goal as Partial<LifeGoal> & { visionStatement?: unknown }).visionStatement === 'string'
@@ -514,12 +523,27 @@ function normalizeLifeGoalCategories(
 }
 
 function normalizeTask(task: Partial<Task>): Task {
+  const rawLinkedGoalId =
+    typeof (task as Partial<Task> & { linkedGoalId?: unknown }).linkedGoalId === 'string' &&
+    (task as Partial<Task> & { linkedGoalId?: string }).linkedGoalId?.trim()
+      ? (task as Partial<Task> & { linkedGoalId?: string }).linkedGoalId!.trim()
+      : null
+  const rawLinkedDirectionId =
+    typeof (task as Partial<Task> & { linkedDirectionId?: unknown }).linkedDirectionId === 'string' &&
+    (task as Partial<Task> & { linkedDirectionId?: string }).linkedDirectionId?.trim()
+      ? (task as Partial<Task> & { linkedDirectionId?: string }).linkedDirectionId!.trim()
+      : null
+  const linkedGoalId = rawLinkedGoalId
+  const linkedDirectionId = linkedGoalId ? null : rawLinkedDirectionId
+
   return {
     id: task.id ?? `task-${Date.now().toString(36)}`,
     text: typeof task.text === 'string' ? task.text.trim() : typeof (task as { title?: string }).title === 'string' ? (task as { title: string }).title.trim() : '',
     dueDate: typeof task.dueDate === 'string' ? task.dueDate : new Date().toISOString().slice(0, 10),
     starred: (task as Partial<Task> & { starred?: boolean }).starred ?? task.important ?? false,
     important: (task as Partial<Task> & { important?: boolean }).important ?? false,
+    linkedGoalId,
+    linkedDirectionId,
     completed: task.completed ?? false,
     completedAt: typeof task.completedAt === 'string' ? task.completedAt : null,
   }

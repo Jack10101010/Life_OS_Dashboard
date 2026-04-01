@@ -19,7 +19,7 @@ import {
 } from '../../lib/persistence/workspace'
 import { readJsonStorage, writeJsonStorage } from '../../lib/persistence/storage'
 import { getRollingMomentumMetrics, type RollingMomentumMetrics } from '../../lib/momentum'
-import { BadHabitDefinition, DashboardFinanceSheet, DashboardScratchpad, DayEntry, DayEventEntry, DayEventTagEntry, HabitTracker, ScratchpadFreeNote, ScratchpadLineItem, Tag, Task, WeekEntry } from '../../types'
+import { BadHabitDefinition, DashboardFinanceSheet, DashboardScratchpad, DayEntry, DayEventEntry, DayEventTagEntry, HabitTracker, LifeGoal, ScratchpadFreeNote, ScratchpadLineItem, Tag, Task, WeekEntry } from '../../types'
 import { useDashboardState } from '../../hooks/useDashboardState'
 
 const TASK_PANEL_WIDTH_STORAGE_KEY = 'life-dashboard:task-panel-expanded'
@@ -30,6 +30,7 @@ export function DashboardPage({
   days,
   tags,
   tasks,
+  lifeGoals,
   habitTrackers,
   year,
   badHabitStreaks,
@@ -40,6 +41,7 @@ export function DashboardPage({
   onToggleTaskImportant,
   onToggleTask,
   onDeleteTask,
+  onUpdateTask,
   onOpenWeek,
   onGoToTrackerWeek,
   onOpenToday,
@@ -52,6 +54,7 @@ export function DashboardPage({
   days: DayEntry[]
   tags: Tag[]
   tasks: Task[]
+  lifeGoals: LifeGoal[]
   habitTrackers: HabitTracker[]
   year: number
   badHabitStreaks: Array<{ habit: BadHabitDefinition; streak: number; startsToday?: boolean; brokenToday?: boolean }>
@@ -62,6 +65,7 @@ export function DashboardPage({
   onToggleTaskImportant: (taskId: string) => void
   onToggleTask: (taskId: string) => void
   onDeleteTask: (taskId: string) => void
+  onUpdateTask: (taskId: string, updater: (task: Task) => Task) => void
   onOpenWeek: (week: WeekEntry) => void
   onGoToTrackerWeek: (week: WeekEntry) => void
   onOpenToday: () => void
@@ -2254,6 +2258,11 @@ export function DashboardPage({
                             {task.starred ? <span>• Focused</span> : null}
                             {task.important ? <span className="text-[#D58A82]">• Important</span> : null}
                           </div>
+                          <GlobalTaskLinkControl
+                            task={task}
+                            goals={lifeGoals}
+                            onChange={(updater) => onUpdateTask(task.id, updater)}
+                          />
                         </div>
                       </div>
                     </div>
@@ -2380,6 +2389,170 @@ export function DashboardPage({
       ) : null}
         </>
       )}
+    </div>
+  )
+}
+
+function GlobalTaskLinkControl({
+  task,
+  goals,
+  onChange,
+}: {
+  task: Task
+  goals: LifeGoal[]
+  onChange: (updater: (task: Task) => Task) => void
+}) {
+  const linkedMode: 'none' | 'goal' | 'direction' =
+    task.linkedDirectionId ? 'direction' : task.linkedGoalId ? 'goal' : 'none'
+  const [selectionMode, setSelectionMode] = useState<'none' | 'goal' | 'direction'>(linkedMode)
+  const candidateGoals = useMemo(
+    () =>
+      goals.filter((goal) =>
+        selectionMode === 'direction' ? goal.goalType === 'directional' : goal.goalType !== 'directional',
+      ),
+    [goals, selectionMode],
+  )
+  const selectedGoal = useMemo(
+    () =>
+      candidateGoals.find((goal) =>
+        selectionMode === 'direction' ? goal.id === task.linkedDirectionId : goal.id === task.linkedGoalId,
+      ) ?? null,
+    [candidateGoals, selectionMode, task.linkedDirectionId, task.linkedGoalId],
+  )
+  const [query, setQuery] = useState('')
+
+  useEffect(() => {
+    if (task.linkedGoalId || task.linkedDirectionId) {
+      setSelectionMode(linkedMode)
+    }
+  }, [linkedMode, task.id, task.linkedDirectionId, task.linkedGoalId])
+
+  useEffect(() => {
+    setQuery(selectedGoal?.title ?? '')
+  }, [selectedGoal?.title, selectionMode, task.id])
+
+  const filteredGoals = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase()
+    if (!normalizedQuery) return candidateGoals.slice(0, 8)
+
+    return candidateGoals
+      .filter((goal) => {
+        const category = goal.category.trim().toLowerCase()
+        return goal.title.toLowerCase().includes(normalizedQuery) || category.includes(normalizedQuery)
+      })
+      .slice(0, 8)
+  }, [candidateGoals, query])
+
+  const setMode = (mode: 'none' | 'goal' | 'direction') => {
+    setSelectionMode(mode)
+
+    if (mode === 'none') {
+      setQuery('')
+      onChange((current) => ({
+        ...current,
+        linkedGoalId: null,
+        linkedDirectionId: null,
+      }))
+      return
+    }
+
+    setQuery('')
+    onChange((current) => ({
+      ...current,
+      linkedGoalId: null,
+      linkedDirectionId: null,
+    }))
+  }
+
+  const applyLinkedGoal = (goalId: string | null) => {
+    onChange((current) => ({
+      ...current,
+      linkedGoalId: selectionMode === 'goal' ? goalId : null,
+      linkedDirectionId: selectionMode === 'direction' ? goalId : null,
+    }))
+  }
+
+  return (
+    <div className="mt-3 space-y-2 border-t border-white/[0.05] pt-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[11px] uppercase tracking-[0.22em] text-white/34">Link to</span>
+        {([
+          ['none', 'None'],
+          ['goal', 'Goal'],
+          ['direction', 'Direction'],
+        ] as const).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => setMode(value)}
+            className={`rounded-full border px-2.5 py-1 text-[11px] uppercase tracking-[0.18em] transition ${
+              selectionMode === value
+                ? 'border-white/[0.14] bg-white/[0.08] text-white/88'
+                : 'border-white/[0.08] bg-white/[0.03] text-white/46 hover:border-white/[0.12] hover:text-white/74'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {selectionMode !== 'none' ? (
+        <div className="space-y-2">
+          <input
+            value={query}
+            onChange={(event) => {
+              const nextQuery = event.target.value
+              setQuery(nextQuery)
+
+              const exactMatch = candidateGoals.find(
+                (goal) => goal.title.toLowerCase() === nextQuery.trim().toLowerCase(),
+              )
+
+              if (exactMatch) {
+                applyLinkedGoal(exactMatch.id)
+              } else if (!nextQuery.trim() && selectedGoal) {
+                applyLinkedGoal(null)
+              }
+            }}
+            placeholder={selectionMode === 'goal' ? 'Search goals' : 'Search directions'}
+            list={`task-link-options-${task.id}`}
+            spellCheck={false}
+            className="w-full rounded-2xl border border-white/[0.08] bg-[#1A1A1A] px-3 py-2 text-sm text-white/84 outline-none transition placeholder:text-white/28 focus:border-white/[0.14] focus:bg-[#202020]"
+          />
+          <datalist id={`task-link-options-${task.id}`}>
+            {candidateGoals.map((goal) => (
+              <option key={goal.id} value={goal.title} />
+            ))}
+          </datalist>
+          <div className="flex flex-wrap gap-1.5">
+            {filteredGoals.map((goal) => {
+              const isSelected = selectedGoal?.id === goal.id
+              return (
+                <button
+                  key={goal.id}
+                  type="button"
+                  onClick={() => {
+                    setQuery(goal.title)
+                    applyLinkedGoal(goal.id)
+                  }}
+                  className={`rounded-full border px-2.5 py-1 text-[11px] uppercase tracking-[0.16em] transition ${
+                    isSelected
+                      ? 'border-white/[0.14] bg-white/[0.08] text-white/88'
+                      : 'border-white/[0.08] bg-white/[0.03] text-white/52 hover:border-white/[0.12] hover:text-white/76'
+                  }`}
+                >
+                  {goal.title}
+                </button>
+              )
+            })}
+          </div>
+          {candidateGoals.length === 0 ? (
+            <p className="text-xs text-white/34">
+              {selectionMode === 'goal' ? 'No goals available yet.' : 'No directions available yet.'}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   )
 }

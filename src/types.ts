@@ -246,6 +246,8 @@ export interface Task {
   dueDate: string
   starred: boolean
   important: boolean
+  linkedGoalId?: string | null
+  linkedDirectionId?: string | null
   completed: boolean
   completedAt: string | null
 }
@@ -290,6 +292,7 @@ export interface HabitTrackerEntryDraft {
 
 export type LifeGoalStatus = 'not-started' | 'in-motion' | 'paused' | 'complete'
 export type LifeGoalCategoryColor = 'green' | 'blue' | 'purple' | 'amber' | 'teal' | 'red' | 'neutral'
+export type LifeGoalType = 'outcome' | 'system' | 'directional'
 
 export interface LifeGoalCategoryDefinition {
   name: string
@@ -341,6 +344,8 @@ export interface LifeGoal {
   id: string
   title: string
   category: string
+  goalType: LifeGoalType
+  relatedGoalIds: string[]
   whyItMatters: string
   visionStatement: string
   visionImages: string[]
