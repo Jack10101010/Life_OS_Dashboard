@@ -15,6 +15,8 @@ function createEmptyHabitTracker(): HabitTracker {
     showCurrentWeekHighlight: false,
     weekendVisibility: 'show',
     clampDescription: true,
+    linkedGoalIds: [],
+    linkedDirectionIds: [],
     goal: null,
     achievements: [],
     entries: {},

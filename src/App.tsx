@@ -685,6 +685,12 @@ export default function App() {
             }))
           }}
           onOpenGlobalTasks={() => setPage('dashboard')}
+          onOpenHabitTracker={(trackerId) => {
+            const tracker = habitTrackers.find((item) => item.id === trackerId)
+            if (!tracker) return
+            setPage('tracker')
+            setEditingTracker(tracker)
+          }}
         />
       )
     }
@@ -813,6 +819,7 @@ export default function App() {
 
       <HabitTrackerSettingsModal
         tracker={editingTracker}
+        lifeGoals={lifeGoals}
         open={Boolean(editingTracker)}
         enableBadHabitTracking={settings.enableBadHabitTracking}
         onClose={() => setEditingTracker(null)}

@@ -914,6 +914,8 @@ function createLinkedHabitFromTask(title: string): HabitTracker {
     showCurrentWeekHighlight: false,
     weekendVisibility: 'show',
     clampDescription: true,
+    linkedGoalIds: [],
+    linkedDirectionIds: [],
     goal: null,
     achievements: [],
     entries: {},
@@ -1179,6 +1181,7 @@ export function GoalsPage({
   onDeleteLifeGoal,
   onSetLifeGoalAsTodayTask,
   onOpenGlobalTasks,
+  onOpenHabitTracker,
 }: {
   habitTrackers: HabitTracker[]
   lifeGoals: LifeGoal[]
@@ -1202,6 +1205,7 @@ export function GoalsPage({
   onDeleteLifeGoal: (goalId: string) => void
   onSetLifeGoalAsTodayTask: (goal: LifeGoal) => void
   onOpenGlobalTasks: () => void
+  onOpenHabitTracker: (trackerId: string) => void
 }) {
   const [selectedGoal, setSelectedGoal] = useState<GoalDetailItem | null>(null)
   const [lifeGoalDraft, setLifeGoalDraft] = useState<LifeGoalDraft>(() => createEmptyLifeGoalDraft())
@@ -4635,6 +4639,7 @@ const renderLifeGoalOverviewPage = () => {
     const compactWhyText = anchorText.length > 96 ? `${anchorText.slice(0, 93).trimEnd()}…` : anchorText
     const selectedGoalType = selectedLifeGoal.goalType ?? 'outcome'
     const isOutcomeGoal = selectedGoalType === 'outcome'
+    const isSystemGoal = selectedGoalType === 'system'
     const isDirectionalGoal = selectedGoalType === 'directional'
     const progressPathTasks = Array.isArray(selectedLifeGoal.tasks) ? selectedLifeGoal.tasks : []
     const isRoadmapMode = !isDirectionalGoal && (lifeGoalDetailTab === 'tasks' || lifeGoalDetailTab === 'roadmap')
@@ -4690,6 +4695,9 @@ const renderLifeGoalOverviewPage = () => {
         if (left.dueDate !== right.dueDate) return left.dueDate.localeCompare(right.dueDate)
         return left.text.localeCompare(right.text)
       })
+    const supportingHabits = habitTrackers
+      .filter((tracker) => tracker.linkedGoalIds.includes(selectedLifeGoal.id))
+      .filter((tracker, index, trackers) => trackers.findIndex((candidate) => candidate.id === tracker.id) === index)
     const parentGoals = lifeGoals
       .filter((goal) => !goal.archivedAt && goal.id !== selectedLifeGoal.id)
       .filter((goal) => goal.relatedGoalIds.includes(selectedLifeGoal.id))
@@ -4703,6 +4711,8 @@ const renderLifeGoalOverviewPage = () => {
     const hiddenParentGoalsCount = Math.max(0, parentGoals.length - visibleParentGoals.length)
     const visibleDirectionalTasks = linkedDirectionalTasks.slice(0, 6)
     const hiddenDirectionalTasksCount = Math.max(0, linkedDirectionalTasks.length - visibleDirectionalTasks.length)
+    const visibleSupportingHabits = supportingHabits.slice(0, 4)
+    const hiddenSupportingHabitsCount = Math.max(0, supportingHabits.length - visibleSupportingHabits.length)
     const goalHeaderChipClassName =
       'inline-flex h-6 shrink-0 items-center justify-center rounded-full border px-2.5 text-[10px] uppercase tracking-[0.14em] leading-none border-white/[0.06]'
     const renderRoadmapTaskGroups = (
@@ -5040,6 +5050,54 @@ const renderLifeGoalOverviewPage = () => {
         <p className="text-[11px] uppercase tracking-[0.16em] text-mist/50">Reflections</p>
         <p className="mt-2 text-sm text-white/58">No reflections yet</p>
         <p className="mt-1 text-sm text-mist/56">Capture thoughts and check-ins as this direction evolves.</p>
+      </div>
+    )
+    const systemSupportingHabitsSection = (
+      <div className="rounded-[24px] border border-white/[0.05] bg-white/[0.018] px-4 py-4">
+        <div>
+          <p className="text-[11px] uppercase tracking-[0.16em] text-mist/50">Supporting habits</p>
+          <p className="mt-1 text-sm text-mist">Habits linked to this system.</p>
+        </div>
+
+        <div className="mt-4 space-y-2.5">
+          {visibleSupportingHabits.length > 0 ? (
+            <>
+              {visibleSupportingHabits.map((tracker) => {
+                const streak = getLiveTrackerStreak(tracker, year)
+                const progress = tracker.goal ? getTrackerGoalProgress(tracker, year) : null
+
+                return (
+                  <button
+                    key={`supporting-habit-${tracker.id}`}
+                    type="button"
+                    onClick={() => onOpenHabitTracker(tracker.id)}
+                    className="flex w-full items-start justify-between gap-3 rounded-[18px] border border-white/[0.05] bg-white/[0.018] px-4 py-3 text-left transition hover:border-white/[0.08] hover:bg-white/[0.026]"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm leading-6 text-white/78">{tracker.title}</p>
+                      <p className="mt-1 text-[12px] text-mist/54">
+                        {progress?.progressText ?? (streak > 0 ? `${streak} day streak` : 'No goal set')}
+                      </p>
+                    </div>
+                    <span className="shrink-0 rounded-full border border-white/[0.05] bg-white/[0.02] px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-white/46">
+                      Habit
+                    </span>
+                  </button>
+                )
+              })}
+              {hiddenSupportingHabitsCount > 0 ? (
+                <div className="rounded-[18px] border border-white/[0.05] bg-white/[0.018] px-4 py-3 text-sm text-mist">
+                  +{hiddenSupportingHabitsCount} more
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <div className="rounded-[18px] border border-white/[0.05] bg-white/[0.018] px-4 py-4">
+              <p className="text-sm text-white/68">No supporting habits yet</p>
+              <p className="mt-1 text-sm text-mist">Linked habits will appear here when they support this goal.</p>
+            </div>
+          )}
+        </div>
       </div>
     )
     const directionalActivitySection = (
@@ -6311,6 +6369,8 @@ const renderLifeGoalOverviewPage = () => {
               </div>
             )}
           </div>
+
+          {isSystemGoal ? systemSupportingHabitsSection : null}
 
           {isOutcomeGoal ? <GoalProgressTimelineChart
             tasks={selectedLifeGoal.tasks}

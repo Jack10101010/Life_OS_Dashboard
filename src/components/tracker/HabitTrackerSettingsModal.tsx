@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { HabitTracker } from '../../types'
+import { HabitTracker, LifeGoal } from '../../types'
 import { DetailDrawer } from '../layout/DetailDrawer'
 import { Button } from '../ui/Button'
 
@@ -47,6 +47,7 @@ function getTrackerPreviewColor(color: string, intensity: number) {
 
 export function HabitTrackerSettingsModal({
   tracker,
+  lifeGoals,
   open,
   enableBadHabitTracking,
   onClose,
@@ -60,6 +61,7 @@ export function HabitTrackerSettingsModal({
   canMoveDown,
 }: {
   tracker: HabitTracker | null
+  lifeGoals: LifeGoal[]
   open: boolean
   enableBadHabitTracking: boolean
   onClose: () => void
@@ -83,6 +85,26 @@ export function HabitTrackerSettingsModal({
   }, [tracker])
 
   if (!draft) return null
+
+  const systemGoals = lifeGoals.filter((goal) => !goal.archivedAt && goal.goalType === 'system')
+  const directionalGoals = lifeGoals.filter((goal) => !goal.archivedAt && goal.goalType === 'directional')
+  const safeLinkedGoalIds = draft.linkedGoalIds ?? []
+  const safeLinkedDirectionIds = draft.linkedDirectionIds ?? []
+
+  const toggleLinkedId = (
+    field: 'linkedGoalIds' | 'linkedDirectionIds',
+    goalId: string,
+  ) => {
+    const currentValues = draft[field] ?? []
+    const nextValues = currentValues.includes(goalId)
+      ? currentValues.filter((value) => value !== goalId)
+      : [...currentValues, goalId]
+
+    setDraft({
+      ...draft,
+      [field]: nextValues,
+    })
+  }
 
   return (
     <DetailDrawer open={open} onClose={onClose} size="md" subtitle="Custom habit tracker" title={tracker ? `Edit ${tracker.title}` : 'Create habit tracker'}>
@@ -265,6 +287,64 @@ export function HabitTrackerSettingsModal({
           >
             {draft.clampDescription ? 'On' : 'Off'}
           </button>
+        </div>
+        <div className="rounded-2xl border border-[#2A2A2A] bg-[#181818] px-4 py-4">
+          <div className="space-y-4">
+            <div>
+              <p className="text-sm text-[#B0B0B0]">Supports system goals</p>
+              <p className="mt-1 text-xs text-[#8C8C8C]">Link this habit to the system goals it helps maintain.</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {systemGoals.length > 0 ? (
+                  systemGoals.map((goal) => {
+                    const active = safeLinkedGoalIds.includes(goal.id)
+                    return (
+                      <button
+                        key={goal.id}
+                        type="button"
+                        onClick={() => toggleLinkedId('linkedGoalIds', goal.id)}
+                        className={`rounded-xl border px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition ${
+                          active
+                            ? 'border-white/20 bg-white/10 text-white'
+                            : 'border-white/5 bg-[#1A1A1A] text-[#A0A0A0] hover:text-white'
+                        }`}
+                      >
+                        {goal.title}
+                      </button>
+                    )
+                  })
+                ) : (
+                  <p className="text-xs text-[#8C8C8C]">No system goals yet.</p>
+                )}
+              </div>
+            </div>
+            <div>
+              <p className="text-sm text-[#B0B0B0]">Supports directions</p>
+              <p className="mt-1 text-xs text-[#8C8C8C]">Optionally connect this habit to long-term directions as well.</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {directionalGoals.length > 0 ? (
+                  directionalGoals.map((goal) => {
+                    const active = safeLinkedDirectionIds.includes(goal.id)
+                    return (
+                      <button
+                        key={goal.id}
+                        type="button"
+                        onClick={() => toggleLinkedId('linkedDirectionIds', goal.id)}
+                        className={`rounded-xl border px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] transition ${
+                          active
+                            ? 'border-white/20 bg-white/10 text-white'
+                            : 'border-white/5 bg-[#1A1A1A] text-[#A0A0A0] hover:text-white'
+                        }`}
+                      >
+                        {goal.title}
+                      </button>
+                    )
+                  })
+                ) : (
+                  <p className="text-xs text-[#8C8C8C]">No directional goals yet.</p>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
         <div>
           <p className="text-sm text-[#B0B0B0]">Tracker color</p>

@@ -410,6 +410,8 @@ export interface HabitTracker {
   showCurrentWeekHighlight: boolean
   weekendVisibility: 'show' | 'disable' | 'hide'
   clampDescription: boolean
+  linkedGoalIds: string[]
+  linkedDirectionIds: string[]
   goal: HabitTrackerGoal | null
   achievements: HabitTrackerAchievement[]
   entries: Record<string, HabitTrackerDayEntry>

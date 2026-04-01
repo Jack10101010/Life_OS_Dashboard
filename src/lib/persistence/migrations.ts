@@ -269,6 +269,8 @@ export function normalizePersistedAppState(parsed: Partial<PersistedAppState>, c
             showCurrentWeekHighlight: tracker.showCurrentWeekHighlight ?? false,
             weekendVisibility: tracker.weekendVisibility ?? 'show',
             clampDescription: tracker.clampDescription ?? true,
+            linkedGoalIds: Array.isArray(tracker.linkedGoalIds) ? tracker.linkedGoalIds.filter(Boolean) : [],
+            linkedDirectionIds: Array.isArray(tracker.linkedDirectionIds) ? tracker.linkedDirectionIds.filter(Boolean) : [],
             goal:
               tracker.goal && typeof tracker.goal === 'object'
                 ? tracker.goal.type === 'streak' && tracker.goal.target === 7 && (tracker.achievements?.length ?? 0) === 0

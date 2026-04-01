@@ -255,6 +255,8 @@ export function normalizeHabitTracker(tracker: HabitTracker): HabitTracker {
     showCurrentWeekHighlight: tracker.showCurrentWeekHighlight ?? false,
     weekendVisibility: tracker.weekendVisibility ?? 'show',
     clampDescription: tracker.clampDescription ?? true,
+    linkedGoalIds: Array.from(new Set((tracker.linkedGoalIds ?? []).filter(Boolean))),
+    linkedDirectionIds: Array.from(new Set((tracker.linkedDirectionIds ?? []).filter(Boolean))),
     goal: tracker.goal ? { ...tracker.goal, startDate: tracker.goal.startDate ?? getTodayIsoDate() } : null,
     entries: normalizedEntries,
   }
