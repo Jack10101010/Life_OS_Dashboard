@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { RefObject } from 'react'
+import { RefObject, useEffect, useRef } from 'react'
 import { Button } from '../../../components/ui/Button'
 import { FloatingPanelPosition, ModalSurface, OverlayBackdrop, OverlayRoot, PopoverSurface, DialogSurface } from '../../../components/layout/OverlayPrimitives'
 import { LifeGoalTask, LifeGoalTaskPriority } from '../../../types'
@@ -93,6 +93,27 @@ export function LifeGoalTaskPeek({
   actions,
 }: LifeGoalTaskPeekProps) {
   const task = data.task
+  const descriptionRef = useRef<HTMLTextAreaElement | null>(null)
+  const notesRef = useRef<HTMLTextAreaElement | null>(null)
+  const taskDescription = task?.description ?? ''
+  const taskNotes = task?.notes ?? ''
+  const taskId = task?.id ?? null
+
+  const autosizeTextarea = (element: HTMLTextAreaElement | null) => {
+    if (!element) return
+    element.style.height = 'auto'
+    element.style.height = `${element.scrollHeight}px`
+  }
+
+  useEffect(() => {
+    if (!uiState.open || !taskId) return
+    autosizeTextarea(descriptionRef.current)
+  }, [taskDescription, taskId, uiState.open])
+
+  useEffect(() => {
+    if (!uiState.open || !taskId) return
+    autosizeTextarea(notesRef.current)
+  }, [taskId, taskNotes, uiState.notesOpen, uiState.open])
 
   if (!uiState.open || !task) return null
 
@@ -140,11 +161,13 @@ export function LifeGoalTaskPeek({
                     <div className="space-y-1">
                       <p className="text-[11px] uppercase tracking-[0.18em] text-mist/58">Description</p>
                       <textarea
+                        ref={descriptionRef}
                         value={task.description}
                         onChange={(event) => actions.onDescriptionChange(event.target.value)}
+                        onInput={(event) => autosizeTextarea(event.currentTarget)}
                         rows={2}
                         spellCheck={true}
-                        className="w-full resize-none rounded-[20px] border border-white/[0.05] bg-white/[0.025] px-4 py-2.5 text-sm leading-6 text-white outline-none placeholder:text-white/24"
+                        className="w-full resize-none overflow-hidden rounded-[20px] border border-white/[0.05] bg-white/[0.025] px-4 py-2.5 text-sm leading-6 text-white outline-none placeholder:text-white/24"
                         placeholder="Short context for the task..."
                       />
                     </div>
@@ -305,13 +328,15 @@ export function LifeGoalTaskPeek({
                           )}
                         </div>
                           <textarea
+                            ref={notesRef}
                             value={task.notes}
                             onChange={(event) => actions.onNotesChange(event.target.value)}
-                          rows={4}
-                          spellCheck={true}
-                          className="w-full resize-none rounded-[20px] border border-white/[0.05] bg-white/[0.025] px-4 py-2.5 text-sm leading-6 text-white outline-none placeholder:text-white/24"
-                          placeholder="Optional notes..."
-                        />
+                            onInput={(event) => autosizeTextarea(event.currentTarget)}
+                            rows={4}
+                            spellCheck={true}
+                            className="w-full resize-none overflow-hidden rounded-[20px] border border-white/[0.05] bg-white/[0.025] px-4 py-2.5 text-sm leading-6 text-white outline-none placeholder:text-white/24"
+                            placeholder="Optional notes..."
+                          />
                       </div>
                     ) : (
                       <button
@@ -506,28 +531,38 @@ export function LifeGoalTaskPeek({
                 </div>
               </div>
 
-              <div className="sticky bottom-0 flex items-center justify-end gap-1.5 border-t border-white/[0.08] bg-[rgb(var(--theme-surface-elevated-rgb)/0.985)] px-6 py-2 shadow-[0_-10px_20px_rgba(0,0,0,0.12)] backdrop-blur-[10px]">
+              <div className="sticky bottom-0 flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.08] bg-[rgb(var(--theme-surface-elevated-rgb)/0.985)] px-6 py-2 shadow-[0_-10px_20px_rgba(0,0,0,0.12)] backdrop-blur-[10px]">
                 <div className="flex flex-wrap items-center gap-1.5">
                   <Button
                     variant="ghost"
-                    className="theme-danger-soft border-[rgb(var(--theme-negative-rgb)/0.2)] bg-[rgb(var(--theme-negative-rgb)/0.08)] text-[rgb(var(--theme-negative-rgb)/0.88)] hover:border-[rgb(var(--theme-negative-rgb)/0.34)] hover:bg-[rgb(var(--theme-negative-rgb)/0.12)]"
+                    className="theme-danger-soft hover:border-[rgb(var(--theme-negative-rgb)/0.38)] hover:bg-[rgb(var(--theme-negative-rgb)/0.12)] hover:text-[rgb(var(--theme-negative-rgb)/0.98)]"
+                    style={{
+                      borderColor: 'rgb(var(--theme-negative-rgb) / 0.28)',
+                      backgroundColor: 'rgb(var(--theme-negative-rgb) / 0.08)',
+                    }}
                     onClick={() => actions.onToggleDeleteConfirmation('task')}
                   >
                     Delete task
                   </Button>
-                  {!task.completed && uiState.canMarkAsNext ? (
-                    <Button variant="ghost" onClick={actions.onSetAsNext}>
-                      Mark as next
-                    </Button>
-                  ) : null}
+                </div>
+                <div className="flex flex-wrap items-center justify-end gap-1.5">
                   {task.completed ? (
                     <Button variant="ghost" onClick={(event) => actions.onRestoreTask(event.currentTarget)}>
                       Restore task
                     </Button>
                   ) : (
                     <>
-                      <Button variant="soft" onClick={(event) => actions.onCompleteTask(event.currentTarget)}>
-                        Complete task
+                      <Button
+                        variant="soft"
+                        className="border-[rgb(var(--theme-accent-rgb)/0.22)] !text-[rgb(var(--theme-accent-rgb))] shadow-[0_10px_24px_rgba(0,0,0,0.12)] hover:border-[rgb(var(--theme-accent-rgb)/0.34)] hover:!text-[rgb(var(--theme-accent-rgb))]"
+                        style={{
+                          borderColor: 'rgb(var(--theme-accent-rgb) / 0.22)',
+                          backgroundColor: 'rgb(var(--theme-accent-rgb) / 0.12)',
+                          color: 'rgb(var(--theme-accent-rgb))',
+                        }}
+                        onClick={(event) => actions.onCompleteTask(event.currentTarget)}
+                      >
+                        Mark complete
                       </Button>
                     </>
                   )}
@@ -583,7 +618,11 @@ export function LifeGoalTaskPeek({
                     </Button>
                     <Button
                       variant="ghost"
-                      className="theme-danger-soft border-[rgb(var(--theme-negative-rgb)/0.24)] bg-[rgb(var(--theme-negative-rgb)/0.1)] text-[rgb(var(--theme-negative-rgb)/0.9)] hover:border-[rgb(var(--theme-negative-rgb)/0.38)] hover:bg-[rgb(var(--theme-negative-rgb)/0.14)]"
+                      className="theme-danger-soft hover:border-[rgb(var(--theme-negative-rgb)/0.38)] hover:bg-[rgb(var(--theme-negative-rgb)/0.12)] hover:text-[rgb(var(--theme-negative-rgb)/0.98)]"
+                      style={{
+                        borderColor: 'rgb(var(--theme-negative-rgb) / 0.28)',
+                        backgroundColor: 'rgb(var(--theme-negative-rgb) / 0.08)',
+                      }}
                       onClick={actions.onConfirmDelete}
                     >
                       Delete

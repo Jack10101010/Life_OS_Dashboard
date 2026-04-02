@@ -468,8 +468,8 @@ body {
 
 .theme-danger-soft {
   border-color: rgb(var(--theme-negative-rgb) / 0.28);
-  background: rgb(var(--theme-negative-rgb) / 0.1);
-  color: rgb(var(--theme-text-primary-rgb));
+  background: rgb(var(--theme-negative-rgb) / 0.08);
+  color: rgb(var(--theme-negative-rgb) / 0.92);
 }
 
 .theme-overlay {

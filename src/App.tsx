@@ -8,6 +8,7 @@ import { HabitTrackerEntryModal } from './components/tracker/HabitTrackerEntryMo
 import { HabitTrackerGoalModal } from './components/tracker/HabitTrackerGoalModal'
 import { HabitTrackerSettingsModal } from './components/tracker/HabitTrackerSettingsModal'
 import { DevNotesCard } from './components/ui/DevNotesCard'
+import { ErrorBoundary } from './components/ui/ErrorBoundary'
 import { WeekDrawer } from './components/tracker/WeekDrawer'
 import { exportPersistedAppState, importPersistedAppState, loadPersistedAppState, savePersistedAppState } from './lib/persistence'
 import { useAppShellState } from './hooks/useAppShellState'
@@ -568,130 +569,132 @@ export default function App() {
 
     if (page === 'goals') {
       return (
-        <GoalsPage
-          habitTrackers={habitTrackers}
-          lifeGoals={lifeGoals}
-          lifeGoalCategories={lifeGoalCategories}
-          tasks={tasks}
-          days={dataset.days}
-          badHabitDateMap={badHabitDateMap}
-          year={filters.year}
-          goalsView={goalsView}
-          selectedLifeGoalId={selectedLifeGoalId}
-          onSelectLifeGoal={setSelectedLifeGoalId}
-          onChangeGoalsView={setGoalsView}
-          onCreateHabitTracker={saveTracker}
-          onCreateLifeGoal={(goal) =>
-            {
-              if (goal.category.trim()) {
-                setLifeGoalCategories((current) =>
-                  current.some((item) => item.name.trim().toLowerCase() === goal.category.trim().toLowerCase())
-                    ? current
-                    : [...current, { name: goal.category.trim(), color: 'neutral' }],
-                )
+        <ErrorBoundary title="Goals unavailable" description="The goals workspace could not be displayed right now.">
+          <GoalsPage
+            habitTrackers={habitTrackers}
+            lifeGoals={lifeGoals}
+            lifeGoalCategories={lifeGoalCategories}
+            tasks={tasks}
+            days={dataset.days}
+            badHabitDateMap={badHabitDateMap}
+            year={filters.year}
+            goalsView={goalsView}
+            selectedLifeGoalId={selectedLifeGoalId}
+            onSelectLifeGoal={setSelectedLifeGoalId}
+            onChangeGoalsView={setGoalsView}
+            onCreateHabitTracker={saveTracker}
+            onCreateLifeGoal={(goal) =>
+              {
+                if (goal.category.trim()) {
+                  setLifeGoalCategories((current) =>
+                    current.some((item) => item.name.trim().toLowerCase() === goal.category.trim().toLowerCase())
+                      ? current
+                      : [...current, { name: goal.category.trim(), color: 'neutral' }],
+                  )
+                }
+                setLifeGoals((current) => {
+                  const primaryGoal = current.find((item) => item.isPrimary) ?? null
+                  const nonPrimaryGoals = current.filter((item) => !item.isPrimary)
+
+                  const nextNonPrimaryGoals = [
+                    { ...goal, order: 0 },
+                    ...nonPrimaryGoals.map((item) => ({ ...item, order: item.order + 1 })),
+                  ]
+
+                  return primaryGoal ? [primaryGoal, ...nextNonPrimaryGoals] : nextNonPrimaryGoals
+                })
               }
+            }
+            onUpdateLifeGoal={(goalId, updater) =>
               setLifeGoals((current) => {
-                const primaryGoal = current.find((item) => item.isPrimary) ?? null
-                const nonPrimaryGoals = current.filter((item) => !item.isPrimary)
-
-                const nextNonPrimaryGoals = [
-                  { ...goal, order: 0 },
-                  ...nonPrimaryGoals.map((item) => ({ ...item, order: item.order + 1 })),
-                ]
-
-                return primaryGoal ? [primaryGoal, ...nextNonPrimaryGoals] : nextNonPrimaryGoals
+                const nextGoals = current.map((goal) => (goal.id === goalId ? updater(goal) : goal))
+                const updatedGoal = nextGoals.find((goal) => goal.id === goalId)
+                if (updatedGoal?.category.trim()) {
+                  setLifeGoalCategories((existing) =>
+                    existing.some((item) => item.name.trim().toLowerCase() === updatedGoal.category.trim().toLowerCase())
+                      ? existing
+                      : [...existing, { name: updatedGoal.category.trim(), color: 'neutral' }],
+                  )
+                }
+                return nextGoals
               })
             }
-          }
-          onUpdateLifeGoal={(goalId, updater) =>
-            setLifeGoals((current) => {
-              const nextGoals = current.map((goal) => (goal.id === goalId ? updater(goal) : goal))
-              const updatedGoal = nextGoals.find((goal) => goal.id === goalId)
-              if (updatedGoal?.category.trim()) {
-                setLifeGoalCategories((existing) =>
-                  existing.some((item) => item.name.trim().toLowerCase() === updatedGoal.category.trim().toLowerCase())
-                    ? existing
-                    : [...existing, { name: updatedGoal.category.trim(), color: 'neutral' }],
-                )
-              }
-              return nextGoals
-            })
-          }
-          onEnsureLifeGoalCategory={(name) =>
-            setLifeGoalCategories((current) =>
-              current.some((item) => item.name.trim().toLowerCase() === name.trim().toLowerCase())
-                ? current
-                : [...current, { name: name.trim(), color: 'neutral' }],
-            )
-          }
-          onSetLifeGoalCategoryColor={(name, color) =>
-            setLifeGoalCategories((current) => {
-              const normalizedName = name.trim().toLowerCase()
-              const existing = current.some((item) => item.name.trim().toLowerCase() === normalizedName)
-              if (!existing) {
-                return [...current, { name: name.trim(), color }]
-              }
-              return current.map((item) =>
-                item.name.trim().toLowerCase() === normalizedName ? { ...item, name: name.trim(), color } : item,
+            onEnsureLifeGoalCategory={(name) =>
+              setLifeGoalCategories((current) =>
+                current.some((item) => item.name.trim().toLowerCase() === name.trim().toLowerCase())
+                  ? current
+                  : [...current, { name: name.trim(), color: 'neutral' }],
               )
-            })
-          }
-          onReorderLifeGoals={(goalIds) =>
-            setLifeGoals((current) => {
-              const orderMap = new Map(goalIds.map((id, index) => [id, index]))
-              return current.map((goal) => ({
-                ...goal,
-                order: goal.isPrimary ? -1 : orderMap.get(goal.id) ?? goal.order,
+            }
+            onSetLifeGoalCategoryColor={(name, color) =>
+              setLifeGoalCategories((current) => {
+                const normalizedName = name.trim().toLowerCase()
+                const existing = current.some((item) => item.name.trim().toLowerCase() === normalizedName)
+                if (!existing) {
+                  return [...current, { name: name.trim(), color }]
+                }
+                return current.map((item) =>
+                  item.name.trim().toLowerCase() === normalizedName ? { ...item, name: name.trim(), color } : item,
+                )
+              })
+            }
+            onReorderLifeGoals={(goalIds) =>
+              setLifeGoals((current) => {
+                const orderMap = new Map(goalIds.map((id, index) => [id, index]))
+                return current.map((goal) => ({
+                  ...goal,
+                  order: goal.isPrimary ? -1 : orderMap.get(goal.id) ?? goal.order,
+                }))
+              })
+            }
+            onSetPrimaryLifeGoal={(goalId) =>
+              setLifeGoals((current) =>
+                current.map((goal) => ({
+                  ...goal,
+                  isPrimary: goalId !== null && goal.id === goalId,
+                })),
+              )
+            }
+            onArchiveLifeGoal={(goalId) =>
+              setLifeGoals((current) =>
+                current.map((goal) =>
+                  goal.id === goalId
+                    ? {
+                        ...goal,
+                        archivedAt: new Date().toISOString(),
+                        isPrimary: false,
+                        updatedAt: new Date().toISOString(),
+                      }
+                    : goal,
+                ),
+              )
+            }
+            onDeleteLifeGoal={(goalId) => setLifeGoals((current) => current.filter((goal) => goal.id !== goalId))}
+            onSetLifeGoalAsTodayTask={(goal) => {
+              const todayIso = new Date().toISOString().slice(0, 10)
+              const nextTask = goal.tasks.find((task) => !task.completed)?.text.trim() || goal.minimumVersion
+              updateDayByDate(todayIso, (day) => ({
+                ...day,
+                isLogged: true,
+                dashboardExecution: {
+                  ...day.dashboardExecution,
+                  goal: goal.title,
+                  whyItMatters: goal.whyItMatters,
+                  todayTask: nextTask,
+                  nextAction: nextTask,
+                  minimumVersion: goal.minimumVersion,
+                },
               }))
-            })
-          }
-          onSetPrimaryLifeGoal={(goalId) =>
-            setLifeGoals((current) =>
-              current.map((goal) => ({
-                ...goal,
-                isPrimary: goalId !== null && goal.id === goalId,
-              })),
-            )
-          }
-          onArchiveLifeGoal={(goalId) =>
-            setLifeGoals((current) =>
-              current.map((goal) =>
-                goal.id === goalId
-                  ? {
-                      ...goal,
-                      archivedAt: new Date().toISOString(),
-                      isPrimary: false,
-                      updatedAt: new Date().toISOString(),
-                    }
-                  : goal,
-              ),
-            )
-          }
-          onDeleteLifeGoal={(goalId) => setLifeGoals((current) => current.filter((goal) => goal.id !== goalId))}
-          onSetLifeGoalAsTodayTask={(goal) => {
-            const todayIso = new Date().toISOString().slice(0, 10)
-            const nextTask = goal.tasks.find((task) => !task.completed)?.text.trim() || goal.minimumVersion
-            updateDayByDate(todayIso, (day) => ({
-              ...day,
-              isLogged: true,
-              dashboardExecution: {
-                ...day.dashboardExecution,
-                goal: goal.title,
-                whyItMatters: goal.whyItMatters,
-                todayTask: nextTask,
-                nextAction: nextTask,
-                minimumVersion: goal.minimumVersion,
-              },
-            }))
-          }}
-          onOpenGlobalTasks={() => setPage('dashboard')}
-          onOpenHabitTracker={(trackerId) => {
-            const tracker = habitTrackers.find((item) => item.id === trackerId)
-            if (!tracker) return
-            setPage('tracker')
-            setEditingTracker(tracker)
-          }}
-        />
+            }}
+            onOpenGlobalTasks={() => setPage('dashboard')}
+            onOpenHabitTracker={(trackerId) => {
+              const tracker = habitTrackers.find((item) => item.id === trackerId)
+              if (!tracker) return
+              setPage('tracker')
+              setEditingTracker(tracker)
+            }}
+          />
+        </ErrorBoundary>
       )
     }
 
@@ -817,59 +820,65 @@ export default function App() {
         onDeleteDay={deleteDayEntry}
       />
 
-      <HabitTrackerSettingsModal
-        tracker={editingTracker}
-        lifeGoals={lifeGoals}
-        open={Boolean(editingTracker)}
-        enableBadHabitTracking={settings.enableBadHabitTracking}
-        onClose={() => setEditingTracker(null)}
-        onOpenGoal={(tracker) => setGoalEditingTracker(tracker)}
-        onDelete={(trackerId) => {
-          deleteTracker(trackerId)
-        }}
-        onClearAchievements={(trackerId) => {
-          clearTrackerAchievements(trackerId)
-        }}
-        onMoveUp={moveTrackerUp}
-        onMoveDown={moveTrackerDown}
-        canMoveUp={editingTracker ? habitTrackers.findIndex((tracker) => tracker.id === editingTracker.id) > 0 : false}
-        canMoveDown={
-          editingTracker
-            ? habitTrackers.findIndex((tracker) => tracker.id === editingTracker.id) > -1 &&
-              habitTrackers.findIndex((tracker) => tracker.id === editingTracker.id) < habitTrackers.length - 1
-            : false
-        }
-        onSave={saveTracker}
-      />
+      <ErrorBoundary title="Habit settings unavailable" description="This habit modal could not be displayed right now.">
+        <HabitTrackerSettingsModal
+          tracker={editingTracker}
+          lifeGoals={lifeGoals}
+          open={Boolean(editingTracker)}
+          enableBadHabitTracking={settings.enableBadHabitTracking}
+          onClose={() => setEditingTracker(null)}
+          onOpenGoal={(tracker) => setGoalEditingTracker(tracker)}
+          onDelete={(trackerId) => {
+            deleteTracker(trackerId)
+          }}
+          onClearAchievements={(trackerId) => {
+            clearTrackerAchievements(trackerId)
+          }}
+          onMoveUp={moveTrackerUp}
+          onMoveDown={moveTrackerDown}
+          canMoveUp={editingTracker ? habitTrackers.findIndex((tracker) => tracker.id === editingTracker.id) > 0 : false}
+          canMoveDown={
+            editingTracker
+              ? habitTrackers.findIndex((tracker) => tracker.id === editingTracker.id) > -1 &&
+                habitTrackers.findIndex((tracker) => tracker.id === editingTracker.id) < habitTrackers.length - 1
+              : false
+          }
+          onSave={saveTracker}
+        />
+      </ErrorBoundary>
 
-      <HabitTrackerGoalModal
-        tracker={goalEditingTracker}
-        open={Boolean(goalEditingTracker)}
-        onClose={() => setGoalEditingTracker(null)}
-        onSave={saveTracker}
-      />
+      <ErrorBoundary title="Habit goal unavailable" description="This habit goal surface could not be displayed right now.">
+        <HabitTrackerGoalModal
+          tracker={goalEditingTracker}
+          open={Boolean(goalEditingTracker)}
+          onClose={() => setGoalEditingTracker(null)}
+          onSave={saveTracker}
+        />
+      </ErrorBoundary>
 
-      <HabitTrackerEntryModal
-        open={Boolean(habitEntryDraft)}
-        onClose={() => setHabitEntryDraft(null)}
-        trackerTitle={habitTrackers.find((tracker) => tracker.id === habitEntryDraft?.trackerId)?.title ?? 'Habit tracker'}
-        trackerColor={habitTrackers.find((tracker) => tracker.id === habitEntryDraft?.trackerId)?.color ?? '#17C964'}
-        trackerType={habitTrackers.find((tracker) => tracker.id === habitEntryDraft?.trackerId)?.habitType ?? 'checkbox'}
-        date={habitEntryDraft?.date ?? new Date().toISOString().slice(0, 10)}
-        hasGoal={Boolean(habitTrackers.find((tracker) => tracker.id === habitEntryDraft?.trackerId)?.goal)}
-        completed={habitEntryDraft?.completed ?? false}
-        paused={habitEntryDraft?.paused ?? false}
-        value={habitEntryDraft?.value ?? null}
-        note={habitEntryDraft?.note ?? ''}
-        onOpenGoal={() => {
-          const tracker = habitTrackers.find((item) => item.id === habitEntryDraft?.trackerId)
-          if (!tracker) return
-          setHabitEntryDraft(null)
-          setGoalEditingTracker(tracker)
-        }}
-        onChange={(next) => setHabitEntryDraft((current) => (current ? { ...current, ...next } : current))}
-        onSave={saveHabitEntry}
-      />
+      <ErrorBoundary title="Habit entry unavailable" description="This habit entry surface could not be displayed right now.">
+        <HabitTrackerEntryModal
+          open={Boolean(habitEntryDraft)}
+          onClose={() => setHabitEntryDraft(null)}
+          trackerTitle={habitTrackers.find((tracker) => tracker.id === habitEntryDraft?.trackerId)?.title ?? 'Habit tracker'}
+          trackerColor={habitTrackers.find((tracker) => tracker.id === habitEntryDraft?.trackerId)?.color ?? '#17C964'}
+          trackerType={habitTrackers.find((tracker) => tracker.id === habitEntryDraft?.trackerId)?.habitType ?? 'checkbox'}
+          date={habitEntryDraft?.date ?? new Date().toISOString().slice(0, 10)}
+          hasGoal={Boolean(habitTrackers.find((tracker) => tracker.id === habitEntryDraft?.trackerId)?.goal)}
+          completed={habitEntryDraft?.completed ?? false}
+          paused={habitEntryDraft?.paused ?? false}
+          value={habitEntryDraft?.value ?? null}
+          note={habitEntryDraft?.note ?? ''}
+          onOpenGoal={() => {
+            const tracker = habitTrackers.find((item) => item.id === habitEntryDraft?.trackerId)
+            if (!tracker) return
+            setHabitEntryDraft(null)
+            setGoalEditingTracker(tracker)
+          }}
+          onChange={(next) => setHabitEntryDraft((current) => (current ? { ...current, ...next } : current))}
+          onSave={saveHabitEntry}
+        />
+      </ErrorBoundary>
     </div>
   )
 }

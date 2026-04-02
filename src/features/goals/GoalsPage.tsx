@@ -1207,6 +1207,10 @@ export function GoalsPage({
   onOpenGlobalTasks: () => void
   onOpenHabitTracker: (trackerId: string) => void
 }) {
+  const safeHabitTrackers = habitTrackers ?? []
+  const safeLifeGoals = lifeGoals ?? []
+  const safeLifeGoalCategories = lifeGoalCategories ?? []
+  const safeTasks = tasks ?? []
   const [selectedGoal, setSelectedGoal] = useState<GoalDetailItem | null>(null)
   const [lifeGoalDraft, setLifeGoalDraft] = useState<LifeGoalDraft>(() => createEmptyLifeGoalDraft())
   const [lifeGoalComposerMode, setLifeGoalComposerMode] = useState<LifeGoalComposerMode>('create')
@@ -1297,6 +1301,7 @@ export function GoalsPage({
   const [lifeGoalCategoryPanelPosition, setLifeGoalCategoryPanelPosition] = useState<FloatingPanelPosition | null>(null)
   const [lifeGoalDatePanelPosition, setLifeGoalDatePanelPosition] = useState<FloatingPanelPosition | null>(null)
   const [lifeGoalStatusPanelPosition, setLifeGoalStatusPanelPosition] = useState<FloatingPanelPosition | null>(null)
+  const [editRelatedGoalsCollapsed, setEditRelatedGoalsCollapsed] = useState(true)
   const [deleteGoalConfirmationTarget, setDeleteGoalConfirmationTarget] = useState<{ goalId: string; context: 'edit' | 'detail' } | null>(null)
   const lifeGoalCategoryFieldRef = useRef<HTMLDivElement | null>(null)
   const lifeGoalStartDateFieldRef = useRef<HTMLDivElement | null>(null)
@@ -1334,7 +1339,7 @@ export function GoalsPage({
   const taskPeekDeleteTriggerRef = useRef<HTMLElement | null>(null)
   const [pendingDraftTaskFocusId, setPendingDraftTaskFocusId] = useState<string | null>(null)
 
-  const sortedLifeGoals = useMemo(() => sortLifeGoals(lifeGoals.filter((goal) => !goal.archivedAt)), [lifeGoals])
+  const sortedLifeGoals = useMemo(() => sortLifeGoals(safeLifeGoals.filter((goal) => !goal.archivedAt)), [safeLifeGoals])
 
   useEffect(() => {
     if (sortedLifeGoals.length === 0) {
@@ -1360,6 +1365,11 @@ export function GoalsPage({
     target.setSelectionRange(nextCaret, nextCaret)
     setPendingDraftTaskFocusId(null)
   }, [lifeGoalDraft.tasks, pendingDraftTaskFocusId])
+
+  useEffect(() => {
+    if (!lifeGoalComposerOpen || lifeGoalComposerMode !== 'edit') return
+    setEditRelatedGoalsCollapsed(true)
+  }, [editingLifeGoalId, lifeGoalComposerMode, lifeGoalComposerOpen])
 
   useEffect(
     () => () => {
@@ -1394,6 +1404,8 @@ export function GoalsPage({
     () => sortedLifeGoals.find((goal) => goal.id === selectedLifeGoalId) ?? null,
     [selectedLifeGoalId, sortedLifeGoals],
   )
+  const safeDraftRelatedGoalIds = lifeGoalDraft.relatedGoalIds ?? []
+  const safeSelectedLifeGoalLinkedHabitIds = selectedLifeGoal?.linkedHabitIds ?? []
 
   const selectedLifeGoalProgress = useMemo(
     () => (selectedLifeGoal ? getLifeGoalProgress(selectedLifeGoal) : null),
@@ -1733,23 +1745,23 @@ export function GoalsPage({
   const selectedLinkedHabits = useMemo(
     () =>
       selectedLifeGoal
-        ? selectedLifeGoal.linkedHabitIds
-            .map((habitId) => habitTrackers.find((tracker) => tracker.id === habitId) ?? null)
+        ? safeSelectedLifeGoalLinkedHabitIds
+            .map((habitId) => safeHabitTrackers.find((tracker) => tracker.id === habitId) ?? null)
             .filter((tracker): tracker is HabitTracker => tracker !== null)
         : [],
-    [habitTrackers, selectedLifeGoal],
+    [safeHabitTrackers, safeSelectedLifeGoalLinkedHabitIds, selectedLifeGoal],
   )
   const availableHabitsToLink = useMemo(
     () =>
       selectedLifeGoal
-        ? habitTrackers.filter((tracker) => !selectedLifeGoal.linkedHabitIds.includes(tracker.id))
+        ? safeHabitTrackers.filter((tracker) => !safeSelectedLifeGoalLinkedHabitIds.includes(tracker.id))
         : [],
-    [habitTrackers, selectedLifeGoal],
+    [safeHabitTrackers, safeSelectedLifeGoalLinkedHabitIds, selectedLifeGoal],
   )
 
   const activeGoals = useMemo(
     () =>
-      habitTrackers
+      safeHabitTrackers
         .filter((tracker) => tracker.goal)
         .map((tracker) => {
           const progress = getTrackerGoalProgress(tracker, year)
@@ -1768,12 +1780,12 @@ export function GoalsPage({
         })
         .filter((item): item is Exclude<typeof item, null> => item !== null)
         .sort((left, right) => left.tracker.title.localeCompare(right.tracker.title)),
-    [habitTrackers, year],
+    [safeHabitTrackers, year],
   )
 
   const completedGoals = useMemo(
     () =>
-      habitTrackers
+      safeHabitTrackers
         .flatMap((tracker) =>
           tracker.achievements.map((achievement) => ({
             kind: 'completed' as const,
@@ -1791,7 +1803,7 @@ export function GoalsPage({
           })),
         )
         .sort((left, right) => right.achievement.completedDate.localeCompare(left.achievement.completedDate)),
-    [habitTrackers],
+    [safeHabitTrackers],
   )
 
   const draftTasks = useMemo(() => normalizeLifeGoalDraftTasks(lifeGoalDraft.tasks), [lifeGoalDraft.tasks])
@@ -1801,8 +1813,8 @@ export function GoalsPage({
   const selectedRelatedGoals = useMemo(
     () => {
       const seen = new Set<string>()
-      return lifeGoalDraft.relatedGoalIds
-        .map((goalId) => lifeGoals.find((goal) => goal.id === goalId && !goal.archivedAt))
+      return safeDraftRelatedGoalIds
+        .map((goalId) => safeLifeGoals.find((goal) => goal.id === goalId && !goal.archivedAt))
         .filter((goal): goal is LifeGoal => Boolean(goal))
         .filter((goal) => {
           if (seen.has(goal.id)) return false
@@ -1810,11 +1822,11 @@ export function GoalsPage({
           return true
         })
     },
-    [lifeGoalDraft.relatedGoalIds, lifeGoals],
+    [safeDraftRelatedGoalIds, safeLifeGoals],
   )
   const relatedGoalCandidates = useMemo(
     () =>
-      lifeGoals
+      safeLifeGoals
         .filter((goal) => !goal.archivedAt && goal.id !== editingLifeGoalId)
         .filter((goal) => {
           if (!normalizedRelatedGoalsQuery) return true
@@ -1823,12 +1835,12 @@ export function GoalsPage({
           return title.includes(normalizedRelatedGoalsQuery) || category.includes(normalizedRelatedGoalsQuery)
         })
         .sort((left, right) => {
-          const leftSelected = lifeGoalDraft.relatedGoalIds.includes(left.id)
-          const rightSelected = lifeGoalDraft.relatedGoalIds.includes(right.id)
+          const leftSelected = safeDraftRelatedGoalIds.includes(left.id)
+          const rightSelected = safeDraftRelatedGoalIds.includes(right.id)
           if (leftSelected !== rightSelected) return leftSelected ? -1 : 1
           return left.title.localeCompare(right.title)
         }),
-    [editingLifeGoalId, lifeGoalDraft.relatedGoalIds, lifeGoals, normalizedRelatedGoalsQuery],
+    [editingLifeGoalId, normalizedRelatedGoalsQuery, safeDraftRelatedGoalIds, safeLifeGoals],
   )
 
   const commitCreateLifeGoal = (tasksOverride?: LifeGoalTask[]) => {
@@ -2429,7 +2441,7 @@ export function GoalsPage({
   const linkHabitToLifeGoal = (goalId: string, trackerId: string) => {
     onUpdateLifeGoal(goalId, (goal) => ({
       ...goal,
-      linkedHabitIds: goal.linkedHabitIds.includes(trackerId) ? goal.linkedHabitIds : [...goal.linkedHabitIds, trackerId],
+      linkedHabitIds: (goal.linkedHabitIds ?? []).includes(trackerId) ? (goal.linkedHabitIds ?? []) : [...(goal.linkedHabitIds ?? []), trackerId],
       updatedAt: new Date().toISOString(),
     }))
   }
@@ -2437,7 +2449,7 @@ export function GoalsPage({
   const unlinkHabitFromLifeGoal = (goalId: string, trackerId: string) => {
     onUpdateLifeGoal(goalId, (goal) => ({
       ...goal,
-      linkedHabitIds: goal.linkedHabitIds.filter((id) => id !== trackerId),
+      linkedHabitIds: (goal.linkedHabitIds ?? []).filter((id) => id !== trackerId),
       updatedAt: new Date().toISOString(),
     }))
   }
@@ -3041,7 +3053,7 @@ export function GoalsPage({
                     htmlFor={inputId}
                     className={`theme-input flex cursor-pointer items-center justify-between gap-3 rounded-2xl border px-3 py-2.5 text-left transition ${
                       active
-                        ? 'border-white/[0.12] bg-white/[0.06]'
+                        ? 'border-white/[0.18] bg-white/[0.09] shadow-[0_0_0_1px_rgba(255,255,255,0.04),0_12px_28px_rgba(0,0,0,0.14)]'
                         : 'border-white/[0.05] bg-white/[0.02] hover:border-white/[0.08] hover:bg-white/[0.03]'
                     }`}
                   >
@@ -3055,10 +3067,16 @@ export function GoalsPage({
                       className="sr-only"
                     />
                     <div className="min-w-0">
-                      <p className={`text-sm ${active ? 'text-white' : 'text-white/76'}`}>{option.label}</p>
-                      <p className="mt-0.5 text-[12px] text-mist/56">{option.description}</p>
+                      <p className={`text-sm transition ${active ? 'font-medium text-white' : 'text-white/76'}`}>{option.label}</p>
+                      <p className={`mt-0.5 text-[12px] transition ${active ? 'text-mist/72' : 'text-mist/56'}`}>{option.description}</p>
                     </div>
-                    <span className={`h-2 w-2 shrink-0 rounded-full ${active ? 'bg-white/82' : 'bg-white/18'}`} />
+                    <span
+                      className={`h-2.5 w-2.5 shrink-0 rounded-full border transition ${
+                        active
+                          ? 'border-white/35 bg-white/90 shadow-[0_0_0_4px_rgba(255,255,255,0.06)]'
+                          : 'border-white/10 bg-white/18'
+                      }`}
+                    />
                   </label>
                 )
               })}
@@ -3421,106 +3439,122 @@ export function GoalsPage({
 
         {!isCreateMode ? (
           <div className="space-y-3">
-            <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <span className="theme-label">Related goals</span>
-              </div>
+            <div className="rounded-[18px] border border-white/[0.05] bg-white/[0.02]">
+              <button
+                type="button"
+                onClick={() => setEditRelatedGoalsCollapsed((current) => !current)}
+                className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-white/[0.02]"
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="theme-label">Related goals</span>
+                  {selectedRelatedGoals.length > 0 ? (
+                    <span className="rounded-full border border-white/[0.08] bg-white/[0.03] px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-white/52">
+                      {selectedRelatedGoals.length} linked
+                    </span>
+                  ) : null}
+                </div>
+                <span className={`text-xs text-white/40 transition-transform duration-200 ${editRelatedGoalsCollapsed ? '' : 'rotate-180'}`}>
+                  ▾
+                </span>
+              </button>
 
-              <div className="rounded-[18px] border border-white/[0.05] bg-white/[0.02] px-4 py-3">
-                <input
-                  value={lifeGoalRelatedGoalsQuery}
-                  onChange={(event) => setLifeGoalRelatedGoalsQuery(event.target.value)}
-                  placeholder="Search goals to link..."
-                  spellCheck={true}
-                  className="theme-input w-full rounded-2xl border px-4 py-3 text-sm outline-none"
-                />
-
-                {selectedRelatedGoals.length > 0 ? (
+              {!editRelatedGoalsCollapsed ? (
+                <div className="border-t border-white/[0.05] px-4 py-3">
                   <input
-                    value={lifeGoalRelationIntent}
-                    onChange={(event) => setLifeGoalRelationIntent(event.target.value)}
-                    placeholder="Why does this relate?"
+                    value={lifeGoalRelatedGoalsQuery}
+                    onChange={(event) => setLifeGoalRelatedGoalsQuery(event.target.value)}
+                    placeholder="Search goals to link..."
                     spellCheck={true}
-                    className="theme-input mt-3 w-full rounded-2xl border px-4 py-3 text-sm outline-none"
+                    className="theme-input w-full rounded-2xl border px-4 py-3 text-sm outline-none"
                   />
-                ) : null}
 
-                {selectedRelatedGoals.length > 0 ? (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {selectedRelatedGoals.map((goal) => (
-                      <button
-                        key={`selected-related-goal-${goal.id}`}
-                        type="button"
-                        onClick={() =>
-                          setLifeGoalDraft((current) => ({
-                            ...current,
-                            relatedGoalIds: current.relatedGoalIds.filter((relatedGoalId) => relatedGoalId !== goal.id),
-                          }))
-                        }
-                        className="inline-flex items-center gap-2 rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-[11px] text-white/76 transition hover:border-white/[0.12] hover:bg-white/[0.05]"
-                      >
-                        <span className="truncate">{goal.title}</span>
-                        <span className="text-white/38">×</span>
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
+                  {selectedRelatedGoals.length > 0 ? (
+                    <input
+                      value={lifeGoalRelationIntent}
+                      onChange={(event) => setLifeGoalRelationIntent(event.target.value)}
+                      placeholder="Why does this relate?"
+                      spellCheck={true}
+                      className="theme-input mt-3 w-full rounded-2xl border px-4 py-3 text-sm outline-none"
+                    />
+                  ) : null}
 
-                <div className="mt-3 max-h-[220px] space-y-2 overflow-y-auto pr-1" onWheel={containScrollWithinElement}>
-                  {relatedGoalCandidates.length > 0 ? (
-                    relatedGoalCandidates.map((goal) => {
-                      const active = lifeGoalDraft.relatedGoalIds.includes(goal.id)
-                      const categoryColor = goal.category
-                        ? getLifeGoalCategoryColor(goal.category, lifeGoalCategories)
-                        : 'neutral'
-                      return (
+                  {selectedRelatedGoals.length > 0 ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {selectedRelatedGoals.map((goal) => (
                         <button
-                          key={`related-goal-option-${goal.id}`}
+                          key={`selected-related-goal-${goal.id}`}
                           type="button"
                           onClick={() =>
                             setLifeGoalDraft((current) => ({
                               ...current,
-                              relatedGoalIds: current.relatedGoalIds.includes(goal.id)
-                                ? current.relatedGoalIds.filter((relatedGoalId) => relatedGoalId !== goal.id)
-                                : [...current.relatedGoalIds, goal.id],
+                              relatedGoalIds: current.relatedGoalIds.filter((relatedGoalId) => relatedGoalId !== goal.id),
                             }))
                           }
-                          className={`flex w-full items-center justify-between gap-3 rounded-2xl border px-3 py-2.5 text-left transition ${
-                            active
-                              ? 'border-white/[0.1] bg-white/[0.05]'
-                              : 'border-white/[0.05] bg-white/[0.018] hover:border-white/[0.08] hover:bg-white/[0.03]'
-                          }`}
+                          className="inline-flex items-center gap-2 rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-[11px] text-white/76 transition hover:border-white/[0.12] hover:bg-white/[0.05]"
                         >
-                          <div className="min-w-0">
-                            <p className="truncate text-sm text-white/84">{goal.title}</p>
-                            <div className="mt-1 flex flex-wrap items-center gap-2">
-                              {goal.category ? (
-                                <span
-                                  className="inline-flex items-center gap-1.5 rounded-full border px-2 py-[3px] text-[10px] font-medium tracking-[0.06em] leading-none text-[rgb(var(--theme-text-muted-rgb))]"
-                                  style={getLifeGoalCategoryChipStyle(categoryColor)}
-                                >
-                                  <span className="h-1.5 w-1.5 rounded-full" style={getLifeGoalCategoryDotStyle(categoryColor)} />
-                                  <span>{goal.category}</span>
-                                </span>
-                              ) : null}
-                              <span className={`${goalStatusChipClassName} h-5 px-2 py-0 text-[9px] ${getLifeGoalStatusMeta(goal.status, goal.startDate).badgeClassName}`}>
-                                {getLifeGoalStatusMeta(goal.status, goal.startDate).label}
-                              </span>
-                            </div>
-                          </div>
-                          <span className={`text-[11px] uppercase tracking-[0.14em] ${active ? 'text-white/62' : 'text-white/34'}`}>
-                            {active ? 'Linked' : 'Link'}
-                          </span>
+                          <span className="truncate">{goal.title}</span>
+                          <span className="text-white/38">×</span>
                         </button>
-                      )
-                    })
-                  ) : (
-                    <p className="rounded-2xl border border-white/[0.05] bg-white/[0.018] px-3 py-3 text-sm text-mist">
-                      No goals match that search.
-                    </p>
-                  )}
+                      ))}
+                    </div>
+                  ) : null}
+
+                  <div className="mt-3 max-h-[220px] space-y-2 overflow-y-auto pr-1" onWheel={containScrollWithinElement}>
+                    {relatedGoalCandidates.length > 0 ? (
+                      relatedGoalCandidates.map((goal) => {
+                        const active = safeDraftRelatedGoalIds.includes(goal.id)
+                        const categoryColor = goal.category
+                          ? getLifeGoalCategoryColor(goal.category, safeLifeGoalCategories)
+                          : 'neutral'
+                        return (
+                          <button
+                            key={`related-goal-option-${goal.id}`}
+                            type="button"
+                            onClick={() =>
+                              setLifeGoalDraft((current) => ({
+                                ...current,
+                                relatedGoalIds: (current.relatedGoalIds ?? []).includes(goal.id)
+                                  ? (current.relatedGoalIds ?? []).filter((relatedGoalId) => relatedGoalId !== goal.id)
+                                  : [...(current.relatedGoalIds ?? []), goal.id],
+                              }))
+                            }
+                            className={`flex w-full items-center justify-between gap-3 rounded-2xl border px-3 py-2.5 text-left transition ${
+                              active
+                                ? 'border-white/[0.1] bg-white/[0.05]'
+                                : 'border-white/[0.05] bg-white/[0.018] hover:border-white/[0.08] hover:bg-white/[0.03]'
+                            }`}
+                          >
+                            <div className="min-w-0">
+                              <p className="truncate text-sm text-white/84">{goal.title}</p>
+                              <div className="mt-1 flex flex-wrap items-center gap-2">
+                                {goal.category ? (
+                                  <span
+                                    className="inline-flex items-center gap-1.5 rounded-full border px-2 py-[3px] text-[10px] font-medium tracking-[0.06em] leading-none text-[rgb(var(--theme-text-muted-rgb))]"
+                                    style={getLifeGoalCategoryChipStyle(categoryColor)}
+                                  >
+                                    <span className="h-1.5 w-1.5 rounded-full" style={getLifeGoalCategoryDotStyle(categoryColor)} />
+                                    <span>{goal.category}</span>
+                                  </span>
+                                ) : null}
+                                <span className={`${goalStatusChipClassName} h-5 px-2 py-0 text-[9px] ${getLifeGoalStatusMeta(goal.status, goal.startDate).badgeClassName}`}>
+                                  {getLifeGoalStatusMeta(goal.status, goal.startDate).label}
+                                </span>
+                              </div>
+                            </div>
+                            <span className={`text-[11px] uppercase tracking-[0.14em] ${active ? 'text-white/62' : 'text-white/34'}`}>
+                              {active ? 'Linked' : 'Link'}
+                            </span>
+                          </button>
+                        )
+                      })
+                    ) : (
+                      <p className="rounded-2xl border border-white/[0.05] bg-white/[0.018] px-3 py-3 text-sm text-mist">
+                        No goals match that search.
+                      </p>
+                    )}
+                  </div>
                 </div>
-              </div>
+              ) : null}
             </div>
 
             <div className="flex items-center justify-between gap-3">
@@ -3601,20 +3635,20 @@ export function GoalsPage({
               <div className="mt-3 max-h-[220px] space-y-2 overflow-y-auto pr-1" onWheel={containScrollWithinElement}>
                 {relatedGoalCandidates.length > 0 ? (
                   relatedGoalCandidates.map((goal) => {
-                    const active = lifeGoalDraft.relatedGoalIds.includes(goal.id)
-                    const categoryColor = goal.category ? getLifeGoalCategoryColor(goal.category, lifeGoalCategories) : 'neutral'
+                    const active = safeDraftRelatedGoalIds.includes(goal.id)
+                    const categoryColor = goal.category ? getLifeGoalCategoryColor(goal.category, safeLifeGoalCategories) : 'neutral'
                     return (
                       <button
                         key={`create-related-goal-option-${goal.id}`}
                         type="button"
                         onClick={() =>
-                          setLifeGoalDraft((current) => ({
-                            ...current,
-                            relatedGoalIds: current.relatedGoalIds.includes(goal.id)
-                              ? current.relatedGoalIds.filter((relatedGoalId) => relatedGoalId !== goal.id)
-                              : [...current.relatedGoalIds, goal.id],
-                          }))
-                        }
+                            setLifeGoalDraft((current) => ({
+                              ...current,
+                              relatedGoalIds: (current.relatedGoalIds ?? []).includes(goal.id)
+                                ? (current.relatedGoalIds ?? []).filter((relatedGoalId) => relatedGoalId !== goal.id)
+                                : [...(current.relatedGoalIds ?? []), goal.id],
+                            }))
+                          }
                         className={`flex w-full items-center justify-between gap-3 rounded-2xl border px-3 py-2.5 text-left transition ${
                           active
                             ? 'border-white/[0.1] bg-white/[0.05]'
@@ -3763,48 +3797,6 @@ export function GoalsPage({
           </div>
         ) : null}
 
-      {lifeGoalComposerMode === 'edit' && editingLifeGoalId ? (
-        <div className="sticky bottom-0 -mx-7 border-t border-[rgb(var(--theme-border-subtle-rgb)/0.7)] bg-[rgb(var(--theme-surface-elevated-rgb)/0.96)] px-7 pt-4 pb-3 backdrop-blur-md">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap gap-2">
-            {canCompleteEditedGoal ? (
-              <Button
-                variant="soft"
-                onClick={() => {
-                  completeLifeGoal(editingLifeGoalId)
-                  closeLifeGoalComposer()
-                }}
-              >
-                Complete Goal
-              </Button>
-            ) : null}
-            <Button
-              variant="ghost"
-              onClick={() => {
-                if (!window.confirm('Archive this goal? It will be removed from the active Life Goals workspace.')) return
-                onArchiveLifeGoal(editingLifeGoalId)
-                if (selectedLifeGoalId === editingLifeGoalId) {
-                  onChangeGoalsView('life-overview')
-                }
-                closeLifeGoalComposer()
-              }}
-            >
-              Archive Goal
-            </Button>
-            <Button
-              variant="ghost"
-              className="theme-danger-soft"
-              onClick={() => {
-                requestDeleteLifeGoal(editingLifeGoalId, 'edit')
-              }}
-              >
-                Delete Goal
-              </Button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
       <div
         className={`${
           lifeGoalComposerMode === 'edit'
@@ -3812,55 +3804,94 @@ export function GoalsPage({
             : ''
         }`}
       >
-        <div className="flex flex-wrap justify-end gap-2">
-          <Button
-            variant="ghost"
-            onClick={isCreatePathStep ? () => setLifeGoalCreateStep('define') : closeLifeGoalComposer}
-          >
-            {isCreatePathStep ? 'Back' : 'Cancel'}
-          </Button>
-          <motion.div
-            className="rounded-2xl"
-            animate={
-              createGoalVisualState === 'starting' && isCreatePathStep
-                ? {
-                    scale: 0.97,
-                    boxShadow: '0 0 0 1px rgb(var(--theme-accent-rgb) / 0.14), 0 0 18px rgb(var(--theme-accent-rgb) / 0.18)',
+        <div className={`flex flex-wrap items-center justify-between gap-3 ${lifeGoalComposerMode === 'edit' ? '' : 'justify-end'}`}>
+          {lifeGoalComposerMode === 'edit' && editingLifeGoalId ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {canCompleteEditedGoal ? (
+                <Button
+                  variant="soft"
+                  onClick={() => {
+                    completeLifeGoal(editingLifeGoalId)
+                    closeLifeGoalComposer()
+                  }}
+                >
+                  Complete Goal
+                </Button>
+              ) : null}
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  if (!window.confirm('Archive this goal? It will be removed from the active Life Goals workspace.')) return
+                  onArchiveLifeGoal(editingLifeGoalId)
+                  if (selectedLifeGoalId === editingLifeGoalId) {
+                    onChangeGoalsView('life-overview')
                   }
-                : {
-                    scale: 1,
-                    boxShadow: '0 0 0 0 rgb(var(--theme-accent-rgb) / 0)',
-                  }
-            }
-            transition={{
-              scale: { duration: 0.12, ease: 'easeOut' },
-              boxShadow: { duration: 0.25, ease: 'easeOut' },
-            }}
-          >
+                  closeLifeGoalComposer()
+                }}
+              >
+                Archive Goal
+              </Button>
+              <Button
+                variant="ghost"
+                className="theme-danger-soft hover:border-[rgb(var(--theme-negative-rgb)/0.38)] hover:bg-[rgb(var(--theme-negative-rgb)/0.12)] hover:text-[rgb(var(--theme-negative-rgb)/0.98)]"
+                onClick={() => {
+                  requestDeleteLifeGoal(editingLifeGoalId, 'edit')
+                }}
+              >
+                Delete Goal
+              </Button>
+            </div>
+          ) : null}
+          <div className="flex flex-wrap justify-end gap-2">
             <Button
-              variant="soft"
-            onClick={
-              lifeGoalComposerMode === 'edit'
-                ? handleSaveLifeGoal
-                : isCreateDefineStep
-                  ? handleAdvanceCreateGoalStep
-                  : handleStartGoalClick
-            }
-            disabled={isCreateDefineStep ? !canAdvanceCreateGoal : false}
-          >
-            {lifeGoalComposerMode === 'edit'
-              ? 'Save Changes'
-              : isCreateDefineStep
-                ? isDirectionalDraftGoal
-                  ? 'Next → Active Paths'
-                  : 'Next → Define Path'
-                : createGoalVisualState === 'starting'
-                  ? 'Starting...'
-                  : isDirectionalDraftGoal
-                    ? 'Save direction'
-                    : 'Start goal'}
-          </Button>
-          </motion.div>
+              variant="ghost"
+              onClick={isCreatePathStep ? () => setLifeGoalCreateStep('define') : closeLifeGoalComposer}
+            >
+              {isCreatePathStep ? 'Back' : 'Cancel'}
+            </Button>
+            <motion.div
+              className="rounded-2xl"
+              animate={
+                createGoalVisualState === 'starting' && isCreatePathStep
+                  ? {
+                      scale: 0.97,
+                      boxShadow: '0 0 0 1px rgb(var(--theme-accent-rgb) / 0.14), 0 0 18px rgb(var(--theme-accent-rgb) / 0.18)',
+                    }
+                  : {
+                      scale: 1,
+                      boxShadow: '0 0 0 0 rgb(var(--theme-accent-rgb) / 0)',
+                    }
+              }
+              transition={{
+                scale: { duration: 0.12, ease: 'easeOut' },
+                boxShadow: { duration: 0.25, ease: 'easeOut' },
+              }}
+            >
+              <Button
+                variant="soft"
+                onClick={
+                  lifeGoalComposerMode === 'edit'
+                    ? handleSaveLifeGoal
+                    : isCreateDefineStep
+                      ? handleAdvanceCreateGoalStep
+                      : handleStartGoalClick
+                }
+                disabled={isCreateDefineStep ? !canAdvanceCreateGoal : false}
+              >
+                {lifeGoalComposerMode === 'edit'
+                  ? 'Save Changes'
+                  : isCreateDefineStep
+                    ? isDirectionalDraftGoal
+                      ? 'Next → Active Paths'
+                      : 'Next → Define Path'
+                    : createGoalVisualState === 'starting'
+                      ? 'Starting...'
+                      : isDirectionalDraftGoal
+                        ? 'Save direction'
+                        : 'Start goal'}
+              </Button>
+            </motion.div>
+          </div>
         </div>
       </div>
       </div>
@@ -4098,33 +4129,38 @@ const renderLifeGoalOverviewPage = () => {
 
       {visibleLifeGoals.length > 0 ? (() => {
         const getOverviewRelationshipChips = (goal: LifeGoal) => {
-          const isDirectional = (goal.goalType ?? 'outcome') === 'directional'
+          const linkedGoals = (goal.relatedGoalIds ?? [])
+            .map((goalId) => safeLifeGoals.find((candidate) => candidate.id === goalId && candidate.id !== goal.id && !candidate.archivedAt))
+            .filter((candidate): candidate is LifeGoal => Boolean(candidate))
+            .filter((candidate, index, items) => items.findIndex((item) => item.id === candidate.id) === index)
 
-          if (isDirectional) {
-            const linkedGoals = goal.relatedGoalIds
-              .map((goalId) => lifeGoals.find((candidate) => candidate.id === goalId && candidate.id !== goal.id && !candidate.archivedAt))
-              .filter((candidate): candidate is LifeGoal => Boolean(candidate))
-              .filter((candidate, index, items) => items.findIndex((item) => item.id === candidate.id) === index)
-
-            return {
-              labels: linkedGoals.slice(0, 3).map((candidate) => candidate.title),
-              overflow: Math.max(0, linkedGoals.length - 3),
-            }
-          }
-
-          const directionalParents = lifeGoals
+          const linkingGoals = safeLifeGoals
             .filter(
               (candidate) =>
                 !candidate.archivedAt &&
                 candidate.id !== goal.id &&
-                (candidate.goalType ?? 'outcome') === 'directional' &&
-                candidate.relatedGoalIds.includes(goal.id),
+                (candidate.relatedGoalIds ?? []).includes(goal.id),
             )
             .filter((candidate, index, items) => items.findIndex((item) => item.id === candidate.id) === index)
 
+          const relationshipGoals = [
+            ...linkedGoals.map((candidate) => ({
+              id: candidate.id,
+              label: candidate.title,
+              isDirectional: (candidate.goalType ?? 'outcome') === 'directional',
+              direction: 'outgoing' as const,
+            })),
+            ...linkingGoals.map((candidate) => ({
+              id: candidate.id,
+              label: candidate.title,
+              isDirectional: (candidate.goalType ?? 'outcome') === 'directional',
+              direction: 'incoming' as const,
+            })),
+          ].filter((candidate, index, items) => items.findIndex((item) => item.id === candidate.id) === index)
+
           return {
-            labels: directionalParents.slice(0, 2).map((candidate) => candidate.title),
-            overflow: Math.max(0, directionalParents.length - 2),
+            labels: relationshipGoals.slice(0, 2),
+            overflow: Math.max(0, relationshipGoals.length - 2),
           }
         }
 
@@ -4132,7 +4168,7 @@ const renderLifeGoalOverviewPage = () => {
             const statusMeta = getLifeGoalStatusMeta(goal.status, goal.startDate)
             const goalDueMeta = isValidIsoDate(goal.targetDate) ? getRelativeDueMeta(goal.targetDate) : null
             const progress = getLifeGoalProgress(goal)
-            const categoryColor = goal.category ? getLifeGoalCategoryColor(goal.category, lifeGoalCategories) : 'neutral'
+            const categoryColor = goal.category ? getLifeGoalCategoryColor(goal.category, safeLifeGoalCategories) : 'neutral'
             const isDirectional = (goal.goalType ?? 'outcome') === 'directional'
             const relationshipChips = getOverviewRelationshipChips(goal)
             const isPrimary = goal.id === featuredOverviewGoalId
@@ -4145,7 +4181,17 @@ const renderLifeGoalOverviewPage = () => {
               : goal.targetDate
                 ? formatDate(goal.targetDate)
                 : null
-
+            const compactDueToneClassName = !goalDueMeta
+              ? 'text-mist/50'
+              : goalDueMeta.toneClassName === 'text-[rgb(var(--theme-negative-rgb)/0.78)]'
+                ? goalDueMeta.toneClassName
+                : goalDueMeta.toneClassName === 'text-[rgb(var(--theme-warning-rgb)/0.76)]'
+                  ? 'text-[rgb(var(--theme-warning-rgb)/0.64)]'
+                  : goalDueMeta.toneClassName === 'text-[rgb(var(--theme-warning-rgb)/0.72)]'
+                    ? 'text-[rgb(var(--theme-warning-rgb)/0.58)]'
+                    : goalDueMeta.toneClassName === 'text-[rgb(var(--theme-warning-rgb)/0.68)]'
+                      ? 'text-[rgb(var(--theme-warning-rgb)/0.56)]'
+                      : 'text-white/50'
             return (
               <button
                 key={goal.id}
@@ -4230,17 +4276,17 @@ const renderLifeGoalOverviewPage = () => {
                         <span>{goal.category}</span>
                       </span>
                     ) : null}
-                    {isDirectional ? (
-                      <span className="inline-flex items-center rounded-full border border-white/[0.06] bg-white/[0.02] px-2 py-[3px] text-[10px] font-medium uppercase tracking-[0.1em] leading-none text-white/46">
-                        Direction
-                      </span>
-                    ) : null}
-                    {relationshipChips.labels.map((label) => (
+                    {relationshipChips.labels.map((item) => (
                       <span
-                        key={`${goal.id}-relationship-row-${label}`}
-                        className="inline-flex items-center rounded-full border border-white/[0.05] bg-white/[0.018] px-2 py-[3px] text-[10px] font-medium uppercase tracking-[0.1em] leading-none text-white/42"
+                        key={`${goal.id}-relationship-row-${item.id}`}
+                        className={`inline-flex items-center rounded-full border px-2 py-[3px] text-[10px] font-medium uppercase tracking-[0.1em] leading-none ${
+                          item.isDirectional
+                            ? 'border-white/[0.04] bg-white/[0.028] text-white/40'
+                            : 'border-white/[0.05] bg-white/[0.018] text-white/42'
+                        }`}
                       >
-                        {label}
+                        <span className="mr-1 text-white/28">{item.direction === 'outgoing' ? '→' : '←'}</span>
+                        <span>{item.label}</span>
                       </span>
                     ))}
                     {relationshipChips.overflow > 0 ? (
@@ -4249,22 +4295,26 @@ const renderLifeGoalOverviewPage = () => {
                       </span>
                     ) : null}
                     {goal.isPrimary ? (
-                      <span className="inline-flex items-center rounded-full border border-white/[0.08] bg-white/[0.02] px-2 py-[3px] text-[10px] font-medium uppercase tracking-[0.1em] leading-none text-white/58">
+                      <span className="inline-flex items-center rounded-full border border-white/[0.05] bg-white/[0.012] px-2 py-[3px] text-[10px] font-medium uppercase tracking-[0.1em] leading-none text-white/42">
                         Primary
                       </span>
                     ) : null}
                   </div>
                 </div>
 
-                <div className="flex shrink-0 items-center gap-3 text-right">
-                  {dueText ? (
-                    <span className={`text-[12px] ${goalDueMeta?.toneClassName ?? 'text-mist/56'}`}>
-                      {dueText}
+                <div className="relative h-6 w-[282px] shrink-0">
+                  <div className="absolute right-[146px] top-1/2 flex w-[132px] -translate-y-1/2 items-center justify-start">
+                    {dueText ? (
+                      <span className={`inline-block whitespace-nowrap text-left text-[12px] leading-[18px] tabular-nums ${compactDueToneClassName}`}>
+                        {dueText}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="absolute right-0 top-1/2 flex w-[140px] -translate-y-1/2 justify-end">
+                    <span className={`${goalStatusChipClassName} h-6 shrink-0 px-2.5 py-0 text-[10px] ${statusMeta.badgeClassName}`}>
+                      {isLifeGoalScheduled(goal.status, goal.startDate) ? 'Scheduled' : statusMeta.label}
                     </span>
-                  ) : null}
-                  <span className={`${goalStatusChipClassName} h-6 shrink-0 px-2.5 py-0 text-[10px] ${statusMeta.badgeClassName}`}>
-                    {isLifeGoalScheduled(goal.status, goal.startDate) ? 'Scheduled' : statusMeta.label}
-                  </span>
+                  </div>
                 </div>
               </button>
             )
@@ -4285,7 +4335,7 @@ const renderLifeGoalOverviewPage = () => {
             const canDrag = lifeGoalOverviewMode === 'manual' && !goal.isPrimary
             const progressSummary = `${progress.completedTasks}/${Math.max(progress.totalTasks, 1)} tasks`
             const goalSubtaskProgress = getGoalSubtaskProgress(goal.tasks)
-            const categoryColor = goal.category ? getLifeGoalCategoryColor(goal.category, lifeGoalCategories) : 'neutral'
+            const categoryColor = goal.category ? getLifeGoalCategoryColor(goal.category, safeLifeGoalCategories) : 'neutral'
             const flowState = getLifeGoalFlowState(goal, progress)
             const goalDueMeta = isValidIsoDate(goal.targetDate) ? getRelativeDueMeta(goal.targetDate) : null
             return (
@@ -4411,17 +4461,17 @@ const renderLifeGoalOverviewPage = () => {
                           <span>{goal.category}</span>
                         </span>
                       ) : null}
-                      {isDirectional ? (
-                        <span className="inline-flex items-center rounded-full border border-white/[0.06] bg-white/[0.02] px-2.5 py-1 text-[10px] font-medium tracking-[0.14em] text-white/46 uppercase leading-none">
-                          Direction
-                        </span>
-                      ) : null}
-                      {relationshipChips.labels.map((label) => (
+                      {relationshipChips.labels.map((item) => (
                         <span
-                          key={`${goal.id}-relationship-card-${label}`}
-                          className="inline-flex items-center rounded-full border border-white/[0.05] bg-white/[0.018] px-2.5 py-1 text-[10px] font-medium tracking-[0.14em] text-white/42 uppercase leading-none"
+                          key={`${goal.id}-relationship-card-${item.id}`}
+                          className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-medium tracking-[0.14em] uppercase leading-none ${
+                            item.isDirectional
+                              ? 'border-white/[0.04] bg-white/[0.028] text-white/40'
+                              : 'border-white/[0.05] bg-white/[0.018] text-white/42'
+                          }`}
                         >
-                          {label}
+                          <span className="mr-1 text-white/28">{item.direction === 'outgoing' ? '→' : '←'}</span>
+                          <span>{item.label}</span>
                         </span>
                       ))}
                       {relationshipChips.overflow > 0 ? (
@@ -4430,7 +4480,7 @@ const renderLifeGoalOverviewPage = () => {
                         </span>
                       ) : null}
                       {goal.isPrimary ? (
-                        <span className="inline-flex items-center rounded-full border border-[rgb(var(--theme-border-strong-rgb)/0.9)] bg-[linear-gradient(180deg,rgba(255,255,255,0.12),rgba(255,255,255,0.03))] px-2.5 py-1 text-[10px] font-medium tracking-[0.14em] text-[rgb(var(--theme-text-primary-rgb))] uppercase leading-none shadow-[inset_0_1px_0_rgb(255_255_255_/_0.16),inset_0_-1px_0_rgb(0_0_0_/_0.18),0_0_0_1px_rgb(255_255_255_/_0.04)]">
+                        <span className="inline-flex items-center rounded-full border border-white/[0.06] bg-white/[0.014] px-2.5 py-1 text-[10px] font-medium tracking-[0.14em] text-white/48 uppercase leading-none">
                           Primary Goal
                         </span>
                       ) : null}
@@ -4527,13 +4577,30 @@ const renderLifeGoalOverviewPage = () => {
 
         const directionalGoals = visibleLifeGoals.filter((goal) => (goal.goalType ?? 'outcome') === 'directional')
         const standardGoals = visibleLifeGoals.filter((goal) => (goal.goalType ?? 'outcome') !== 'directional')
+        const outcomeGoals = standardGoals.filter((goal) => (goal.goalType ?? 'outcome') === 'outcome')
+        const systemGoals = standardGoals.filter((goal) => (goal.goalType ?? 'outcome') === 'system')
+        const renderGoalTypeInfo = (copy: string) => (
+          <span className="group/goaltype relative inline-flex items-center">
+            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-white/[0.08] text-[9px] font-medium leading-none text-white/34 transition-colors duration-150 ease-out group-hover/goaltype:text-white/52">
+              i
+            </span>
+            <span className="theme-tooltip pointer-events-none absolute bottom-[calc(100%+10px)] left-1/2 z-20 hidden w-max max-w-[220px] -translate-x-1/2 whitespace-normal rounded-xl border px-2.5 py-1.5 text-[11px] font-medium leading-4 opacity-0 shadow-[0_12px_30px_rgba(15,23,42,0.16)] transition-all duration-150 ease-out group-hover/goaltype:block group-hover/goaltype:translate-y-0 group-hover/goaltype:opacity-100">
+              {copy}
+            </span>
+          </span>
+        )
         const renderGoalGroupSection = (title: string, goals: LifeGoal[]) => {
           if (goals.length === 0) return null
+          const infoCopy =
+            title === 'Directions'
+              ? 'Long-term life direction. Not something to complete.'
+              : null
           return (
             <section className="space-y-3">
               <div className="space-y-1.5">
                 <div className="flex items-center gap-2">
                   <h3 className="text-[11px] font-medium uppercase tracking-[0.16em] text-white/58">{title}</h3>
+                  {infoCopy ? renderGoalTypeInfo(infoCopy) : null}
                 </div>
                 <div
                   aria-hidden="true"
@@ -4544,34 +4611,116 @@ const renderLifeGoalOverviewPage = () => {
             </section>
           )
         }
+        const renderGoalTypeSubgroup = (title: 'Outcome' | 'System', content: React.ReactNode) => {
+          if (!content) return null
+          const infoCopy =
+            title === 'Outcome'
+              ? 'A goal with a clear finish.'
+              : 'Ongoing behavior & habits that support outcome goals.'
+          const headerPaddingClassName = title === 'System' ? 'pt-0' : 'pt-1'
+          return (
+            <div className="space-y-2">
+              <div className={`space-y-1 ${headerPaddingClassName}`}>
+                <div className="flex items-center gap-2">
+                  <p className="text-[10px] uppercase tracking-[0.18em] text-white/34">{title}</p>
+                  {renderGoalTypeInfo(infoCopy)}
+                </div>
+                <div
+                  aria-hidden="true"
+                  className="h-px bg-[linear-gradient(90deg,rgb(var(--theme-border-subtle-rgb)/0.14)_0%,rgb(var(--theme-border-subtle-rgb)/0.08)_56%,transparent_100%)]"
+                />
+              </div>
+              {content}
+            </div>
+          )
+        }
 
         if (lifeGoalOverviewMode === 'manual') {
           return (
             <div className="space-y-4">
               {renderGoalGroupSection('Directions', directionalGoals)}
-              {renderGoalGroupSection('Goals', standardGoals)}
+              {standardGoals.length > 0 ? (
+                <section className="space-y-3">
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-[11px] font-medium uppercase tracking-[0.16em] text-white/58">Goals</h3>
+                    </div>
+                    <div
+                      aria-hidden="true"
+                      className="h-px bg-[linear-gradient(90deg,transparent_0%,rgb(var(--theme-border-subtle-rgb)/0.16)_10%,rgb(var(--theme-border-subtle-rgb)/0.1)_56%,transparent_100%)]"
+                    />
+                  </div>
+                  <div className="space-y-3">
+                    {renderGoalTypeSubgroup(
+                      'Outcome',
+                      <div className={lifeGoalOverviewDensity === 'compact' ? 'space-y-2' : 'space-y-3'}>
+                        {outcomeGoals.map((goal) => renderGoalItem(goal))}
+                      </div>,
+                    )}
+                    {renderGoalTypeSubgroup(
+                      'System',
+                      <div className={lifeGoalOverviewDensity === 'compact' ? 'space-y-2' : 'space-y-3'}>
+                        {systemGoals.map((goal) => renderGoalItem(goal))}
+                      </div>,
+                    )}
+                  </div>
+                </section>
+              ) : null}
             </div>
           )
         }
 
         const primaryGoal = standardGoals.find((goal) => goal.isPrimary) ?? null
-        const groupedGoals = standardGoals.filter((goal) => !goal.isPrimary)
-        const orderedCategoryKeys: string[] = []
-        const groupedByCategory = new Map<string, LifeGoal[]>()
+        const groupedGoalsByType = (goals: LifeGoal[]) => {
+          const orderedCategoryKeys: string[] = []
+          const groupedByCategory = new Map<string, LifeGoal[]>()
 
-        for (const goal of groupedGoals) {
-          const categoryKey = goal.category.trim() || 'uncategorized'
-          if (!groupedByCategory.has(categoryKey)) {
-            groupedByCategory.set(categoryKey, [])
-            orderedCategoryKeys.push(categoryKey)
+          for (const goal of goals.filter((item) => !item.isPrimary)) {
+            const categoryKey = goal.category.trim() || 'uncategorized'
+            if (!groupedByCategory.has(categoryKey)) {
+              groupedByCategory.set(categoryKey, [])
+              orderedCategoryKeys.push(categoryKey)
+            }
+            groupedByCategory.get(categoryKey)!.push(goal)
           }
-          groupedByCategory.get(categoryKey)!.push(goal)
+
+          const orderedGroupedKeys = [
+            ...orderedCategoryKeys.filter((key) => key !== 'uncategorized'),
+            ...orderedCategoryKeys.filter((key) => key === 'uncategorized'),
+          ]
+
+          return { groupedByCategory, orderedGroupedKeys }
         }
 
-        const orderedGroupedKeys = [
-          ...orderedCategoryKeys.filter((key) => key !== 'uncategorized'),
-          ...orderedCategoryKeys.filter((key) => key === 'uncategorized'),
-        ]
+        const groupedOutcome = groupedGoalsByType(outcomeGoals)
+        const groupedSystem = groupedGoalsByType(systemGoals)
+        const renderCategorySections = (grouped: { groupedByCategory: Map<string, LifeGoal[]>; orderedGroupedKeys: string[] }) =>
+          grouped.orderedGroupedKeys.map((categoryKey) => {
+            const goals = grouped.groupedByCategory.get(categoryKey)
+            if (!goals || goals.length === 0) return null
+            const categoryName = categoryKey === 'uncategorized' ? 'Other' : categoryKey
+            const categoryColor = categoryKey === 'uncategorized' ? 'neutral' : getLifeGoalCategoryColor(categoryKey, lifeGoalCategories)
+            return (
+              <section key={categoryKey} className="space-y-3">
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full" style={getLifeGoalCategoryDotStyle(categoryColor)} />
+                    <h3
+                      className="text-[11px] font-medium uppercase tracking-[0.16em]"
+                      style={{ color: `rgb(var(${getLifeGoalCategoryColorTokenVariable(categoryColor)}) / 0.74)` }}
+                    >
+                      {categoryName}
+                    </h3>
+                  </div>
+                  <div
+                    aria-hidden="true"
+                    className="h-px bg-[linear-gradient(90deg,transparent_0%,rgb(var(--theme-border-subtle-rgb)/0.16)_10%,rgb(var(--theme-border-subtle-rgb)/0.1)_56%,transparent_100%)]"
+                  />
+                </div>
+                <div className={lifeGoalOverviewDensity === 'compact' ? 'space-y-2' : 'space-y-3'}>{goals.map((goal) => renderGoalItem(goal))}</div>
+              </section>
+            )
+          })
 
         return (
           <div className="space-y-4">
@@ -4586,33 +4735,13 @@ const renderLifeGoalOverviewPage = () => {
                   className="h-px bg-[linear-gradient(90deg,transparent_0%,rgb(var(--theme-border-subtle-rgb)/0.16)_10%,rgb(var(--theme-border-subtle-rgb)/0.1)_56%,transparent_100%)]"
                 />
               </div>
-            {primaryGoal ? <div className={lifeGoalOverviewDensity === 'compact' ? 'space-y-2' : 'space-y-3'}>{renderGoalItem(primaryGoal)}</div> : null}
-            {orderedGroupedKeys.map((categoryKey) => {
-              const goals = groupedByCategory.get(categoryKey)
-              if (!goals || goals.length === 0) return null
-              const categoryName = categoryKey === 'uncategorized' ? 'Other' : categoryKey
-              const categoryColor = categoryKey === 'uncategorized' ? 'neutral' : getLifeGoalCategoryColor(categoryKey, lifeGoalCategories)
-              return (
-                <section key={categoryKey} className="space-y-3">
-                  <div className="space-y-1.5">
-                    <div className="flex items-center gap-2">
-                      <span className="h-2 w-2 rounded-full" style={getLifeGoalCategoryDotStyle(categoryColor)} />
-                      <h3
-                        className="text-[11px] font-medium uppercase tracking-[0.16em]"
-                        style={{ color: `rgb(var(${getLifeGoalCategoryColorTokenVariable(categoryColor)}) / 0.74)` }}
-                      >
-                        {categoryName}
-                      </h3>
-                    </div>
-                  <div
-                      aria-hidden="true"
-                      className="h-px bg-[linear-gradient(90deg,transparent_0%,rgb(var(--theme-border-subtle-rgb)/0.16)_10%,rgb(var(--theme-border-subtle-rgb)/0.1)_56%,transparent_100%)]"
-                    />
-                  </div>
-                  <div className={lifeGoalOverviewDensity === 'compact' ? 'space-y-2' : 'space-y-3'}>{goals.map((goal) => renderGoalItem(goal))}</div>
-                </section>
-              )
-            })}
+              {primaryGoal ? <div className={lifeGoalOverviewDensity === 'compact' ? 'space-y-2' : 'space-y-3'}>{renderGoalItem(primaryGoal)}</div> : null}
+              {outcomeGoals.length > 0
+                ? renderGoalTypeSubgroup('Outcome', <div className="space-y-3">{renderCategorySections(groupedOutcome)}</div>)
+                : null}
+              {systemGoals.length > 0
+                ? renderGoalTypeSubgroup('System', <div className="space-y-3">{renderCategorySections(groupedSystem)}</div>)
+                : null}
             </section>
           </div>
         )
@@ -4676,8 +4805,8 @@ const renderLifeGoalOverviewPage = () => {
     const goalCompletionPercent = selectedLifeGoalProgress?.percent ?? 0
     const relatedGoals = (() => {
       const seen = new Set<string>()
-      return selectedLifeGoal.relatedGoalIds
-        .map((goalId) => lifeGoals.find((goal) => goal.id === goalId && goal.id !== selectedLifeGoal.id && !goal.archivedAt))
+      return (selectedLifeGoal.relatedGoalIds ?? [])
+        .map((goalId) => safeLifeGoals.find((goal) => goal.id === goalId && goal.id !== selectedLifeGoal.id && !goal.archivedAt))
         .filter((goal): goal is LifeGoal => Boolean(goal))
         .filter((goal) => {
           if (seen.has(goal.id)) return false
@@ -4685,7 +4814,7 @@ const renderLifeGoalOverviewPage = () => {
           return true
         })
     })()
-    const linkedDirectionalTasks = tasks
+    const linkedDirectionalTasks = safeTasks
       .filter((task) => task.linkedDirectionId === selectedLifeGoal.id)
       .filter((task, index, taskItems) => taskItems.findIndex((candidate) => candidate.id === task.id) === index)
       .slice()
@@ -4695,12 +4824,12 @@ const renderLifeGoalOverviewPage = () => {
         if (left.dueDate !== right.dueDate) return left.dueDate.localeCompare(right.dueDate)
         return left.text.localeCompare(right.text)
       })
-    const supportingHabits = habitTrackers
-      .filter((tracker) => tracker.linkedGoalIds.includes(selectedLifeGoal.id))
+    const supportingHabits = safeHabitTrackers
+      .filter((tracker) => (tracker.linkedGoalIds ?? []).includes(selectedLifeGoal.id))
       .filter((tracker, index, trackers) => trackers.findIndex((candidate) => candidate.id === tracker.id) === index)
-    const parentGoals = lifeGoals
+    const parentGoals = safeLifeGoals
       .filter((goal) => !goal.archivedAt && goal.id !== selectedLifeGoal.id)
-      .filter((goal) => goal.relatedGoalIds.includes(selectedLifeGoal.id))
+      .filter((goal) => (goal.relatedGoalIds ?? []).includes(selectedLifeGoal.id))
       .filter((goal, index, goals) => goals.findIndex((candidate) => candidate.id === goal.id) === index)
     const activeRelatedGoalsCount = relatedGoals.filter((goal) => goal.status === 'in-motion').length
     const pausedRelatedGoalsCount = relatedGoals.filter((goal) => goal.status === 'paused').length
@@ -4825,6 +4954,53 @@ const renderLifeGoalOverviewPage = () => {
           </span>
         ) : null}
       </>
+    )
+    const linkedGoalsSection = (
+      <div className="rounded-[24px] border border-white/[0.05] bg-white/[0.02] px-5 py-4">
+        <div>
+          <p className="text-[11px] uppercase tracking-[0.16em] text-mist/52">Related goals</p>
+          <p className="mt-1 text-sm text-mist">Goals linked with this goal.</p>
+        </div>
+
+        <div className="mt-4 space-y-2">
+          {relatedGoals.length > 0 ? (
+            <>
+              {visibleRelatedGoals.map((goal) => {
+                const dueMeta = goal.targetDate && isValidIsoDate(goal.targetDate) ? getRelativeDueMeta(goal.targetDate) : null
+                return (
+                  <button
+                    key={`linked-goal-${goal.id}`}
+                    type="button"
+                    onClick={() => onSelectLifeGoal(goal.id)}
+                    className="flex w-full items-center justify-between rounded-[18px] border border-white/[0.05] bg-white/[0.018] px-4 py-3 text-left transition hover:border-white/[0.08] hover:bg-white/[0.03]"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm text-white/84">{goal.title}</p>
+                      <div className="mt-1 flex flex-wrap items-center gap-2">
+                        {goal.category ? <p className="text-[12px] text-mist/56">{goal.category}</p> : null}
+                        {goal.targetDate ? (
+                          <p className={`text-[12px] ${dueMeta?.toneClassName ?? 'text-mist/56'}`}>
+                            {dueMeta ? `${dueMeta.label} · ${formatDate(goal.targetDate)}` : formatDate(goal.targetDate)}
+                          </p>
+                        ) : null}
+                        <span className={`${goalStatusChipClassName} h-5 px-2 py-0 text-[9px] ${getLifeGoalStatusMeta(goal.status, goal.startDate).badgeClassName}`}>
+                          {getLifeGoalStatusMeta(goal.status, goal.startDate).label}
+                        </span>
+                      </div>
+                    </div>
+                    <span className="text-[11px] uppercase tracking-[0.14em] text-white/36">Open</span>
+                  </button>
+                )
+              })}
+              {hiddenRelatedGoalsCount > 0 ? (
+                <div className="rounded-[18px] border border-white/[0.05] bg-white/[0.018] px-4 py-3 text-sm text-mist">
+                  +{hiddenRelatedGoalsCount} more
+                </div>
+              ) : null}
+            </>
+          ) : null}
+        </div>
+      </div>
     )
     const goalWorkspaceRail = (
       <div
@@ -6361,13 +6537,15 @@ const renderLifeGoalOverviewPage = () => {
                 organizationMode: roadmapOrganizationMode,
                 showTagGrouping: roadmapHasTaggedTasks,
               }}
-            /> : (
+            /> : isDirectionalGoal ? (
               <div className="space-y-4">
                 {relatedGoalsSection}
                 {directionalActivitySection}
                 {directionalReflectionsSection}
               </div>
-            )}
+            ) : relatedGoals.length > 0 ? (
+              linkedGoalsSection
+            ) : null}
           </div>
 
           {isSystemGoal ? systemSupportingHabitsSection : null}

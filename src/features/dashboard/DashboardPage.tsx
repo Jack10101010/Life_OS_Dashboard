@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Button } from '../../components/ui/Button'
 import { Card } from '../../components/ui/Card'
+import { ErrorBoundary } from '../../components/ui/ErrorBoundary'
 import { StatPill } from '../../components/ui/StatPill'
 import { TagPill } from '../../components/ui/TagPill'
 import { WeekHeatmap } from '../../components/tracker/WeekHeatmap'
@@ -74,6 +75,10 @@ export function DashboardPage({
   onOpenGoals: () => void
   onOpenDay: (day: DayEntry) => void
 }) {
+  const safeTags = tags ?? []
+  const safeTasks = tasks ?? []
+  const safeLifeGoals = lifeGoals ?? []
+  const safeHabitTrackers = habitTrackers ?? []
   const { currentWeek, todayEntry, moodTrend, topHabits, journalHighlights, recentWins } = useDashboardState({
     days,
     weeks,
@@ -143,7 +148,7 @@ export function DashboardPage({
       })),
     [availableScratchpadBackups],
   )
-  const sortedTasks = useMemo(() => getSortedDashboardTasks(tasks), [tasks])
+  const sortedTasks = useMemo(() => getSortedDashboardTasks(safeTasks), [safeTasks])
   const visibleTasks = useMemo(() => sortedTasks.slice(0, 5), [sortedTasks])
   const panelTasks = useMemo(() => {
     const search = taskPanelSearch.trim().toLowerCase()
@@ -166,7 +171,7 @@ export function DashboardPage({
   }, [taskPanelExpanded, taskPanelWidth, taskPanelWidthBounds])
   const activeGoals = useMemo(
     () =>
-      habitTrackers
+      safeHabitTrackers
         .filter((tracker) => tracker.goal)
         .map((tracker) => ({
           tracker,
@@ -177,7 +182,7 @@ export function DashboardPage({
             item.progress != null && item.progress.active,
         )
         .slice(0, 3),
-    [habitTrackers, year],
+    [safeHabitTrackers, year],
   )
   const scratchpadFreeNotes = useMemo(
     () => getScratchpadFreeNotes(workspaceScratchpad, 'workspace'),
@@ -199,16 +204,16 @@ export function DashboardPage({
     { status: 'complete', label: 'Mark complete' },
   ]
   const dayEventTags = useMemo(
-    () => tags.filter((tag) => tag.isActive && tag.section === 'events' && tag.availableIn.includes('day')),
-    [tags],
+    () => safeTags.filter((tag) => tag.isActive && tag.section === 'events' && tag.availableIn.includes('day')),
+    [safeTags],
   )
   const dayActionEventTags = useMemo(
-    () => tags.filter((tag) => tag.isActive && tag.section === 'actions' && tag.availableIn.includes('day')),
-    [tags],
+    () => safeTags.filter((tag) => tag.isActive && tag.section === 'actions' && tag.availableIn.includes('day')),
+    [safeTags],
   )
   const dayMoodEventTags = useMemo(
-    () => tags.filter((tag) => tag.isActive && tag.section === 'feelings' && tag.availableIn.includes('day')),
-    [tags],
+    () => safeTags.filter((tag) => tag.isActive && tag.section === 'feelings' && tag.availableIn.includes('day')),
+    [safeTags],
   )
   const lowStateNextAction = dashboardExecution.nextAction.trim() || dashboardExecution.minimumVersion.trim() || dashboardExecution.todayTask.trim()
 
@@ -2132,146 +2137,150 @@ export function DashboardPage({
             >
               <span className="absolute left-1/2 top-1/2 h-16 w-[3px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/[0.08] transition hover:bg-white/[0.18]" />
             </button>
-            <div className="border-b border-white/[0.06] px-5 py-4">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.22em] text-mist/70">Tasks</p>
-                  <h3 className="mt-2 text-2xl font-semibold text-white">Full task list</h3>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const nextExpanded = !taskPanelExpanded
-                      setTaskPanelExpanded(nextExpanded)
-                      setTaskPanelWidth(nextExpanded ? taskPanelWidthBounds.expanded : taskPanelWidthBounds.default)
-                    }}
-                    className="rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-sm text-white/72 transition hover:bg-white/[0.05] hover:text-white"
-                  >
-                    {taskPanelExpanded ? 'Default width' : 'Expand'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTaskPanelOpen(false)}
-                    className="rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-sm text-white/72 transition hover:bg-white/[0.05] hover:text-white"
-                  >
-                    Close
-                  </button>
-                </div>
-              </div>
-              <div className="mt-4 flex flex-col gap-3">
-                <input
-                  value={taskPanelSearch}
-                  onChange={(event) => setTaskPanelSearch(event.target.value)}
-                  placeholder="Search tasks"
-                  spellCheck={false}
-                  className="w-full rounded-2xl border border-white/[0.08] bg-[#1A1A1A] px-3 py-2.5 text-sm text-white/88 outline-none transition placeholder:text-white/34 focus:border-white/[0.14] focus:bg-[#202020]"
-                />
-                <div className="flex flex-wrap gap-2">
-                  {([
-                    ['all', 'All'],
-                    ['starred', 'Starred'],
-                    ['important', 'Important'],
-                    ['open', 'Open'],
-                    ['completed', 'Completed'],
-                  ] as const).map(([value, label]) => (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => setTaskPanelFilter(value)}
-                      className={`rounded-full border px-3 py-1.5 text-xs transition ${
-                        taskPanelFilter === value
-                          ? 'border-white/[0.14] bg-white/[0.08] text-white'
-                          : 'border-white/[0.08] bg-white/[0.03] text-white/62 hover:bg-white/[0.05] hover:text-white'
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-4">
-              <div className="space-y-2.5">
-                {panelTasks.length > 0 ? (
-                  panelTasks.map((task) => (
-                    <div
-                      key={task.id}
-                      className={`group relative rounded-2xl border px-3 py-3 transition ${
-                        task.completed
-                          ? 'border-white/[0.05] bg-white/[0.02]'
-                          : task.important
-                            ? 'border-[#A94D45]/35 bg-[#2A1615]/40'
-                            : task.starred
-                              ? 'border-white/[0.12] bg-white/[0.045]'
-                              : 'border-white/[0.08] bg-white/[0.03]'
-                      }`}
-                    >
-                      <div className="flex items-start gap-3">
+            <ErrorBoundary title="Tasks unavailable" description="The task side panel could not be displayed right now." className="m-5">
+              <>
+                <div className="border-b border-white/[0.06] px-5 py-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.22em] text-mist/70">Tasks</p>
+                      <h3 className="mt-2 text-2xl font-semibold text-white">Full task list</h3>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const nextExpanded = !taskPanelExpanded
+                          setTaskPanelExpanded(nextExpanded)
+                          setTaskPanelWidth(nextExpanded ? taskPanelWidthBounds.expanded : taskPanelWidthBounds.default)
+                        }}
+                        className="rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-sm text-white/72 transition hover:bg-white/[0.05] hover:text-white"
+                      >
+                        {taskPanelExpanded ? 'Default width' : 'Expand'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTaskPanelOpen(false)}
+                        className="rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-sm text-white/72 transition hover:bg-white/[0.05] hover:text-white"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </div>
+                  <div className="mt-4 flex flex-col gap-3">
+                    <input
+                      value={taskPanelSearch}
+                      onChange={(event) => setTaskPanelSearch(event.target.value)}
+                      placeholder="Search tasks"
+                      spellCheck={false}
+                      className="w-full rounded-2xl border border-white/[0.08] bg-[#1A1A1A] px-3 py-2.5 text-sm text-white/88 outline-none transition placeholder:text-white/34 focus:border-white/[0.14] focus:bg-[#202020]"
+                    />
+                    <div className="flex flex-wrap gap-2">
+                      {([
+                        ['all', 'All'],
+                        ['starred', 'Starred'],
+                        ['important', 'Important'],
+                        ['open', 'Open'],
+                        ['completed', 'Completed'],
+                      ] as const).map(([value, label]) => (
                         <button
+                          key={value}
                           type="button"
-                          onClick={() => onToggleTask(task.id)}
-                          className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[11px] transition ${
-                            task.completed ? 'border-[#4FDC94]/35 bg-[#4FDC94]/12 text-[#7CE7AE]' : 'border-white/18 text-white/45'
+                          onClick={() => setTaskPanelFilter(value)}
+                          className={`rounded-full border px-3 py-1.5 text-xs transition ${
+                            taskPanelFilter === value
+                              ? 'border-white/[0.14] bg-white/[0.08] text-white'
+                              : 'border-white/[0.08] bg-white/[0.03] text-white/62 hover:bg-white/[0.05] hover:text-white'
                           }`}
-                          aria-label={task.completed ? 'Mark task incomplete' : 'Mark task complete'}
                         >
-                          {task.completed ? '✓' : ''}
+                          {label}
                         </button>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-start justify-between gap-3">
-                            <p className={`text-sm ${task.completed ? 'text-white/55 line-through' : 'text-white/86'}`}>{task.text}</p>
-                            <div className="flex items-center gap-1">
-                              <button
-                                type="button"
-                                onClick={() => onToggleTaskStarred(task.id)}
-                                className={`flex h-8 w-8 items-center justify-center rounded-full text-[16px] leading-none transition ${
-                                  task.starred ? 'text-[#F2C46D]' : 'text-white/35 hover:text-white/72'
-                                }`}
-                                aria-label={task.starred ? 'Remove star' : 'Star task'}
-                              >
-                                ★
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => onToggleTaskImportant(task.id)}
-                                className={`flex h-8 w-8 items-center justify-center rounded-full text-[14px] leading-none transition ${
-                                  task.important ? 'text-[#F08A7B]' : 'text-white/35 hover:text-[#F08A7B]'
-                                }`}
-                                aria-label={task.important ? 'Remove important mark' : 'Mark task important'}
-                              >
-                                !
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => onDeleteTask(task.id)}
-                                className="flex h-8 w-8 items-center justify-center rounded-full text-[18px] leading-none text-white/35 transition hover:text-white/72"
-                                aria-label="Delete task"
-                              >
-                                ×
-                              </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-4">
+                  <div className="space-y-2.5">
+                    {panelTasks.length > 0 ? (
+                      panelTasks.map((task) => (
+                        <div
+                          key={task.id}
+                          className={`group relative rounded-2xl border px-3 py-3 transition ${
+                            task.completed
+                              ? 'border-white/[0.05] bg-white/[0.02]'
+                              : task.important
+                                ? 'border-[#A94D45]/35 bg-[#2A1615]/40'
+                                : task.starred
+                                  ? 'border-white/[0.12] bg-white/[0.045]'
+                                  : 'border-white/[0.08] bg-white/[0.03]'
+                          }`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <button
+                              type="button"
+                              onClick={() => onToggleTask(task.id)}
+                              className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border text-[11px] transition ${
+                                task.completed ? 'border-[#4FDC94]/35 bg-[#4FDC94]/12 text-[#7CE7AE]' : 'border-white/18 text-white/45'
+                              }`}
+                              aria-label={task.completed ? 'Mark task incomplete' : 'Mark task complete'}
+                            >
+                              {task.completed ? '✓' : ''}
+                            </button>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-start justify-between gap-3">
+                                <p className={`text-sm ${task.completed ? 'text-white/55 line-through' : 'text-white/86'}`}>{task.text}</p>
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => onToggleTaskStarred(task.id)}
+                                    className={`flex h-8 w-8 items-center justify-center rounded-full text-[16px] leading-none transition ${
+                                      task.starred ? 'text-[#F2C46D]' : 'text-white/35 hover:text-white/72'
+                                    }`}
+                                    aria-label={task.starred ? 'Remove star' : 'Star task'}
+                                  >
+                                    ★
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => onToggleTaskImportant(task.id)}
+                                    className={`flex h-8 w-8 items-center justify-center rounded-full text-[14px] leading-none transition ${
+                                      task.important ? 'text-[#F08A7B]' : 'text-white/35 hover:text-[#F08A7B]'
+                                    }`}
+                                    aria-label={task.important ? 'Remove important mark' : 'Mark task important'}
+                                  >
+                                    !
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => onDeleteTask(task.id)}
+                                    className="flex h-8 w-8 items-center justify-center rounded-full text-[18px] leading-none text-white/35 transition hover:text-white/72"
+                                    aria-label="Delete task"
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="mt-2 flex items-center gap-2 text-[12px] text-white/42">
+                                <span>{task.dueDate}</span>
+                                {task.starred ? <span>• Focused</span> : null}
+                                {task.important ? <span className="text-[#D58A82]">• Important</span> : null}
+                              </div>
+                              <GlobalTaskLinkControl
+                                task={task}
+                                goals={safeLifeGoals}
+                                onChange={(updater) => onUpdateTask(task.id, updater)}
+                              />
                             </div>
                           </div>
-                          <div className="mt-2 flex items-center gap-2 text-[12px] text-white/42">
-                            <span>{task.dueDate}</span>
-                            {task.starred ? <span>• Focused</span> : null}
-                            {task.important ? <span className="text-[#D58A82]">• Important</span> : null}
-                          </div>
-                          <GlobalTaskLinkControl
-                            task={task}
-                            goals={lifeGoals}
-                            onChange={(updater) => onUpdateTask(task.id, updater)}
-                          />
                         </div>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-sm text-mist">No tasks match the current filter.</p>
-                )}
-              </div>
-            </div>
+                      ))
+                    ) : (
+                      <p className="text-sm text-mist">No tasks match the current filter.</p>
+                    )}
+                  </div>
+                </div>
+              </>
+            </ErrorBoundary>
           </aside>
         </>
       ) : null}
@@ -2402,15 +2411,16 @@ function GlobalTaskLinkControl({
   goals: LifeGoal[]
   onChange: (updater: (task: Task) => Task) => void
 }) {
+  const safeGoals = goals ?? []
   const linkedMode: 'none' | 'goal' | 'direction' =
     task.linkedDirectionId ? 'direction' : task.linkedGoalId ? 'goal' : 'none'
   const [selectionMode, setSelectionMode] = useState<'none' | 'goal' | 'direction'>(linkedMode)
   const candidateGoals = useMemo(
     () =>
-      goals.filter((goal) =>
+      safeGoals.filter((goal) =>
         selectionMode === 'direction' ? goal.goalType === 'directional' : goal.goalType !== 'directional',
       ),
-    [goals, selectionMode],
+    [safeGoals, selectionMode],
   )
   const selectedGoal = useMemo(
     () =>
