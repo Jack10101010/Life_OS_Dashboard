@@ -383,6 +383,49 @@ function normalizeLifeGoal(goal: Partial<LifeGoal>, index: number): LifeGoal {
     goal.goalType === 'system' || goal.goalType === 'directional' || goal.goalType === 'outcome'
       ? goal.goalType
       : 'outcome'
+  const milestones = Array.isArray((goal as Partial<LifeGoal> & { milestones?: unknown[] }).milestones)
+    ? ((goal as Partial<LifeGoal> & { milestones?: unknown[] }).milestones ?? [])
+        .map((milestone, milestoneIndex) => {
+          const candidate = (milestone ?? {}) as {
+            id?: unknown
+            title?: unknown
+            description?: unknown
+            targetDate?: unknown
+            completed?: unknown
+            completedAt?: unknown
+            order?: unknown
+          }
+          const title = typeof candidate.title === 'string' ? candidate.title.trim() : ''
+          if (!title) return null
+          return {
+            id:
+              typeof candidate.id === 'string' && candidate.id
+                ? candidate.id
+                : `life-goal-milestone-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+            title,
+            description: typeof candidate.description === 'string' ? candidate.description.trim() : '',
+            targetDate:
+              typeof candidate.targetDate === 'string' && candidate.targetDate
+                ? candidate.targetDate
+                : null,
+            completed: Boolean(candidate.completed),
+            completedAt:
+              typeof candidate.completedAt === 'string' && candidate.completedAt
+                ? candidate.completedAt
+                : Boolean(candidate.completed)
+                  ? createdAt
+                  : null,
+            order: typeof candidate.order === 'number' && Number.isFinite(candidate.order) ? candidate.order : milestoneIndex,
+          }
+        })
+        .filter((milestone): milestone is NonNullable<typeof milestone> => Boolean(milestone))
+        .sort((left, right) => left.order - right.order)
+    : []
+  const milestonesEnabled =
+    goalType === 'outcome' &&
+    (typeof (goal as Partial<LifeGoal> & { milestonesEnabled?: unknown }).milestonesEnabled === 'boolean'
+      ? Boolean((goal as Partial<LifeGoal> & { milestonesEnabled?: boolean }).milestonesEnabled)
+      : milestones.length > 0)
   return {
     id: typeof goal.id === 'string' && goal.id ? goal.id : `life-goal-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
     title: typeof goal.title === 'string' ? goal.title.trim() : '',
@@ -391,6 +434,7 @@ function normalizeLifeGoal(goal: Partial<LifeGoal>, index: number): LifeGoal {
     relatedGoalIds: Array.isArray(goal.relatedGoalIds)
       ? goal.relatedGoalIds.filter((relatedGoalId): relatedGoalId is string => typeof relatedGoalId === 'string' && relatedGoalId.length > 0)
       : [],
+    milestonesEnabled,
     whyItMatters: typeof goal.whyItMatters === 'string' ? goal.whyItMatters.trim() : '',
     visionStatement:
       typeof (goal as Partial<LifeGoal> & { visionStatement?: unknown }).visionStatement === 'string'
@@ -415,11 +459,13 @@ function normalizeLifeGoal(goal: Partial<LifeGoal>, index: number): LifeGoal {
         : 'in-motion',
     isPrimary: typeof goal.isPrimary === 'boolean' ? goal.isPrimary : false,
     order: typeof goal.order === 'number' && Number.isFinite(goal.order) ? goal.order : index,
+    milestones: goalType === 'outcome' ? milestones : [],
     tasks: (Array.isArray(goal.tasks) ? goal.tasks : Array.isArray((goal as Partial<LifeGoal> & { moves?: unknown[] }).moves) ? (goal as Partial<LifeGoal> & { moves?: unknown[] }).moves! : [])
       .map((task) => {
         const candidate = (task ?? {}) as {
           id?: unknown
           text?: unknown
+          milestoneId?: unknown
           phase?: unknown
           description?: unknown
           notes?: unknown
@@ -444,6 +490,7 @@ function normalizeLifeGoal(goal: Partial<LifeGoal>, index: number): LifeGoal {
               ? candidate.id
               : `life-goal-task-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
           text: typeof candidate.text === 'string' ? candidate.text.trim() : '',
+          milestoneId: typeof candidate.milestoneId === 'string' && candidate.milestoneId ? candidate.milestoneId : null,
           phase: normalizeLifeGoalTaskPhase(candidate.phase),
           description: typeof candidate.description === 'string' ? candidate.description.trim() : '',
           notes: typeof candidate.notes === 'string' ? candidate.notes : '',

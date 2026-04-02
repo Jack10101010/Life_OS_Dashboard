@@ -7,24 +7,30 @@ type LifeGoalRoadmapPanelProps = {
     remainingCount: number
     lastCompletedText: string | null
     executionSummaryText: string
+    milestoneSummaryText?: string
     sortControl?: ReactNode
     currentContent: ReactNode
     upcomingContent: ReactNode
     completedContent: ReactNode
+    milestoneContent?: ReactNode
     emptyMessage: string
   }
   actions: {
     onToggleHighPriorityFocus: () => void
     onToggleOrganizationMode: () => void
+    onSetProgressView: (view: 'tasks' | 'milestones') => void
     onOpenRoadmap: () => void
     onRoadmapKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void
     onAddTask: (trigger?: HTMLElement | null) => void
+    onAddMilestone?: () => void
     onToggleCompleted: () => void
   }
   uiState: {
     roadmapHighPriorityFocus: boolean
     completedOpen: boolean
     showHighPriorityFocus: boolean
+    progressView: 'tasks' | 'milestones'
+    showMilestonesView: boolean
     organizationMode: 'default' | 'tag'
     showTagGrouping: boolean
   }
@@ -56,11 +62,37 @@ export function LifeGoalRoadmapPanel({
       <div className="px-4 pb-3 pt-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-mist/68">Task roadmap</p>
-            <p className="mt-1 text-[11px] text-mist/46">{data.executionSummaryText}</p>
+            {uiState.showMilestonesView ? (
+              <div className="theme-surface-soft inline-flex rounded-full border p-1">
+                <button
+                  type="button"
+                  onClick={() => actions.onSetProgressView('tasks')}
+                  className={`rounded-full px-2.5 py-1 text-[9px] uppercase tracking-[0.14em] transition ${
+                    uiState.progressView === 'tasks'
+                      ? 'theme-button-secondary text-white'
+                      : 'text-white/42 hover:text-white/68'
+                  }`}
+                >
+                  Task Roadmap
+                </button>
+                <button
+                  type="button"
+                  onClick={() => actions.onSetProgressView('milestones')}
+                  className={`rounded-full px-2.5 py-1 text-[9px] uppercase tracking-[0.14em] transition ${
+                    uiState.progressView === 'milestones'
+                      ? 'theme-button-secondary text-white'
+                      : 'text-white/42 hover:text-white/68'
+                  }`}
+                >
+                  Milestones
+                </button>
+              </div>
+            ) : (
+              <p className="text-xs uppercase tracking-[0.18em] text-mist/68">Task roadmap</p>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
-            {uiState.showHighPriorityFocus ? (
+            {uiState.progressView === 'tasks' && uiState.showHighPriorityFocus ? (
               <button
                 type="button"
                 onClick={actions.onToggleHighPriorityFocus}
@@ -73,13 +105,15 @@ export function LifeGoalRoadmapPanel({
                 High priority
               </button>
             ) : null}
-            <button
-              type="button"
-              onClick={actions.onOpenRoadmap}
-              className="inline-flex items-center rounded-full border border-white/[0.045] bg-white/[0.018] px-2.5 py-[5px] text-[10px] uppercase tracking-[0.14em] text-white/50 transition hover:border-white/[0.08] hover:text-white/70"
-            >
-              Open roadmap
-            </button>
+            {uiState.progressView === 'tasks' ? (
+              <button
+                type="button"
+                onClick={actions.onOpenRoadmap}
+                className="inline-flex items-center rounded-full border border-white/[0.045] bg-white/[0.018] px-2.5 py-[5px] text-[10px] uppercase tracking-[0.14em] text-white/50 transition hover:border-white/[0.08] hover:text-white/70"
+              >
+                Open roadmap
+              </button>
+            ) : null}
             <div className="relative" ref={controlsRef}>
               <button
                 type="button"
@@ -89,7 +123,7 @@ export function LifeGoalRoadmapPanel({
               >
                 <span className="text-[11px] leading-none">▾</span>
               </button>
-              {controlsOpen ? (
+              {controlsOpen && uiState.progressView === 'tasks' ? (
                 <div className="absolute right-0 top-[calc(100%+8px)] z-30 min-w-[220px] rounded-[18px] border border-white/[0.07] bg-[rgb(var(--theme-surface-elevated-rgb)/0.98)] p-3 shadow-[0_18px_48px_rgba(0,0,0,0.34)]">
                   <div className="space-y-3">
                     <div>
@@ -148,7 +182,9 @@ export function LifeGoalRoadmapPanel({
         tabIndex={0}
         onKeyDown={actions.onRoadmapKeyDown}
       >
-        {data.plannedTaskCount > 0 ? (
+        {uiState.progressView === 'milestones' ? (
+          data.milestoneContent ?? <p className="pb-4 pl-[36px] text-sm text-mist">{data.emptyMessage}</p>
+        ) : data.plannedTaskCount > 0 ? (
           <div className="relative">
             <span
               aria-hidden="true"
@@ -185,23 +221,38 @@ export function LifeGoalRoadmapPanel({
       </div>
 
       <div className="border-t border-white/[0.08] px-4 py-3">
-        <div className="flex items-end justify-between gap-3">
-          <div className="space-y-1 text-xs text-mist">
-            <p>
-              {data.completedCount} completed
-              <span className="px-1.5 text-white/26">•</span>
-              {data.remainingCount} remaining
-            </p>
-            {data.lastCompletedText ? <p>Last: {data.lastCompletedText}</p> : null}
+        {uiState.progressView === 'milestones' ? (
+          <div className="flex items-end justify-between gap-3">
+            <div className="space-y-1 text-xs text-mist">
+              <p>{data.milestoneSummaryText ?? `${data.completedCount} completed • ${data.remainingCount} remaining`}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => actions.onAddMilestone?.()}
+              className="inline-flex items-center rounded-full border border-white/[0.06] bg-white/[0.02] px-2.5 py-1 text-[11px] uppercase tracking-[0.14em] text-white/54 transition hover:border-white/[0.1] hover:text-white/74"
+            >
+              + Add milestone
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={(event) => actions.onAddTask(event.currentTarget)}
-            className="inline-flex items-center rounded-full border border-white/[0.06] bg-white/[0.02] px-2.5 py-1 text-[11px] uppercase tracking-[0.14em] text-white/54 transition hover:border-white/[0.1] hover:text-white/74"
-          >
-            + Add task
-          </button>
-        </div>
+        ) : (
+          <div className="flex items-end justify-between gap-3">
+            <div className="space-y-1 text-xs text-mist">
+              <p>
+                {data.completedCount} completed
+                <span className="px-1.5 text-white/26">•</span>
+                {data.remainingCount} remaining
+              </p>
+              {data.lastCompletedText ? <p>Last: {data.lastCompletedText}</p> : null}
+            </div>
+            <button
+              type="button"
+              onClick={(event) => actions.onAddTask(event.currentTarget)}
+              className="inline-flex items-center rounded-full border border-white/[0.06] bg-white/[0.02] px-2.5 py-1 text-[11px] uppercase tracking-[0.14em] text-white/54 transition hover:border-white/[0.1] hover:text-white/74"
+            >
+              + Add task
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )

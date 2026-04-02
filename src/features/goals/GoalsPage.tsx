@@ -90,14 +90,25 @@ const LIFE_GOAL_TYPE_OPTIONS: Array<{
   label: string
   description: string
 }> = [
-  { value: 'outcome', label: 'Outcome', description: 'Has a clear finish' },
-  { value: 'system', label: 'System', description: 'Built through consistency' },
+  { value: 'outcome', label: 'Outcome', description: 'A destination with a clear finish' },
+  { value: 'system', label: 'System', description: 'A broader engine that supports an outcome' },
   { value: 'directional', label: 'Directional', description: 'Long-term direction' },
 ]
+
+function canGoalTypeLinkToGoalType(sourceType: LifeGoalType, targetType: LifeGoalType) {
+  if (sourceType === 'directional') {
+    return targetType === 'outcome' || targetType === 'system'
+  }
+  if (sourceType === 'system') {
+    return targetType === 'outcome'
+  }
+  return false
+}
 
 type LifeGoalDraftTask = {
   id: string
   text: string
+  milestoneId?: string | null
   phase?: string
   description: string
   notes: string
@@ -113,11 +124,22 @@ type LifeGoalDraftTask = {
   completedAt: string | null
 }
 
+type LifeGoalDraftMilestone = {
+  id: string
+  title: string
+  description: string
+  targetDate: string | null
+  completed: boolean
+  completedAt: string | null
+  order: number
+}
+
 type LifeGoalDraft = {
   title: string
   category: string
   goalType: LifeGoalType
   relatedGoalIds: string[]
+  milestonesEnabled: boolean
   whyItMatters: string
   minimumVersion: string
   startDate: string
@@ -125,6 +147,7 @@ type LifeGoalDraft = {
   ifThenPlan: string
   status: LifeGoalStatus
   isPrimary: boolean
+  milestones: LifeGoalDraftMilestone[]
   tasks: LifeGoalDraftTask[]
 }
 
@@ -153,6 +176,7 @@ function createLifeGoalDraftTask(text = ''): LifeGoalDraftTask {
   return {
     id: `life-goal-draft-task-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
     text,
+    milestoneId: null,
     phase: suggestPhase(text) ?? '',
     description: '',
     notes: '',
@@ -165,10 +189,49 @@ function createLifeGoalDraftTask(text = ''): LifeGoalDraftTask {
   }
 }
 
+function createLifeGoalDraftMilestone(title = ''): LifeGoalDraftMilestone {
+  return {
+    id: `life-goal-milestone-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+    title,
+    description: '',
+    targetDate: null,
+    completed: false,
+    completedAt: null,
+    order: 0,
+  }
+}
+
+function normalizeLifeGoalDraftMilestones(milestones: LifeGoalDraftMilestone[]): LifeGoalDraftMilestone[] {
+  return milestones
+    .map((milestone, index) => {
+      const title = milestone.title.trim()
+      if (!title) return null
+      return {
+        ...milestone,
+        title,
+        description: milestone.description.trim(),
+        targetDate: milestone.targetDate && isValidIsoDate(milestone.targetDate) ? milestone.targetDate : null,
+        completedAt: milestone.completed ? milestone.completedAt ?? new Date().toISOString() : null,
+        order: index,
+      }
+    })
+    .filter((milestone): milestone is LifeGoalDraftMilestone => Boolean(milestone))
+}
+
+function reindexLifeGoalMilestones(milestones: LifeGoalDraftMilestone[]): LifeGoalDraftMilestone[] {
+  return milestones.map((milestone, index) => ({
+    ...milestone,
+    targetDate: milestone.targetDate && isValidIsoDate(milestone.targetDate) ? milestone.targetDate : null,
+    completedAt: milestone.completed ? milestone.completedAt ?? new Date().toISOString() : null,
+    order: index,
+  }))
+}
+
 function createEmptyLifeGoalTask(): LifeGoalTask {
   return {
     id: `life-goal-task-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
     text: '',
+    milestoneId: null,
     phase: undefined,
     description: '',
     notes: '',
@@ -201,6 +264,7 @@ function createEmptyLifeGoalDraft(): LifeGoalDraft {
     category: '',
     goalType: 'outcome',
     relatedGoalIds: [],
+    milestonesEnabled: false,
     whyItMatters: '',
     minimumVersion: '',
     startDate: getTodayIsoDate(),
@@ -208,6 +272,7 @@ function createEmptyLifeGoalDraft(): LifeGoalDraft {
     ifThenPlan: '',
     status: 'not-started',
     isPrimary: false,
+    milestones: [],
     tasks: [createLifeGoalDraftTask()],
   }
 }
@@ -510,6 +575,7 @@ function normalizeLifeGoalDraftTasks(tasks: LifeGoalDraftTask[]): LifeGoalTask[]
     normalizedTasks.push({
       id: task.id,
       text,
+      milestoneId: task.milestoneId ?? null,
       phase: normalizeLifeGoalPhaseValue(task.phase),
       description: task.description.trim(),
       notes: task.notes,
@@ -543,6 +609,7 @@ function createLifeGoalDraftFromGoal(goal: LifeGoal): LifeGoalDraft {
     category: goal.category,
     goalType: goal.goalType,
     relatedGoalIds: goal.relatedGoalIds ?? [],
+    milestonesEnabled: goal.goalType === 'outcome' ? (goal.milestonesEnabled ?? (goal.milestones?.length ?? 0) > 0) : false,
     whyItMatters: goal.whyItMatters,
     minimumVersion: goal.minimumVersion,
     startDate: goal.startDate,
@@ -550,11 +617,21 @@ function createLifeGoalDraftFromGoal(goal: LifeGoal): LifeGoalDraft {
     ifThenPlan: goal.ifThenPlan,
     status: goal.status,
     isPrimary: goal.isPrimary,
+    milestones: (goal.milestones ?? []).map((milestone, index) => ({
+      id: milestone.id,
+      title: milestone.title,
+      description: milestone.description ?? '',
+      targetDate: milestone.targetDate ?? null,
+      completed: milestone.completed,
+      completedAt: milestone.completedAt,
+      order: typeof milestone.order === 'number' ? milestone.order : index,
+    })),
     tasks:
       goal.tasks.length > 0
         ? goal.tasks.map((task) => ({
             id: task.id,
             text: task.text,
+            milestoneId: task.milestoneId ?? null,
             phase: normalizeLifeGoalPhaseValue(task.phase),
             description: task.description,
             notes: task.notes,
@@ -865,6 +942,7 @@ function createLifeGoalFromDraft(draft: LifeGoalDraft): LifeGoal {
     category: draft.category.trim(),
     goalType: draft.goalType,
     relatedGoalIds: Array.from(new Set(draft.relatedGoalIds.filter(Boolean))),
+    milestonesEnabled: draft.goalType === 'outcome' ? draft.milestonesEnabled : false,
     whyItMatters: draft.whyItMatters.trim(),
     visionStatement: '',
     visionImages: [],
@@ -875,6 +953,7 @@ function createLifeGoalFromDraft(draft: LifeGoalDraft): LifeGoal {
     status: draft.status,
     isPrimary: draft.isPrimary,
     order: 0,
+    milestones: draft.goalType === 'outcome' ? normalizeLifeGoalDraftMilestones(draft.milestones) : [],
     tasks,
     linkedHabitIds: [],
     archivedAt: null,
@@ -1224,6 +1303,10 @@ export function GoalsPage({
   const [visionCollapsedByGoal, setVisionCollapsedByGoal] = useState<Record<string, boolean>>({})
   const [visionEditorOpenByGoal, setVisionEditorOpenByGoal] = useState<Record<string, boolean>>({})
   const [visionDropActive, setVisionDropActive] = useState(false)
+  const [outcomeMilestoneViewByGoal, setOutcomeMilestoneViewByGoal] = useState<Record<string, 'tasks' | 'milestones'>>({})
+  const [selectedMilestoneIdByGoal, setSelectedMilestoneIdByGoal] = useState<Record<string, string | null>>({})
+  const [goalTypeChangeConfirmationOpen, setGoalTypeChangeConfirmationOpen] = useState(false)
+  const [goalTypeChangePickerOpen, setGoalTypeChangePickerOpen] = useState(false)
   const [linkHabitPickerOpen, setLinkHabitPickerOpen] = useState(false)
   const [habitDraftByTaskId, setHabitDraftByTaskId] = useState<Record<string, string>>({})
   const [lifeGoalDetailTab, setLifeGoalDetailTab] = useState<LifeGoalDetailTab>('focus')
@@ -1244,6 +1327,9 @@ export function GoalsPage({
   const [taskPeekDatePickerOpen, setTaskPeekDatePickerOpen] = useState(false)
   const [taskPeekDateViewMonth, setTaskPeekDateViewMonth] = useState(() => startOfCalendarMonth(getCalendarMonthDate()))
   const [taskPeekDatePanelPosition, setTaskPeekDatePanelPosition] = useState<FloatingPanelPosition | null>(null)
+  const [milestoneDatePickerMilestoneId, setMilestoneDatePickerMilestoneId] = useState<string | null>(null)
+  const [milestoneDateViewMonth, setMilestoneDateViewMonth] = useState(() => startOfCalendarMonth(getCalendarMonthDate()))
+  const [milestoneDatePanelPosition, setMilestoneDatePanelPosition] = useState<FloatingPanelPosition | null>(null)
   const [taskPeekDeleteConfirmation, setTaskPeekDeleteConfirmation] = useState<
     | { kind: 'task'; taskId: string }
     | { kind: 'subtask'; taskId: string; subtaskId: string; subtaskText: string }
@@ -1269,6 +1355,8 @@ export function GoalsPage({
   useEffect(() => {
     setRoadmapCompletedOpen(false)
     setVisionDropActive(false)
+    setMilestoneDatePickerMilestoneId(null)
+    setMilestoneDatePanelPosition(null)
   }, [selectedLifeGoalId])
 
   useEffect(() => {
@@ -1324,6 +1412,8 @@ export function GoalsPage({
   const taskPeekTriggerRef = useRef<HTMLElement | null>(null)
   const taskPeekDateFieldRef = useRef<HTMLDivElement | null>(null)
   const taskPeekDatePanelRef = useRef<HTMLDivElement | null>(null)
+  const milestoneDateFieldRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const milestoneDatePanelRef = useRef<HTMLDivElement | null>(null)
   const taskPeekSubtaskDraftRef = useRef<HTMLInputElement | null>(null)
   const taskPeekSubtaskInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
   const roadmapTaskRowRefs = useRef<Record<string, HTMLElement | null>>({})
@@ -1521,6 +1611,95 @@ export function GoalsPage({
     }))
   }
 
+  const updateSelectedLifeGoalMilestones = (
+    updater: (milestones: LifeGoalDraftMilestone[]) => LifeGoalDraftMilestone[],
+  ) => {
+    if (!selectedLifeGoal || selectedLifeGoal.goalType !== 'outcome') return
+    onUpdateLifeGoal(selectedLifeGoal.id, (goal) => {
+      const nextMilestones = reindexLifeGoalMilestones(
+        updater(
+          (goal.milestones ?? []).map((milestone, index) => ({
+            id: milestone.id,
+            title: milestone.title,
+            description: milestone.description ?? '',
+            targetDate: milestone.targetDate ?? null,
+            completed: milestone.completed,
+            completedAt: milestone.completedAt,
+            order: typeof milestone.order === 'number' ? milestone.order : index,
+          })),
+        ),
+      )
+      return {
+        ...goal,
+        milestones: nextMilestones,
+        updatedAt: new Date().toISOString(),
+      }
+    })
+  }
+
+  const addSelectedLifeGoalMilestone = () => {
+    if (!selectedLifeGoal) return
+    const nextMilestone = {
+      ...createLifeGoalDraftMilestone(),
+      title: `Milestone ${((selectedLifeGoal.milestones ?? []).length || 0) + 1}`,
+      order: (selectedLifeGoal.milestones ?? []).length,
+    }
+    updateSelectedLifeGoalMilestones((milestones) => [
+      ...milestones,
+      nextMilestone,
+    ])
+    setSelectedMilestoneIdByGoal((current) => ({
+      ...current,
+      [selectedLifeGoal.id]: nextMilestone.id,
+    }))
+  }
+
+  const updateSelectedLifeGoalMilestone = (
+    milestoneId: string,
+    updater: (milestone: LifeGoalDraftMilestone) => LifeGoalDraftMilestone,
+  ) => {
+    updateSelectedLifeGoalMilestones((milestones) =>
+      milestones.map((milestone) => (milestone.id === milestoneId ? updater(milestone) : milestone)),
+    )
+  }
+
+  const reorderSelectedLifeGoalMilestone = (milestoneId: string, direction: 'up' | 'down') => {
+    updateSelectedLifeGoalMilestones((milestones) => {
+      const index = milestones.findIndex((milestone) => milestone.id === milestoneId)
+      if (index === -1) return milestones
+      const targetIndex = direction === 'up' ? index - 1 : index + 1
+      if (targetIndex < 0 || targetIndex >= milestones.length) return milestones
+      const nextMilestones = [...milestones]
+      const [movedMilestone] = nextMilestones.splice(index, 1)
+      nextMilestones.splice(targetIndex, 0, movedMilestone)
+      return nextMilestones.map((milestone, milestoneIndex) => ({
+        ...milestone,
+        order: milestoneIndex,
+      }))
+    })
+  }
+
+  const deleteSelectedLifeGoalMilestone = (milestoneId: string) => {
+    if (milestoneDatePickerMilestoneId === milestoneId) {
+      setMilestoneDatePickerMilestoneId(null)
+      setMilestoneDatePanelPosition(null)
+    }
+    if (selectedLifeGoal) {
+      setSelectedMilestoneIdByGoal((current) => ({
+        ...current,
+        [selectedLifeGoal.id]: current[selectedLifeGoal.id] === milestoneId ? null : current[selectedLifeGoal.id] ?? null,
+      }))
+    }
+    updateSelectedLifeGoalMilestones((milestones) =>
+      milestones
+        .filter((milestone) => milestone.id !== milestoneId)
+        .map((milestone, milestoneIndex) => ({
+          ...milestone,
+          order: milestoneIndex,
+        })),
+    )
+  }
+
   const setSelectedLifeGoalVisionCollapsed = (value: boolean | ((current: boolean) => boolean)) => {
     if (!selectedLifeGoal) return
     setVisionCollapsedByGoal((current) => ({
@@ -1696,6 +1875,22 @@ export function GoalsPage({
   }, [taskPeekDatePickerOpen])
 
   useEffect(() => {
+    if (!milestoneDatePickerMilestoneId) return
+
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node
+      const activeFieldRef = milestoneDateFieldRefs.current[milestoneDatePickerMilestoneId]
+      if (!activeFieldRef?.contains(target) && !milestoneDatePanelRef.current?.contains(target)) {
+        setMilestoneDatePickerMilestoneId(null)
+        setMilestoneDatePanelPosition(null)
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    return () => document.removeEventListener('mousedown', handlePointerDown)
+  }, [milestoneDatePickerMilestoneId])
+
+  useEffect(() => {
     if (!taskPeekDeleteConfirmation) return
 
     taskPeekDeleteTriggerRef.current =
@@ -1731,6 +1926,30 @@ export function GoalsPage({
       window.removeEventListener('scroll', updatePosition, true)
     }
   }, [taskPeekDatePickerOpen])
+
+  useEffect(() => {
+    if (!milestoneDatePickerMilestoneId) return
+
+    const updatePosition = () => {
+      const activeFieldRef = milestoneDateFieldRefs.current[milestoneDatePickerMilestoneId]
+      if (!activeFieldRef) return
+      setMilestoneDatePanelPosition(
+        getFloatingPanelPosition(activeFieldRef, {
+          minWidth: 320,
+          preferredWidth: 348,
+          estimatedHeight: 360,
+        }),
+      )
+    }
+
+    updatePosition()
+    window.addEventListener('resize', updatePosition)
+    window.addEventListener('scroll', updatePosition, true)
+    return () => {
+      window.removeEventListener('resize', updatePosition)
+      window.removeEventListener('scroll', updatePosition, true)
+    }
+  }, [milestoneDatePickerMilestoneId])
 
   useEffect(() => {
     return () => {
@@ -1824,10 +2043,20 @@ export function GoalsPage({
     },
     [safeDraftRelatedGoalIds, safeLifeGoals],
   )
+  const allowedDraftRelatedGoalIds = useMemo(
+    () =>
+      safeDraftRelatedGoalIds.filter((goalId) => {
+        const candidate = safeLifeGoals.find((goal) => goal.id === goalId && !goal.archivedAt)
+        if (!candidate) return false
+        return canGoalTypeLinkToGoalType(lifeGoalDraft.goalType ?? 'outcome', candidate.goalType ?? 'outcome')
+      }),
+    [lifeGoalDraft.goalType, safeDraftRelatedGoalIds, safeLifeGoals],
+  )
   const relatedGoalCandidates = useMemo(
     () =>
       safeLifeGoals
         .filter((goal) => !goal.archivedAt && goal.id !== editingLifeGoalId)
+        .filter((goal) => canGoalTypeLinkToGoalType(lifeGoalDraft.goalType ?? 'outcome', goal.goalType ?? 'outcome'))
         .filter((goal) => {
           if (!normalizedRelatedGoalsQuery) return true
           const title = goal.title.trim().toLowerCase()
@@ -1835,12 +2064,12 @@ export function GoalsPage({
           return title.includes(normalizedRelatedGoalsQuery) || category.includes(normalizedRelatedGoalsQuery)
         })
         .sort((left, right) => {
-          const leftSelected = safeDraftRelatedGoalIds.includes(left.id)
-          const rightSelected = safeDraftRelatedGoalIds.includes(right.id)
+          const leftSelected = allowedDraftRelatedGoalIds.includes(left.id)
+          const rightSelected = allowedDraftRelatedGoalIds.includes(right.id)
           if (leftSelected !== rightSelected) return leftSelected ? -1 : 1
           return left.title.localeCompare(right.title)
         }),
-    [editingLifeGoalId, normalizedRelatedGoalsQuery, safeDraftRelatedGoalIds, safeLifeGoals],
+    [allowedDraftRelatedGoalIds, editingLifeGoalId, lifeGoalDraft.goalType, normalizedRelatedGoalsQuery, safeLifeGoals],
   )
 
   const commitCreateLifeGoal = (tasksOverride?: LifeGoalTask[]) => {
@@ -1848,6 +2077,9 @@ export function GoalsPage({
     const nextGoal = createLifeGoalFromDraft({
       ...lifeGoalDraft,
       minimumVersion: lifeGoalDraft.minimumVersion.trim() || createTasks[0]?.text.trim() || lifeGoalDraft.title.trim(),
+      relatedGoalIds: allowedDraftRelatedGoalIds,
+      milestonesEnabled: lifeGoalDraft.goalType === 'outcome' ? lifeGoalDraft.milestonesEnabled : false,
+      milestones: lifeGoalDraft.goalType === 'outcome' ? normalizeLifeGoalDraftMilestones(lifeGoalDraft.milestones) : [],
       tasks: createTasks,
     })
     if (createTasks[0]?.id) {
@@ -1886,13 +2118,15 @@ export function GoalsPage({
         title: lifeGoalDraft.title.trim(),
         category: lifeGoalDraft.category.trim(),
         goalType: lifeGoalDraft.goalType,
-        relatedGoalIds: Array.from(new Set(lifeGoalDraft.relatedGoalIds.filter((goalId) => goalId !== editingLifeGoalId))),
+        relatedGoalIds: Array.from(new Set(allowedDraftRelatedGoalIds.filter((goalId) => goalId !== editingLifeGoalId))),
+        milestonesEnabled: lifeGoalDraft.goalType === 'outcome' ? lifeGoalDraft.milestonesEnabled : false,
         whyItMatters: lifeGoalDraft.whyItMatters.trim(),
         minimumVersion: lifeGoalDraft.minimumVersion.trim(),
         ifThenPlan: lifeGoalDraft.ifThenPlan.trim(),
         startDate: lifeGoalDraft.startDate,
         targetDate: lifeGoalDraft.targetDate,
         status: lifeGoalDraft.status,
+        milestones: lifeGoalDraft.goalType === 'outcome' ? normalizeLifeGoalDraftMilestones(lifeGoalDraft.milestones) : [],
         tasks: draftTasks,
         updatedAt: new Date().toISOString(),
       }))
@@ -1912,6 +2146,19 @@ export function GoalsPage({
     if (!canAdvanceCreateGoal) return
     setLifeGoalCreateStep('path')
   }
+
+  const draftGoalLinkLabel =
+    (lifeGoalDraft.goalType ?? 'outcome') === 'system'
+      ? 'Supported outcomes'
+      : (lifeGoalDraft.goalType ?? 'outcome') === 'directional'
+        ? 'Related goals'
+        : null
+  const draftGoalLinkDescription =
+    (lifeGoalDraft.goalType ?? 'outcome') === 'system'
+      ? 'Link the outcome goals this system supports.'
+      : (lifeGoalDraft.goalType ?? 'outcome') === 'directional'
+        ? 'Link goals that already move this direction forward.'
+        : null
 
   const showCompletionUndo = (nextUndo: CompletionUndoState) => {
     if (completionUndoTimeoutRef.current) {
@@ -2133,7 +2380,17 @@ export function GoalsPage({
 
   const openNewTaskPeek = (trigger?: HTMLElement | null) => {
     if (!selectedLifeGoal) return
-    const nextTask = createEmptyLifeGoalTask()
+    const currentGoalMilestones = (selectedLifeGoal.milestones ?? []).slice().sort((left, right) => left.order - right.order)
+    const currentGoalMilestone =
+      currentGoalMilestones.find((milestone) => !milestone.completed) ??
+      (currentGoalMilestones.length > 0 ? currentGoalMilestones[currentGoalMilestones.length - 1] : null)
+    const nextTask = {
+      ...createEmptyLifeGoalTask(),
+      milestoneId:
+        selectedLifeGoal.goalType === 'outcome' && selectedLifeGoal.milestonesEnabled
+          ? currentGoalMilestone?.id ?? null
+          : null,
+    }
     taskPeekTriggerRef.current = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null)
     onUpdateLifeGoal(selectedLifeGoal.id, (goal) => ({
       ...goal,
@@ -2428,6 +2685,24 @@ export function GoalsPage({
     }
     setTaskPeekDatePickerOpen(false)
     setTaskPeekDatePanelPosition(null)
+  }
+
+  const openMilestoneDatePicker = (milestoneId: string, date?: string | null) => {
+    setMilestoneDateViewMonth(startOfCalendarMonth(getCalendarMonthDate(date ?? undefined)))
+    setMilestoneDatePickerMilestoneId((current) => (current === milestoneId ? null : milestoneId))
+  }
+
+  const applySelectedMilestoneDate = (date: string) => {
+    if (!milestoneDatePickerMilestoneId) return
+    updateSelectedLifeGoalMilestone(milestoneDatePickerMilestoneId, (milestone) => ({
+      ...milestone,
+      targetDate: date || null,
+    }))
+    if (date && isValidIsoDate(date)) {
+      setMilestoneDateViewMonth(startOfCalendarMonth(getCalendarMonthDate(date)))
+    }
+    setMilestoneDatePickerMilestoneId(null)
+    setMilestoneDatePanelPosition(null)
   }
 
   const updateLifeGoalStatus = (goalId: string, status: LifeGoalStatus) => {
@@ -2836,8 +3111,58 @@ export function GoalsPage({
   }
 
   const applyLifeGoalType = (goalType: LifeGoalType) => {
-    setLifeGoalDraft((current) => ({ ...current, goalType }))
+    setLifeGoalDraft((current) => ({
+      ...current,
+      goalType,
+      milestonesEnabled: goalType === 'outcome' ? current.milestonesEnabled : false,
+      relatedGoalIds: (current.relatedGoalIds ?? []).filter((goalId) => {
+        const candidate = safeLifeGoals.find((goal) => goal.id === goalId && !goal.archivedAt)
+        if (!candidate) return false
+        return canGoalTypeLinkToGoalType(goalType, candidate.goalType ?? 'outcome')
+      }),
+    }))
   }
+
+  const renderLifeGoalTypeSelector = (mode: 'create' | 'edit-change') => (
+    <div className="grid gap-2" role="radiogroup" aria-label="Goal type">
+      {LIFE_GOAL_TYPE_OPTIONS.map((option) => {
+        const active = selectedDraftGoalType === option.value
+        const inputId = `${mode}-life-goal-type-${option.value}`
+        return (
+          <label
+            key={`${mode}-${option.value}`}
+            htmlFor={inputId}
+            className={`theme-input flex cursor-pointer items-center justify-between gap-3 rounded-2xl border px-3 py-2.5 text-left transition ${
+              active
+                ? 'border-white/[0.18] bg-white/[0.09] shadow-[0_0_0_1px_rgba(255,255,255,0.04),0_12px_28px_rgba(0,0,0,0.14)]'
+                : 'border-white/[0.05] bg-white/[0.02] hover:border-white/[0.08] hover:bg-white/[0.03]'
+            }`}
+          >
+            <input
+              id={inputId}
+              type="radio"
+              name={`${mode}-life-goal-type`}
+              value={option.value}
+              checked={active}
+              onChange={() => applyLifeGoalType(option.value)}
+              className="sr-only"
+            />
+            <div className="min-w-0">
+              <p className={`text-sm transition ${active ? 'font-medium text-white' : 'text-white/76'}`}>{option.label}</p>
+              <p className={`mt-0.5 text-[12px] transition ${active ? 'text-mist/72' : 'text-mist/56'}`}>{option.description}</p>
+            </div>
+            <span
+              className={`h-2.5 w-2.5 shrink-0 rounded-full border transition ${
+                active
+                  ? 'border-white/35 bg-white/90 shadow-[0_0_0_4px_rgba(255,255,255,0.06)]'
+                  : 'border-white/10 bg-white/18'
+              }`}
+            />
+          </label>
+        )
+      })}
+    </div>
+  )
 
   const openLifeGoalCategoryMenu = () => {
     setLifeGoalCategoryQuery('')
@@ -2895,6 +3220,8 @@ export function GoalsPage({
     setLifeGoalStatusPanelPosition(null)
     setEditingLifeGoalId(null)
     setLifeGoalCreateStep('define')
+    setGoalTypeChangeConfirmationOpen(false)
+    setGoalTypeChangePickerOpen(false)
 
     const trigger = lifeGoalComposerTriggerRef.current
     if (trigger) {
@@ -2938,6 +3265,7 @@ export function GoalsPage({
     const isCreateDefineStep = isCreateMode && lifeGoalCreateStep === 'define'
     const isCreatePathStep = isCreateMode && lifeGoalCreateStep === 'path'
     const isDirectionalDraftGoal = selectedDraftGoalType === 'directional'
+    const isSystemDraftGoal = selectedDraftGoalType === 'system'
     const normalizedCreateTasks = draftTasks
     const canCompleteEditedGoal =
       lifeGoalComposerMode === 'edit' &&
@@ -2987,13 +3315,21 @@ export function GoalsPage({
           <div className="space-y-4">
             <div className="space-y-1">
               <p className="text-[15px] font-medium text-white/88">
-                {isCreateMode ? (isDirectionalDraftGoal ? 'Define your direction' : 'Define a goal worth pursuing') : 'Edit goal details'}
+                {isCreateMode
+                  ? isDirectionalDraftGoal
+                    ? 'Define your direction'
+                    : isSystemDraftGoal
+                      ? 'Define a supporting system'
+                      : 'Define a goal worth pursuing'
+                  : 'Edit goal details'}
               </p>
               <p className="text-[13px] text-mist/58">
                 {isCreateMode
                   ? isDirectionalDraftGoal
                     ? 'Set the direction first. You can link the goals that move it forward in the next step.'
-                    : 'Set the direction first. You can shape the path in the next step.'
+                    : isSystemDraftGoal
+                      ? 'Use this for a broader engine that supports an outcome. Keep simple repeatable behaviors in Habits.'
+                      : 'Use this for a destination with a clear finish. Save simple checkpoints for tasks or future milestones.'
                   : 'Update the core details that define this goal.'}
               </p>
             </div>
@@ -3041,47 +3377,12 @@ export function GoalsPage({
 
         {(isCreateDefineStep || !isCreateMode) ? (
           <div className={`grid gap-4 ${isCreateMode ? 'md:grid-cols-3' : 'md:grid-cols-4'}`}>
-          <div className="space-y-2">
-            <span className="theme-label">Goal type</span>
-            <div className="grid gap-2" role="radiogroup" aria-label="Goal type">
-              {LIFE_GOAL_TYPE_OPTIONS.map((option) => {
-                const active = selectedDraftGoalType === option.value
-                const inputId = `${isCreateMode ? 'create' : 'edit'}-life-goal-type-${option.value}`
-                return (
-                  <label
-                    key={option.value}
-                    htmlFor={inputId}
-                    className={`theme-input flex cursor-pointer items-center justify-between gap-3 rounded-2xl border px-3 py-2.5 text-left transition ${
-                      active
-                        ? 'border-white/[0.18] bg-white/[0.09] shadow-[0_0_0_1px_rgba(255,255,255,0.04),0_12px_28px_rgba(0,0,0,0.14)]'
-                        : 'border-white/[0.05] bg-white/[0.02] hover:border-white/[0.08] hover:bg-white/[0.03]'
-                    }`}
-                  >
-                    <input
-                      id={inputId}
-                      type="radio"
-                      name={`${isCreateMode ? 'create' : 'edit'}-life-goal-type`}
-                      value={option.value}
-                      checked={active}
-                      onChange={() => applyLifeGoalType(option.value)}
-                      className="sr-only"
-                    />
-                    <div className="min-w-0">
-                      <p className={`text-sm transition ${active ? 'font-medium text-white' : 'text-white/76'}`}>{option.label}</p>
-                      <p className={`mt-0.5 text-[12px] transition ${active ? 'text-mist/72' : 'text-mist/56'}`}>{option.description}</p>
-                    </div>
-                    <span
-                      className={`h-2.5 w-2.5 shrink-0 rounded-full border transition ${
-                        active
-                          ? 'border-white/35 bg-white/90 shadow-[0_0_0_4px_rgba(255,255,255,0.06)]'
-                          : 'border-white/10 bg-white/18'
-                      }`}
-                    />
-                  </label>
-                )
-              })}
+          {isCreateMode ? (
+            <div className="space-y-2">
+              <span className="theme-label">Goal type</span>
+              {renderLifeGoalTypeSelector('create')}
             </div>
-          </div>
+          ) : null}
           <div className="space-y-2">
             <span className="theme-label">Category</span>
             <div ref={lifeGoalCategoryFieldRef} className="relative">
@@ -3437,7 +3738,7 @@ export function GoalsPage({
           </div>
         ) : null}
 
-        {!isCreateMode ? (
+        {!isCreateMode && draftGoalLinkLabel ? (
           <div className="space-y-3">
             <div className="rounded-[18px] border border-white/[0.05] bg-white/[0.02]">
               <button
@@ -3446,7 +3747,7 @@ export function GoalsPage({
                 className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-white/[0.02]"
               >
                 <div className="flex min-w-0 items-center gap-3">
-                  <span className="theme-label">Related goals</span>
+                  <span className="theme-label">{draftGoalLinkLabel}</span>
                   {selectedRelatedGoals.length > 0 ? (
                     <span className="rounded-full border border-white/[0.08] bg-white/[0.03] px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-white/52">
                       {selectedRelatedGoals.length} linked
@@ -3460,6 +3761,7 @@ export function GoalsPage({
 
               {!editRelatedGoalsCollapsed ? (
                 <div className="border-t border-white/[0.05] px-4 py-3">
+                  {draftGoalLinkDescription ? <p className="mb-3 text-sm text-mist">{draftGoalLinkDescription}</p> : null}
                   <input
                     value={lifeGoalRelatedGoalsQuery}
                     onChange={(event) => setLifeGoalRelatedGoalsQuery(event.target.value)}
@@ -3557,6 +3859,40 @@ export function GoalsPage({
               ) : null}
             </div>
 
+          </div>
+        ) : null}
+
+        {!isCreateMode && selectedDraftGoalType === 'outcome' ? (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <span className="theme-label">Milestones (optional)</span>
+            </div>
+
+            <div className="rounded-[18px] border border-white/[0.05] bg-white/[0.02] px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm text-mist">Turn milestone checkpoints on for this outcome goal.</p>
+                  <p className="mt-1 text-[12px] text-mist/52">Milestones are managed from the roadmap panel, not in settings.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setLifeGoalDraft((current) => ({ ...current, milestonesEnabled: !current.milestonesEnabled }))}
+                  aria-pressed={lifeGoalDraft.milestonesEnabled}
+                  className={`inline-flex items-center rounded-full border px-3 py-1.5 text-[11px] uppercase tracking-[0.14em] transition ${
+                    lifeGoalDraft.milestonesEnabled
+                      ? 'border-[rgb(var(--theme-accent-rgb)/0.12)] bg-[rgb(var(--theme-accent-rgb)/0.06)] text-[rgb(var(--theme-accent-rgb)/0.72)]'
+                      : 'border-white/[0.06] bg-white/[0.018] text-white/46 hover:border-white/[0.1] hover:text-white/68'
+                  }`}
+                >
+                  {lifeGoalDraft.milestonesEnabled ? 'On' : 'Off'}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {!isCreateMode ? (
+          <div className="space-y-3">
             <div className="flex items-center justify-between gap-3">
               <span className="theme-label">Tasks</span>
             </div>
@@ -3794,6 +4130,29 @@ export function GoalsPage({
                 </div>
               )}
             </div>
+
+            {!isSystemDraftGoal ? (
+              <div className="rounded-[18px] border border-white/[0.05] bg-white/[0.02] px-4 py-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <span className="theme-label">Milestones (optional)</span>
+                    <p className="mt-1 text-sm text-mist">Turn milestone checkpoints on now and manage them from the roadmap panel after saving.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setLifeGoalDraft((current) => ({ ...current, milestonesEnabled: !current.milestonesEnabled }))}
+                    aria-pressed={lifeGoalDraft.milestonesEnabled}
+                    className={`inline-flex items-center rounded-full border px-3 py-1.5 text-[11px] uppercase tracking-[0.14em] transition ${
+                      lifeGoalDraft.milestonesEnabled
+                        ? 'border-[rgb(var(--theme-accent-rgb)/0.12)] bg-[rgb(var(--theme-accent-rgb)/0.06)] text-[rgb(var(--theme-accent-rgb)/0.72)]'
+                        : 'border-white/[0.06] bg-white/[0.018] text-white/46 hover:border-white/[0.1] hover:text-white/68'
+                    }`}
+                  >
+                    {lifeGoalDraft.milestonesEnabled ? 'On' : 'Off'}
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
         ) : null}
 
@@ -3807,6 +4166,12 @@ export function GoalsPage({
         <div className={`flex flex-wrap items-center justify-between gap-3 ${lifeGoalComposerMode === 'edit' ? '' : 'justify-end'}`}>
           {lifeGoalComposerMode === 'edit' && editingLifeGoalId ? (
             <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="ghost"
+                onClick={() => setGoalTypeChangeConfirmationOpen(true)}
+              >
+                Change goal type
+              </Button>
               {canCompleteEditedGoal ? (
                 <Button
                   variant="soft"
@@ -4770,17 +5135,51 @@ const renderLifeGoalOverviewPage = () => {
     const isOutcomeGoal = selectedGoalType === 'outcome'
     const isSystemGoal = selectedGoalType === 'system'
     const isDirectionalGoal = selectedGoalType === 'directional'
+    const milestonesEnabled = isOutcomeGoal && Boolean(selectedLifeGoal.milestonesEnabled)
+    const goalMilestones = (selectedLifeGoal.milestones ?? []).slice().sort((left, right) => left.order - right.order)
+    const currentMilestone =
+      goalMilestones.find((milestone) => !milestone.completed) ?? (goalMilestones.length > 0 ? goalMilestones[goalMilestones.length - 1] : null)
+    const selectedMilestoneId = selectedMilestoneIdByGoal[selectedLifeGoal.id] ?? null
+    const selectedMilestone = goalMilestones.find((milestone) => milestone.id === selectedMilestoneId) ?? null
+    const currentMilestoneIndex = currentMilestone ? goalMilestones.findIndex((milestone) => milestone.id === currentMilestone.id) : -1
+    const completedMilestoneCount = goalMilestones.filter((milestone) => milestone.completed).length
+    const outcomeMilestoneView =
+      selectedLifeGoal ? (outcomeMilestoneViewByGoal[selectedLifeGoal.id] ?? 'tasks') : 'tasks'
+    const currentMilestoneMeta = currentMilestone
+      ? currentMilestone.completed
+        ? `All ${goalMilestones.length} milestones complete`
+        : `${Math.max(1, currentMilestoneIndex + 1)} of ${goalMilestones.length} milestones`
+      : null
+    const milestoneDateTarget = milestoneDatePickerMilestoneId
+      ? goalMilestones.find((milestone) => milestone.id === milestoneDatePickerMilestoneId) ?? null
+      : null
     const progressPathTasks = Array.isArray(selectedLifeGoal.tasks) ? selectedLifeGoal.tasks : []
     const isRoadmapMode = !isDirectionalGoal && (lifeGoalDetailTab === 'tasks' || lifeGoalDetailTab === 'roadmap')
     const compactDateRange = `${formatDate(selectedLifeGoal.startDate)} → ${selectedLifeGoal.targetDate ? formatDate(selectedLifeGoal.targetDate) : 'No target'}`
     const roadmapSections = selectedRoadmapSections
     const roadmapRemainingCount = roadmapSections.current ? roadmapSections.upcoming.length + 1 : 0
-    const roadmapHasHighPriorityUpcoming = roadmapSections.upcoming.some((task) => getPriorityScore(task) === 3)
+    const roadmapHasHighPriorityTasks =
+      (roadmapSections.current ? getPriorityScore(roadmapSections.current) === 3 : false) ||
+      roadmapSections.upcoming.some((task) => getPriorityScore(task) === 3)
     const roadmapExecutionSummaryText = `${roadmapSections.current ? 1 : 0} now · ${roadmapSections.upcoming.length} next · ${roadmapSections.completed.length} done`
     const roadmapHasTaggedTasks = selectedLifeGoal.tasks.some((task) => normalizeTaskTags(task.tags).length > 0)
     const sortedUpcomingTasks = sortTasksForDisplay(roadmapSections.upcoming, taskListSortMode)
     const sortedCompletedTasks = sortTasksForDisplay(roadmapSections.completed, taskListSortMode)
     const sortedPlannedTasks = roadmapSections.current ? [roadmapSections.current, ...sortedUpcomingTasks] : sortedUpcomingTasks
+    const milestoneMap = new Map(goalMilestones.map((milestone) => [milestone.id, milestone]))
+    const roadmapTasksGroupedByMilestone =
+      isOutcomeGoal && milestonesEnabled && currentMilestone
+        ? goalMilestones
+            .map((milestone) => {
+              const tasks = sortedPlannedTasks.filter((task) => {
+                const assignedMilestoneId =
+                  task.milestoneId && milestoneMap.has(task.milestoneId) ? task.milestoneId : currentMilestone.id
+                return assignedMilestoneId === milestone.id
+              })
+              return tasks.length > 0 ? { milestone, tasks } : null
+            })
+            .filter((group): group is { milestone: typeof goalMilestones[number]; tasks: LifeGoalTask[] } => Boolean(group))
+        : []
     const goalReadyToComplete =
       selectedLifeGoalProgress.totalTasks > 0 &&
       selectedLifeGoalProgress.completedTasks === selectedLifeGoalProgress.totalTasks &&
@@ -4844,6 +5243,19 @@ const renderLifeGoalOverviewPage = () => {
     const hiddenSupportingHabitsCount = Math.max(0, supportingHabits.length - visibleSupportingHabits.length)
     const goalHeaderChipClassName =
       'inline-flex h-6 shrink-0 items-center justify-center rounded-full border px-2.5 text-[10px] uppercase tracking-[0.14em] leading-none border-white/[0.06]'
+    const renderGoalTypeInfoChip = (label: string, tooltip: string, chipClassName: string) => (
+      <span className={`${goalHeaderChipClassName} gap-1.5 ${chipClassName}`}>
+        <span>{label}</span>
+        <span className="group/typeinfo relative inline-flex">
+          <span className="inline-flex h-4.5 w-4.5 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.03] text-[10px] text-white/38 transition group-hover/typeinfo:text-white/60">
+            i
+          </span>
+          <span className="theme-tooltip pointer-events-none absolute left-1/2 top-[calc(100%+10px)] z-20 hidden w-[240px] -translate-x-1/2 whitespace-normal rounded-xl border px-2.5 py-1.5 text-left text-[11px] font-medium leading-4 opacity-0 shadow-[0_12px_30px_rgba(15,23,42,0.16)] transition-all duration-150 ease-out group-hover/typeinfo:block group-hover/typeinfo:translate-y-0 group-hover/typeinfo:opacity-100">
+            {tooltip}
+          </span>
+        </span>
+      </span>
+    )
     const renderRoadmapTaskGroups = (
       tasks: LifeGoalTask[],
       keyPrefix: string,
@@ -4912,6 +5324,227 @@ const renderLifeGoalOverviewPage = () => {
         </>
       )
     }
+    const renderRoadmapPanelTaskRow = (task: LifeGoalTask, section: 'current' | 'upcoming') => {
+      const dueMeta = task.dueDate ? getRelativeDueMeta(task.dueDate) : null
+      const visualState = getRoadmapTaskVisualState(task, section, roadmapHighPriorityFocus)
+      const isCompressed = section === 'upcoming' && roadmapHighPriorityFocus && getPriorityScore(task) !== 3
+
+      if (section === 'current') {
+        return (
+          <button
+            key={task.id}
+            ref={(element) => {
+              roadmapTaskRowRefs.current[task.id] = element
+            }}
+            data-goal-task-id={task.id}
+            type="button"
+            onClick={(event) => openTaskPeek(task.id, event.currentTarget)}
+            onKeyDown={(event) => handleTaskRowKeyDown(event, task.id)}
+            draggable
+            onDragStart={() => setDraggedTaskId(task.id)}
+            onDragOver={(event) => {
+              event.preventDefault()
+              if (dragOverTaskId !== task.id) setDragOverTaskId(task.id)
+            }}
+            onDrop={(event) => {
+              event.preventDefault()
+              if (draggedTaskId) reorderGoalTask(selectedLifeGoal.id, draggedTaskId, task.id)
+              setDraggedTaskId(null)
+              setDragOverTaskId(null)
+            }}
+            onDragEnd={() => {
+              setDraggedTaskId(null)
+              setDragOverTaskId(null)
+            }}
+            className={`group relative grid w-full grid-cols-[24px_minmax(0,1fr)] items-start gap-x-3 gap-y-1 rounded-none border border-[rgb(var(--theme-accent-rgb)/0.1)] bg-white/[0.012] py-[14px] text-left transition duration-200 ease-out hover:bg-white/[0.02] hover:border-[rgb(var(--theme-accent-rgb)/0.14)] ${
+              dragOverTaskId === task.id && draggedTaskId && draggedTaskId !== task.id ? 'bg-white/[0.03]' : ''
+            } ${visibleGoalStartCueTaskId === task.id ? 'goal-start-highlight' : ''} ${
+              roadmapArrivalCueActive ? 'goal-current-arrival' : ''
+            } ${taskMomentumTransition?.nextTaskId === task.id ? 'goal-next-task-activate' : ''} ${
+              taskMomentumTransition?.completedTaskId === task.id ? 'goal-task-complete-flash' : ''
+            }`}
+            style={{ ...visualState.rowStyle, opacity: visualState.opacity }}
+          >
+            <span aria-hidden="true" className="relative z-[1] mt-[2px] flex h-[18px] w-[18px] items-center justify-center justify-self-center">
+              <span className="roadmap-current-node-pulse absolute h-[20px] w-[20px] rounded-full bg-[rgb(var(--theme-accent-rgb)/0.18)] blur-[6px]" />
+              <span
+                className={`relative flex items-center justify-center rounded-full border transition-transform duration-200 ease-out group-hover:scale-110 ${
+                  getPriorityScore(task) === 3
+                    ? 'h-[14px] w-[14px] border-[rgb(var(--theme-accent-rgb)/0.9)] shadow-[0_0_8px_rgb(var(--theme-accent-rgb)/0.08)]'
+                    : 'h-[14px] w-[14px] border-[rgb(var(--theme-accent-rgb)/0.8)] shadow-[0_0_6px_rgb(var(--theme-accent-rgb)/0.06)]'
+                }`}
+              >
+                <span
+                  className={`rounded-full border ${
+                    getPriorityScore(task) === 3
+                      ? 'h-[8px] w-[8px] border-[rgb(var(--theme-accent-rgb)/0.94)]'
+                      : 'h-[8px] w-[8px] border-[rgb(var(--theme-accent-rgb)/0.86)]'
+                  }`}
+                />
+              </span>
+            </span>
+            <div className="min-w-0 px-1 pb-3 pr-10 pt-0.5">
+              <div className="min-w-0">
+                <AnimatePresence initial={false}>
+                  {roadmapArrivalCueActive ? (
+                    <motion.p
+                      className="mb-1 text-[10px] uppercase tracking-[0.14em] text-white/56"
+                      initial={{ opacity: 0, y: 3 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -3 }}
+                      transition={{ duration: 0.18, ease: 'easeOut' }}
+                    >
+                      Start here
+                    </motion.p>
+                  ) : null}
+                </AnimatePresence>
+                <AnimatePresence initial={false}>
+                  {taskMomentumTransition?.nextTaskId === task.id ? (
+                    <motion.p
+                      className="mb-1 text-[10px] uppercase tracking-[0.14em] text-white/62"
+                      initial={{ opacity: 0, y: 4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -4 }}
+                      transition={{ duration: 0.2, ease: 'easeOut' }}
+                    >
+                      Next step ready
+                    </motion.p>
+                  ) : null}
+                </AnimatePresence>
+                <AnimatePresence initial={false}>
+                  {visibleGoalStartCueTaskId === task.id ? (
+                    <motion.p
+                      className="mb-1 text-[10px] uppercase tracking-[0.14em] text-white/64"
+                      initial={{ opacity: 0, y: 4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -4 }}
+                      transition={{ duration: 0.18, ease: 'easeOut' }}
+                    >
+                      Goal started • 1 step ready
+                    </motion.p>
+                  ) : null}
+                </AnimatePresence>
+                <p className={`text-[15px] font-medium ${visualState.titleClassName}`}>{task.text}</p>
+                <div className="mt-1 flex min-h-[18px] items-end justify-between gap-3">
+                  <div className="min-w-0 text-left pb-[2px]">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {task.dueDate ? (
+                        <p className={`text-[12px] ${dueMeta?.toneClassName ?? visualState.metaClassName}`}>
+                          {dueMeta ? `${dueMeta.compactLabel} · ${formatTaskDueDate(task.dueDate)}` : formatTaskDueDate(task.dueDate)}
+                        </p>
+                      ) : null}
+                      {renderPriorityChip(task)}
+                      {renderTaskTags(task)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            {task.subtasks.length > 0 ? (
+              <div className="pointer-events-none absolute bottom-4 right-3.5 flex items-center justify-end">
+                {renderSubtaskProgressDots(task.subtasks)}
+              </div>
+            ) : null}
+          </button>
+        )
+      }
+
+      return (
+        <button
+          key={task.id}
+          ref={(element) => {
+            roadmapTaskRowRefs.current[task.id] = element
+          }}
+          data-goal-task-id={task.id}
+          type="button"
+          onClick={(event) => openTaskPeek(task.id, event.currentTarget)}
+          onKeyDown={(event) => handleTaskRowKeyDown(event, task.id)}
+          draggable
+          onDragStart={() => setDraggedTaskId(task.id)}
+          onDragOver={(event) => {
+            event.preventDefault()
+            if (dragOverTaskId !== task.id) setDragOverTaskId(task.id)
+          }}
+          onDrop={(event) => {
+            event.preventDefault()
+            if (draggedTaskId) reorderGoalTask(selectedLifeGoal.id, draggedTaskId, task.id)
+            setDraggedTaskId(null)
+            setDragOverTaskId(null)
+          }}
+          onDragEnd={() => {
+            setDraggedTaskId(null)
+            setDragOverTaskId(null)
+          }}
+          className={`group relative grid w-full grid-cols-[24px_minmax(0,1fr)] items-start gap-x-3 rounded-[14px] text-left transition-all duration-200 ease-out hover:bg-white/[0.015] ${
+            isCompressed ? 'gap-y-0 py-[5px]' : 'gap-y-1 py-[10px]'
+          } ${
+            dragOverTaskId === task.id && draggedTaskId && draggedTaskId !== task.id ? 'bg-white/[0.028]' : ''
+          } ${visibleGoalStartCueTaskId === task.id ? 'goal-start-highlight' : ''} ${
+            taskMomentumTransition?.nextTaskId === task.id ? 'goal-next-task-activate' : ''
+          } ${taskMomentumTransition?.completedTaskId === task.id ? 'goal-task-complete-flash' : ''}`}
+          style={{
+            ...visualState.rowStyle,
+            opacity:
+              visualState.opacity *
+              (roadmapArrivalCueActive ? 0.78 : 1) *
+              (taskMomentumTransition?.completedTaskId === task.id ? 0.75 : 1),
+          }}
+        >
+          <span aria-hidden="true" className="relative z-[1] mt-[2px] flex h-4 w-4 items-center justify-center justify-self-center">
+            <span className={`h-1.5 w-1.5 rounded-full border border-white/[0.26] bg-transparent transition-transform duration-200 ease-out group-hover:scale-110 ${getPriorityScore(task) === 3 ? 'shadow-[0_0_0_1px_rgb(var(--theme-accent-rgb)/0.08)]' : ''}`} />
+          </span>
+          <div className={`min-w-0 border-b border-white/[0.02] pr-8 transition-all duration-200 ease-out ${isCompressed ? 'pb-[6px]' : 'pb-[10px]'}`}>
+            <div className="min-w-0">
+              <AnimatePresence initial={false}>
+                {taskMomentumTransition?.nextTaskId === task.id ? (
+                  <motion.p
+                    className="mb-1 text-[10px] uppercase tracking-[0.14em] text-white/62"
+                    initial={{ opacity: 0, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -4 }}
+                    transition={{ duration: 0.2, ease: 'easeOut' }}
+                  >
+                    Next step ready
+                  </motion.p>
+                ) : null}
+              </AnimatePresence>
+              <AnimatePresence initial={false}>
+                {visibleGoalStartCueTaskId === task.id ? (
+                  <motion.p
+                    className="mb-1 text-[10px] uppercase tracking-[0.14em] text-white/64"
+                    initial={{ opacity: 0, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -4 }}
+                    transition={{ duration: 0.18, ease: 'easeOut' }}
+                  >
+                    Goal started • 1 step ready
+                  </motion.p>
+                ) : null}
+              </AnimatePresence>
+              <p className={`${isCompressed ? 'text-[14px] leading-5' : 'text-[15px]'} ${visualState.titleClassName} transition-all duration-200 ease-out`}>{task.text}</p>
+              <div className={`flex items-end justify-between gap-3 transition-all duration-200 ease-out ${isCompressed ? 'mt-0.5 min-h-[14px]' : 'mt-1 min-h-[18px]'}`}>
+                <div className="min-w-0 text-left pb-[2px]">
+                  <div className={`flex flex-wrap items-center transition-all duration-200 ease-out ${isCompressed ? 'gap-1.5' : 'gap-2'}`}>
+                    {task.dueDate ? (
+                      <p className={`text-[12px] ${dueMeta?.toneClassName ?? visualState.metaClassName}`}>
+                        {dueMeta ? `${dueMeta.compactLabel} · ${formatTaskDueDate(task.dueDate)}` : formatTaskDueDate(task.dueDate)}
+                      </p>
+                    ) : null}
+                    {!isCompressed ? renderPriorityChip(task) : null}
+                    {!isCompressed ? renderTaskTags(task) : null}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          {task.subtasks.length > 0 ? (
+            <div className="pointer-events-none absolute bottom-[16px] right-4 flex items-center justify-end">
+              {renderSubtaskProgressDots(task.subtasks)}
+            </div>
+          ) : null}
+        </button>
+      )
+    }
     const renderTaskSortControl = () => (
       <div className="inline-flex min-w-[132px] items-center justify-between gap-3 rounded-full border border-white/[0.045] bg-white/[0.018] px-2.5 py-[5px]">
         <span className="shrink-0 text-[10px] uppercase tracking-[0.14em] text-white/38">Sort</span>
@@ -4935,6 +5568,68 @@ const renderLifeGoalOverviewPage = () => {
         </div>
       </div>
     )
+    const roadmapMilestoneStructuredContent =
+      roadmapTasksGroupedByMilestone.length > 0 ? (
+        <div className="pb-4">
+          {roadmapTasksGroupedByMilestone.map(({ milestone, tasks }, groupIndex) => {
+            const isCurrentGroup = milestone.id === currentMilestone?.id
+            const incompleteGroupTasks = tasks.filter((task) => !task.completed)
+            if (incompleteGroupTasks.length === 0) return null
+
+            return (
+              <div key={`roadmap-milestone-group-${milestone.id}`} className={groupIndex > 0 ? 'pt-5' : ''}>
+                {isCurrentGroup ? (
+                  <p className="pb-2 pl-[36px] text-[10px] font-medium uppercase tracking-[0.18em] text-[rgb(var(--theme-accent-rgb)/0.96)] [text-shadow:0_0_10px_rgb(var(--theme-accent-rgb)/0.42),0_0_18px_rgb(var(--theme-accent-rgb)/0.18)]">
+                    You are here
+                  </p>
+                ) : null}
+                <div className="relative pb-3 pl-[36px]">
+                  <span
+                    aria-hidden="true"
+                    className="pointer-events-none absolute left-[3px] top-[9px] h-px w-[18px]"
+                    style={{
+                      background: isCurrentGroup
+                        ? 'linear-gradient(90deg, rgb(var(--theme-accent-rgb)/0) 0%, rgb(var(--theme-accent-rgb)/0.24) 50%, rgb(var(--theme-accent-rgb)/0) 100%)'
+                        : groupIndex === 1
+                          ? 'linear-gradient(90deg, rgb(255 255 255 / 0) 0%, rgb(255 255 255 / 0.12) 50%, rgb(255 255 255 / 0) 100%)'
+                          : 'linear-gradient(90deg, rgb(255 255 255 / 0) 0%, rgb(255 255 255 / 0.08) 50%, rgb(255 255 255 / 0) 100%)',
+                    }}
+                  />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className={`text-[11px] uppercase tracking-[0.16em] ${isCurrentGroup ? 'text-white/78' : 'text-mist/56'}`}>
+                      {milestone.title}
+                    </p>
+                    <span
+                      className={`rounded-full border px-2 py-0.5 text-[9px] uppercase tracking-[0.12em] ${
+                        isCurrentGroup
+                          ? 'border-[rgb(var(--theme-accent-rgb)/0.12)] bg-[rgb(var(--theme-accent-rgb)/0.05)] text-[rgb(var(--theme-accent-rgb)/0.72)]'
+                          : groupIndex === 1
+                            ? 'border-white/[0.06] bg-white/[0.02] text-white/48'
+                            : 'border-white/[0.05] bg-white/[0.016] text-white/38'
+                      }`}
+                    >
+                      {isCurrentGroup ? 'Current milestone' : groupIndex === 1 ? 'Next milestone' : 'Upcoming milestone'}
+                    </span>
+                    {milestone.targetDate ? (
+                      <span className={`text-[12px] ${getRelativeDueMeta(milestone.targetDate)?.toneClassName ?? 'text-mist/50'}`}>
+                        {getRelativeDueMeta(milestone.targetDate)?.label ?? formatDate(milestone.targetDate)}
+                      </span>
+                    ) : null}
+                  </div>
+                  {milestone.description.trim() ? (
+                    <p className="mt-1 line-clamp-1 text-[12px] text-mist/52">{milestone.description.trim()}</p>
+                  ) : null}
+                </div>
+                <div className="space-y-0.5">
+                  {incompleteGroupTasks.map((task) =>
+                    renderRoadmapPanelTaskRow(task, task.id === roadmapSections.current?.id ? 'current' : 'upcoming'),
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      ) : null
     const renderParentGoalChips = () => (
       <>
         {visibleParentGoals.map((goal) => (
@@ -4943,9 +5638,9 @@ const renderLifeGoalOverviewPage = () => {
             type="button"
             onClick={() => onSelectLifeGoal(goal.id)}
             className={`${goalHeaderChipClassName} border-white/[0.05] bg-white/[0.02] text-white/52 transition hover:border-white/[0.08] hover:text-white/74`}
-            title={`Part of: ${goal.title}`}
+            title={goal.title}
           >
-            → {goal.title}
+            ← {(goal.goalType ?? 'outcome') === 'directional' ? 'DIR' : 'GOAL'}
           </button>
         ))}
         {hiddenParentGoalsCount > 0 ? (
@@ -4958,8 +5653,12 @@ const renderLifeGoalOverviewPage = () => {
     const linkedGoalsSection = (
       <div className="rounded-[24px] border border-white/[0.05] bg-white/[0.02] px-5 py-4">
         <div>
-          <p className="text-[11px] uppercase tracking-[0.16em] text-mist/52">Related goals</p>
-          <p className="mt-1 text-sm text-mist">Goals linked with this goal.</p>
+          <p className="text-[11px] uppercase tracking-[0.16em] text-mist/52">
+            {isSystemGoal ? 'Supported outcomes' : 'Related goals'}
+          </p>
+          <p className="mt-1 text-sm text-mist">
+            {isSystemGoal ? 'Outcome goals this system helps move forward.' : 'Goals linked with this goal.'}
+          </p>
         </div>
 
         <div className="mt-4 space-y-2">
@@ -5004,20 +5703,20 @@ const renderLifeGoalOverviewPage = () => {
     )
     const goalWorkspaceRail = (
       <div
-        className={`rounded-[20px] border border-white/[0.05] bg-white/[0.018] px-4 py-3 ${
+        className={`rounded-[20px] border border-white/[0.045] bg-white/[0.016] px-4 py-2.5 ${
           goalCompletionFlashGoalId === selectedLifeGoal.id ? 'goal-complete-celebration' : ''
         }`}
       >
         <div className="grid items-center gap-4 lg:grid-cols-[auto_minmax(220px,1fr)_auto]">
           <div className="min-w-0">
-            <p className="text-[13px] font-medium text-white/72">
-              <span className="text-mist/58">Progress</span>
+            <p className="text-[12px] font-medium text-white/64">
+              <span className="text-mist/50">Progress</span>
               <span className="px-1.5 text-white/18">·</span>
               {selectedLifeGoalProgress.completedTasks}/{selectedLifeGoalProgress.totalTasks}
               <span className="px-1.5 text-white/18">·</span>
-              <span className="text-mist/72">{goalCompletionPercent}%</span>
+              <span className="text-white/66">{goalCompletionPercent}%</span>
             </p>
-            <p className="mt-1 text-[11px] text-mist/46">
+            <p className="mt-0.5 text-[11px] text-mist/40">
               {recentTaskCompletionCount > 0
                 ? `+${recentTaskCompletionCount} tasks in last 5 days`
                 : lastProgressDaysAgo == null
@@ -5053,7 +5752,7 @@ const renderLifeGoalOverviewPage = () => {
                       key={task.id}
                       className={`absolute top-1/2 z-[1] -translate-x-1/2 -translate-y-1/2 rounded-full border ${
                         isCurrentAnchor
-                          ? 'h-3 w-3 border-[rgb(var(--theme-accent-rgb)/0.74)] bg-[rgb(var(--theme-accent-rgb)/0.7)] shadow-[0_0_0_1px_rgb(var(--theme-accent-rgb)/0.06),0_0_10px_rgb(var(--theme-accent-rgb)/0.12)]'
+                          ? 'h-3.5 w-3.5 border-[rgb(var(--theme-accent-rgb)/0.8)] bg-[rgb(var(--theme-accent-rgb)/0.76)] shadow-[0_0_0_2px_rgb(var(--theme-surface-elevated-rgb)/0.86),0_0_0_1px_rgb(var(--theme-accent-rgb)/0.1),0_0_12px_rgb(var(--theme-accent-rgb)/0.14)]'
                           : isSequentiallyComplete
                             ? 'h-2 w-2 border-[rgb(var(--theme-accent-rgb)/0.5)] bg-[rgb(var(--theme-accent-rgb)/0.54)]'
                             : 'h-2 w-2 border-white/[0.18] bg-[rgb(var(--theme-surface-rgb)/0.94)]'
@@ -5067,13 +5766,13 @@ const renderLifeGoalOverviewPage = () => {
               )}
             </div>
 
-            <div className="absolute right-0 top-1/2 z-[1] flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-[rgb(var(--theme-accent-rgb)/0.18)] bg-[rgb(var(--theme-surface-elevated-rgb)/0.92)] text-[11px] font-semibold text-white/82 shadow-[0_0_0_1px_rgb(var(--theme-accent-rgb)/0.05)]">
+            <div className="absolute right-0 top-1/2 z-[1] flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-[rgb(var(--theme-accent-rgb)/0.16)] bg-[rgb(var(--theme-surface-elevated-rgb)/0.92)] text-[11px] font-semibold text-white/78 shadow-[0_0_0_1px_rgb(var(--theme-accent-rgb)/0.04)]">
               {goalCompletionPercent}%
             </div>
           </div>
           <div className="text-right">
-            <p className="text-[11px] text-mist/46">Timeline</p>
-            <p className="mt-1 text-[13px] font-medium text-white/60">{compactDateRange}</p>
+            <p className="text-[11px] text-mist/40">Timeline</p>
+            <p className="mt-0.5 text-[13px] font-medium text-white/66">{compactDateRange}</p>
           </div>
         </div>
       </div>
@@ -5232,7 +5931,7 @@ const renderLifeGoalOverviewPage = () => {
       <div className="rounded-[24px] border border-white/[0.05] bg-white/[0.018] px-4 py-4">
         <div>
           <p className="text-[11px] uppercase tracking-[0.16em] text-mist/50">Supporting habits</p>
-          <p className="mt-1 text-sm text-mist">Habits linked to this system.</p>
+          <p className="mt-1 text-sm text-mist">Simple repeatable behaviors linked to this broader system.</p>
         </div>
 
         <div className="mt-4 space-y-2.5">
@@ -5276,6 +5975,312 @@ const renderLifeGoalOverviewPage = () => {
         </div>
       </div>
     )
+    const outcomeMilestoneContent =
+      isOutcomeGoal && milestonesEnabled ? (
+        goalMilestones.length > 0 ? (
+          <div className="space-y-2">
+            {goalMilestones.map((milestone, milestoneIndex) => {
+              const isCurrentMilestone = currentMilestone?.id === milestone.id && !milestone.completed
+              const isSelectedMilestone = selectedMilestone?.id === milestone.id
+              const milestoneDueMeta = milestone.targetDate ? getRelativeDueMeta(milestone.targetDate) : null
+              const milestoneDescriptionPreview = milestone.description.trim()
+              return (
+                <div
+                  key={milestone.id}
+                  onClick={() =>
+                    setSelectedMilestoneIdByGoal((current) => ({
+                      ...current,
+                      [selectedLifeGoal.id]: current[selectedLifeGoal.id] === milestone.id ? null : milestone.id,
+                    }))
+                  }
+                  onKeyDown={(event) => {
+                    if (event.target !== event.currentTarget) return
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault()
+                      setSelectedMilestoneIdByGoal((current) => ({
+                        ...current,
+                        [selectedLifeGoal.id]: current[selectedLifeGoal.id] === milestone.id ? null : milestone.id,
+                      }))
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  className={`w-full rounded-[20px] border px-4 py-3.5 text-left transition ${
+                    isSelectedMilestone
+                      ? 'border-white/[0.1] bg-white/[0.03]'
+                      : isCurrentMilestone
+                        ? 'border-[rgb(var(--theme-accent-rgb)/0.08)] bg-[rgb(var(--theme-accent-rgb)/0.022)] hover:border-[rgb(var(--theme-accent-rgb)/0.12)]'
+                        : 'border-white/[0.05] bg-white/[0.018] hover:border-white/[0.08] hover:bg-white/[0.026]'
+                  }`}
+                >
+                  <div className="grid grid-cols-[32px_minmax(0,1fr)] items-start gap-x-3.5">
+                    <span aria-hidden="true" className="mt-0.5 flex h-7 w-7 items-center justify-center">
+                      <span
+                        className={`inline-flex h-7 w-7 items-center justify-center rounded-full border text-[11px] font-medium transition ${
+                          milestone.completed
+                            ? 'border-[rgb(var(--theme-accent-rgb)/0.18)] bg-[rgb(var(--theme-accent-rgb)/0.12)] text-[rgb(var(--theme-accent-rgb)/0.82)]'
+                            : isCurrentMilestone
+                              ? 'border-[rgb(var(--theme-accent-rgb)/0.16)] bg-[rgb(var(--theme-accent-rgb)/0.04)] text-white/84'
+                              : 'border-white/[0.12] bg-white/[0.02] text-white/46'
+                        }`}
+                      >
+                        {milestone.completed ? '✓' : milestoneIndex + 1}
+                      </span>
+                    </span>
+                    <div className="min-w-0">
+                      <div className="flex items-start justify-between gap-3">
+                        <p className={`min-w-0 flex-1 text-[15px] font-medium leading-6 ${milestone.completed ? 'text-white/54 line-through' : 'text-white/88'}`}>
+                          {milestone.title.trim() || `Milestone ${milestoneIndex + 1}`}
+                        </p>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <span
+                            className={`rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] ${
+                              milestone.completed
+                                ? 'border-white/[0.06] bg-white/[0.025] text-white/44'
+                                : isCurrentMilestone
+                                  ? 'border-[rgb(var(--theme-accent-rgb)/0.16)] bg-[rgb(var(--theme-accent-rgb)/0.06)] text-[rgb(var(--theme-accent-rgb)/0.74)]'
+                                  : 'border-white/[0.06] bg-white/[0.018] text-white/42'
+                            }`}
+                          >
+                            {milestone.completed ? 'Completed' : isCurrentMilestone ? 'Current' : 'Upcoming'}
+                          </span>
+                          {milestone.targetDate ? (
+                            <span className={`text-[12px] ${milestoneDueMeta?.toneClassName ?? 'text-mist/56'}`}>
+                              {milestoneDueMeta ? `${milestoneDueMeta.compactLabel} · ` : ''}
+                              {formatDate(milestone.targetDate)}
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                      {!isSelectedMilestone && milestoneDescriptionPreview ? (
+                        <p className="mt-1 line-clamp-2 text-[12px] leading-5 text-white/58">{milestoneDescriptionPreview}</p>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  {isSelectedMilestone ? (
+                    <div
+                      className="mt-3 border-t border-white/[0.04] pt-3"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <div className="space-y-3">
+                        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px]">
+                          <label className="space-y-1">
+                            <span className="text-[10px] uppercase tracking-[0.14em] text-mist/50">Title</span>
+                            <input
+                              value={milestone.title}
+                              onChange={(event) =>
+                                updateSelectedLifeGoalMilestone(milestone.id, (current) => ({
+                                  ...current,
+                                  title: event.target.value,
+                                }))
+                              }
+                              placeholder={`Milestone ${milestoneIndex + 1}`}
+                              spellCheck={true}
+                              className="theme-input w-full rounded-xl border px-3 py-2 text-sm outline-none"
+                            />
+                          </label>
+                          <label className="space-y-1">
+                            <span className="text-[10px] uppercase tracking-[0.14em] text-mist/50">Target date</span>
+                            <div
+                              ref={(element) => {
+                                milestoneDateFieldRefs.current[milestone.id] = element
+                              }}
+                              className="relative"
+                            >
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  openMilestoneDatePicker(milestone.id, milestone.targetDate)
+                                }}
+                                className="theme-input flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left text-sm transition"
+                              >
+                                <span className={milestone.targetDate ? 'theme-text-primary' : 'theme-text-muted'}>
+                                  {milestone.targetDate ? formatDate(milestone.targetDate) : 'Optional date'}
+                                </span>
+                                <span className="theme-text-faint text-xs">▾</span>
+                              </button>
+                            </div>
+                          </label>
+                        </div>
+                        <label className="space-y-1">
+                          <span className="text-[10px] uppercase tracking-[0.14em] text-mist/50">Description</span>
+                          <textarea
+                            value={milestone.description}
+                            onChange={(event) =>
+                              updateSelectedLifeGoalMilestone(milestone.id, (current) => ({
+                                ...current,
+                                description: event.target.value,
+                              }))
+                            }
+                            rows={3}
+                            placeholder="Why this checkpoint matters or what it represents"
+                            spellCheck={true}
+                            className="theme-input min-h-[88px] w-full resize-none rounded-xl border px-3 py-2 text-sm outline-none"
+                          />
+                        </label>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              updateSelectedLifeGoalMilestone(milestone.id, (current) => ({
+                                ...current,
+                                completed: !current.completed,
+                                completedAt: !current.completed ? new Date().toISOString() : null,
+                              }))
+                            }
+                            className={`inline-flex items-center rounded-full border px-3 py-1.5 text-[11px] uppercase tracking-[0.14em] transition ${
+                              milestone.completed
+                                ? 'border-[rgb(var(--theme-accent-rgb)/0.16)] bg-[rgb(var(--theme-accent-rgb)/0.08)] text-[rgb(var(--theme-accent-rgb)/0.76)]'
+                                : 'border-white/[0.06] bg-white/[0.018] text-white/54 hover:border-white/[0.1] hover:text-white/74'
+                            }`}
+                          >
+                            {milestone.completed ? 'Mark incomplete' : 'Mark complete'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => reorderSelectedLifeGoalMilestone(milestone.id, 'up')}
+                            disabled={milestoneIndex === 0}
+                            className="inline-flex items-center rounded-full border border-white/[0.06] bg-white/[0.018] px-3 py-1.5 text-[11px] uppercase tracking-[0.14em] text-white/54 transition hover:border-white/[0.1] hover:text-white/74 disabled:opacity-30"
+                          >
+                            Move up
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => reorderSelectedLifeGoalMilestone(milestone.id, 'down')}
+                            disabled={milestoneIndex === goalMilestones.length - 1}
+                            className="inline-flex items-center rounded-full border border-white/[0.06] bg-white/[0.018] px-3 py-1.5 text-[11px] uppercase tracking-[0.14em] text-white/54 transition hover:border-white/[0.1] hover:text-white/74 disabled:opacity-30"
+                          >
+                            Move down
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => deleteSelectedLifeGoalMilestone(milestone.id)}
+                            className="inline-flex items-center rounded-full border border-[rgb(var(--theme-negative-rgb)/0.18)] bg-[rgb(var(--theme-negative-rgb)/0.06)] px-3 py-1.5 text-[11px] uppercase tracking-[0.14em] text-[rgb(var(--theme-negative-rgb)/0.76)] transition hover:border-[rgb(var(--theme-negative-rgb)/0.24)] hover:text-[rgb(var(--theme-negative-rgb)/0.86)]"
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="pl-[36px] pt-1">
+            <p className="text-sm text-white/68">No milestones yet</p>
+            <button
+              type="button"
+              onClick={addSelectedLifeGoalMilestone}
+              className="mt-2 inline-flex items-center rounded-full border border-white/[0.06] bg-white/[0.025] px-3 py-1.5 text-[11px] uppercase tracking-[0.14em] text-white/56 transition hover:border-white/[0.1] hover:text-white/78"
+            >
+              + Add first milestone
+            </button>
+          </div>
+        )
+      ) : null
+    const milestoneDatePicker =
+      milestoneDatePickerMilestoneId && milestoneDatePanelPosition && milestoneDateTarget && typeof document !== 'undefined'
+        ? createPortal(
+            <div
+              ref={milestoneDatePanelRef}
+              className="theme-popover fixed z-[80] overflow-hidden rounded-[24px] border p-3 shadow-[0_22px_46px_rgba(15,23,42,0.18)]"
+              style={{
+                top: `${milestoneDatePanelPosition.top}px`,
+                left: `${milestoneDatePanelPosition.left}px`,
+                width: `${milestoneDatePanelPosition.width}px`,
+              }}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={() => setMilestoneDateViewMonth((current) => shiftCalendarMonth(current, -1))}
+                  className="theme-text-muted rounded-full border border-[rgb(var(--theme-border-subtle-rgb))] px-2.5 py-1.5 text-xs transition hover:border-[rgb(var(--theme-border-strong-rgb))] hover:text-[rgb(var(--theme-text-primary-rgb))]"
+                >
+                  Prev
+                </button>
+                <p className="theme-text-primary text-sm font-medium">{formatCalendarMonthLabel(milestoneDateViewMonth)}</p>
+                <button
+                  type="button"
+                  onClick={() => setMilestoneDateViewMonth((current) => shiftCalendarMonth(current, 1))}
+                  className="theme-text-muted rounded-full border border-[rgb(var(--theme-border-subtle-rgb))] px-2.5 py-1.5 text-xs transition hover:border-[rgb(var(--theme-border-strong-rgb))] hover:text-[rgb(var(--theme-text-primary-rgb))]"
+                >
+                  Next
+                </button>
+              </div>
+
+              <div className="mt-3 grid grid-cols-7 gap-1.5">
+                {LIFE_GOAL_WEEKDAY_LABELS.map((day) => (
+                  <div key={day} className="theme-text-faint px-1 py-1 text-center text-[11px] uppercase tracking-[0.12em]">
+                    {day}
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-1 grid grid-cols-7 gap-1.5">
+                {getCalendarDays(milestoneDateViewMonth).map((day) => {
+                  const dayValue = formatCalendarDayValue(day)
+                  const inCurrentMonth = day.getUTCMonth() === milestoneDateViewMonth.getUTCMonth()
+                  const activeDateValue = milestoneDateTarget.targetDate ?? ''
+                  const isSelected = dayValue === activeDateValue
+                  const isToday = dayValue === getTodayIsoDate()
+
+                  return (
+                    <button
+                      key={dayValue}
+                      type="button"
+                      onClick={() => applySelectedMilestoneDate(dayValue)}
+                      className={`rounded-2xl border px-0 py-2 text-center text-sm transition ${
+                        isSelected
+                          ? 'border-[rgb(var(--theme-info-rgb)/0.28)] bg-[rgb(var(--theme-info-rgb)/0.12)] text-[rgb(var(--theme-text-primary-rgb))]'
+                          : isToday
+                            ? 'border-[rgb(var(--theme-border-strong-rgb))] bg-[rgb(var(--theme-surface-soft-rgb))] text-[rgb(var(--theme-text-primary-rgb))] hover:border-[rgb(var(--theme-border-strong-rgb))] hover:bg-[rgb(var(--theme-surface-elevated-rgb))]'
+                            : inCurrentMonth
+                              ? 'border-[rgb(var(--theme-border-subtle-rgb)/0.75)] bg-transparent text-[rgb(var(--theme-text-secondary-rgb))] hover:border-[rgb(var(--theme-border-strong-rgb))] hover:bg-[rgb(var(--theme-surface-soft-rgb))] hover:text-[rgb(var(--theme-text-primary-rgb))]'
+                              : 'border-transparent bg-transparent text-[rgb(var(--theme-text-faint-rgb))] hover:border-[rgb(var(--theme-border-subtle-rgb)/0.55)] hover:bg-[rgb(var(--theme-surface-soft-rgb)/0.6)]'
+                      }`}
+                    >
+                      {day.getUTCDate()}
+                    </button>
+                  )
+                })}
+              </div>
+
+              <div className="mt-3 flex items-center justify-between gap-2 border-t border-[rgb(var(--theme-border-subtle-rgb)/0.7)] pt-3">
+                <button
+                  type="button"
+                  onClick={() => applySelectedMilestoneDate(getTodayIsoDate())}
+                  className="theme-text-muted rounded-full px-2 py-1 text-xs transition hover:text-[rgb(var(--theme-text-primary-rgb))]"
+                >
+                  Today
+                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => applySelectedMilestoneDate('')}
+                    className="theme-text-muted rounded-full px-2 py-1 text-xs transition hover:text-[rgb(var(--theme-text-primary-rgb))]"
+                  >
+                    Clear
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMilestoneDatePickerMilestoneId(null)
+                      setMilestoneDatePanelPosition(null)
+                    }}
+                    className="theme-text-muted rounded-full px-2 py-1 text-xs transition hover:text-[rgb(var(--theme-text-primary-rgb))]"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null
     const directionalActivitySection = (
       <div className="rounded-[24px] border border-white/[0.05] bg-white/[0.018] px-4 py-4">
         <div className="flex items-center justify-between gap-3">
@@ -5542,17 +6547,19 @@ const renderLifeGoalOverviewPage = () => {
             ) : null}
             </div>
             <div className="flex flex-wrap items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => setRoadmapHighPriorityFocus((current) => !current)}
-              className={`${
-                roadmapHighPriorityFocus
-                  ? 'inline-flex items-center rounded-full border border-[rgb(var(--theme-accent-rgb)/0.12)] bg-[rgb(var(--theme-accent-rgb)/0.06)] px-2.5 py-[5px] text-[10px] uppercase tracking-[0.14em] text-[rgb(var(--theme-accent-rgb)/0.72)] transition hover:border-[rgb(var(--theme-accent-rgb)/0.16)] hover:text-[rgb(var(--theme-accent-rgb)/0.82)]'
-                  : roadmapHeaderControlBaseClass
-              }`}
-            >
-              Focus · High priority
-            </button>
+            {roadmapHasHighPriorityTasks ? (
+              <button
+                type="button"
+                onClick={() => setRoadmapHighPriorityFocus((current) => !current)}
+                className={`${
+                  roadmapHighPriorityFocus
+                    ? 'inline-flex items-center rounded-full border border-[rgb(var(--theme-accent-rgb)/0.12)] bg-[rgb(var(--theme-accent-rgb)/0.06)] px-2.5 py-[5px] text-[10px] uppercase tracking-[0.14em] text-[rgb(var(--theme-accent-rgb)/0.72)] transition hover:border-[rgb(var(--theme-accent-rgb)/0.16)] hover:text-[rgb(var(--theme-accent-rgb)/0.82)]'
+                    : roadmapHeaderControlBaseClass
+                }`}
+              >
+                Focus · High priority
+              </button>
+            ) : null}
             </div>
             <p className="text-[11px] uppercase tracking-[0.16em] text-mist/54">
               {selectedLifeGoalProgress.completedTaskItems.length} completed
@@ -5919,12 +6926,14 @@ const renderLifeGoalOverviewPage = () => {
           >
             ← Back to Life Goals
           </button>
-          <Button
-            variant="ghost"
-            onClick={(event) => openEditLifeGoalComposer(selectedLifeGoal, event.currentTarget)}
-          >
-            Edit Goal
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              onClick={(event) => openEditLifeGoalComposer(selectedLifeGoal, event.currentTarget)}
+            >
+              Edit Goal
+            </Button>
+          </div>
         </div>
 
         {isOutcomeGoal ? goalWorkspaceRail : null}
@@ -5943,6 +6952,24 @@ const renderLifeGoalOverviewPage = () => {
                   title={selectedLifeGoal.title}
                   categoryChip={
                     <>
+                      {isDirectionalGoal
+                        ? renderGoalTypeInfoChip(
+                            'Direction',
+                            'Long-term life direction. Not something to complete.',
+                            'border-white/[0.08] bg-white/[0.04] text-white/76',
+                          )
+                        : isSystemGoal
+                          ? renderGoalTypeInfoChip(
+                              'System',
+                              'A system goal is a broader supporting engine. Use habits for simple repeatable behaviors, and save one-time checkpoints for milestones or tasks.',
+                              'border-[rgb(var(--theme-info-rgb)/0.12)] bg-[rgb(var(--theme-info-rgb)/0.06)] text-[rgb(var(--theme-info-rgb)/0.76)]',
+                            )
+                          : renderGoalTypeInfoChip(
+                              'Outcome',
+                              'An outcome goal is a destination with a clear finish. Use tasks for the execution steps to reach it.',
+                              'border-white/[0.08] bg-white/[0.03] text-white/75',
+                            )}
+                      {renderParentGoalChips()}
                       {selectedGoalCategory ? (
                         <span
                           className={`${goalHeaderChipClassName} gap-1.5 text-white/70`}
@@ -5952,7 +6979,6 @@ const renderLifeGoalOverviewPage = () => {
                           {selectedGoalCategory}
                         </span>
                       ) : null}
-                      {renderParentGoalChips()}
                     </>
                   }
                   primaryChip={
@@ -5993,7 +7019,7 @@ const renderLifeGoalOverviewPage = () => {
               )}
 
               <div
-                className={`rounded-[22px] border border-white/[0.045] bg-[rgb(var(--theme-surface-elevated-rgb)/0.52)] px-4 py-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)] ${
+                className={`rounded-[22px] border border-white/[0.04] bg-[rgb(var(--theme-surface-elevated-rgb)/0.42)] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.015)] ${
                   selectedLifeGoalVisionEditorOpen
                     ? ''
                     : 'xl:flex xl:min-h-0 xl:flex-1 xl:flex-col xl:overflow-hidden'
@@ -6015,7 +7041,7 @@ const renderLifeGoalOverviewPage = () => {
                 <div className="flex w-full items-start justify-between gap-3 text-left">
                   <div className="min-w-0">
                     <p className="text-[11px] uppercase tracking-[0.18em] text-mist/58">Vision</p>
-                    <p className="mt-1 text-[13px] leading-5 text-mist/72">
+                    <p className="mt-1 text-[13px] leading-5 text-mist/62">
                       {selectedLifeGoalVisionCollapsed
                         ? 'A small reminder of what this is really for.'
                         : selectedLifeGoalHasVision
@@ -6205,8 +7231,13 @@ const renderLifeGoalOverviewPage = () => {
                 remainingCount: roadmapRemainingCount,
                 lastCompletedText: selectedLifeGoalProgress.lastCompletedTask?.text ?? null,
                 executionSummaryText: roadmapExecutionSummaryText,
+                milestoneSummaryText:
+                  goalMilestones.length > 0
+                    ? `${completedMilestoneCount}/${goalMilestones.length} milestones complete`
+                    : 'Milestones enabled',
                 sortControl: renderTaskSortControl(),
                 emptyMessage: roadmapSections.completed.length > 0 ? 'All roadmap tasks are complete.' : 'No upcoming tasks yet. Add the next concrete step.',
+                milestoneContent: outcomeMilestoneContent,
                 completedContent: roadmapSections.completed.length > 0 ? (
                   <div className="pb-4">
                     {renderRoadmapTaskGroups(sortedCompletedTasks, 'completed', { groupedByTag: roadmapOrganizationMode === 'tag' }, (task) => {
@@ -6279,7 +7310,9 @@ const renderLifeGoalOverviewPage = () => {
                     })}
                   </div>
                 ) : null,
-                currentContent: roadmapSections.current ? (
+                currentContent: roadmapMilestoneStructuredContent ? (
+                  roadmapMilestoneStructuredContent
+                ) : roadmapSections.current ? (
                   <div className="pb-4">
                     {renderRoadmapTaskGroups([roadmapSections.current], 'panel-current', undefined, (task) => {
                       const dueMeta = task.dueDate ? getRelativeDueMeta(task.dueDate) : null
@@ -6410,7 +7443,7 @@ const renderLifeGoalOverviewPage = () => {
                     })}
                   </div>
                 ) : null,
-                upcomingContent: roadmapSections.upcoming.length > 0 ? (
+                upcomingContent: roadmapMilestoneStructuredContent ? null : roadmapSections.upcoming.length > 0 ? (
                   <div>
                     <p className="pb-2 pl-[36px] text-[11px] uppercase tracking-[0.16em] text-mist/56">Next · {roadmapSections.upcoming.length}</p>
                     {renderRoadmapTaskGroups(sortedUpcomingTasks, 'panel-upcoming', { groupedByTag: roadmapOrganizationMode === 'tag' }, (task) => {
@@ -6520,6 +7553,11 @@ const renderLifeGoalOverviewPage = () => {
                 onToggleHighPriorityFocus: () => setRoadmapHighPriorityFocus((current) => !current),
                 onToggleOrganizationMode: () =>
                   setRoadmapOrganizationMode((current) => (current === 'default' ? 'tag' : 'default')),
+                onSetProgressView: (view) =>
+                  setOutcomeMilestoneViewByGoal((current) => ({
+                    ...current,
+                    [selectedLifeGoal.id]: view,
+                  })),
                 onOpenRoadmap: () => setLifeGoalDetailTab('roadmap'),
                 onRoadmapKeyDown: (event) => {
                   if (event.key === 'Enter' && event.shiftKey) {
@@ -6528,12 +7566,15 @@ const renderLifeGoalOverviewPage = () => {
                   }
                 },
                 onAddTask: (trigger) => openNewTaskPeek(trigger),
+                onAddMilestone: () => addSelectedLifeGoalMilestone(),
                 onToggleCompleted: () => setRoadmapCompletedOpen((current) => !current),
               }}
               uiState={{
                 roadmapHighPriorityFocus,
                 completedOpen: roadmapCompletedOpen,
-                showHighPriorityFocus: roadmapHasHighPriorityUpcoming,
+                showHighPriorityFocus: roadmapHasHighPriorityTasks,
+                progressView: isOutcomeGoal && milestonesEnabled ? outcomeMilestoneView : 'tasks',
+                showMilestonesView: isOutcomeGoal && milestonesEnabled,
                 organizationMode: roadmapOrganizationMode,
                 showTagGrouping: roadmapHasTaggedTasks,
               }}
@@ -6543,7 +7584,7 @@ const renderLifeGoalOverviewPage = () => {
                 {directionalActivitySection}
                 {directionalReflectionsSection}
               </div>
-            ) : relatedGoals.length > 0 ? (
+            ) : isSystemGoal && relatedGoals.length > 0 ? (
               linkedGoalsSection
             ) : null}
           </div>
@@ -6557,6 +7598,7 @@ const renderLifeGoalOverviewPage = () => {
           /> : null}
 
         </div>
+        {milestoneDatePicker}
       </motion.div>
     )
   }
@@ -6870,6 +7912,53 @@ const renderLifeGoalOverviewPage = () => {
         bodyClassName="max-h-[calc(90vh-92px)]"
       >
         {renderLifeGoalComposer()}
+      </DetailDrawer>
+
+      <DetailDrawer
+        open={goalTypeChangeConfirmationOpen}
+        onClose={() => setGoalTypeChangeConfirmationOpen(false)}
+        size="md"
+        subtitle="Change goal type"
+        title="Change goal type?"
+      >
+        <div className="space-y-5">
+          <p className="theme-text-muted text-sm leading-6">
+            Changing goal type may affect structure like tasks, milestones, and linked goals. Continue only if you want to reshape this goal.
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setGoalTypeChangeConfirmationOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                setGoalTypeChangeConfirmationOpen(false)
+                setGoalTypeChangePickerOpen(true)
+              }}
+            >
+              Continue
+            </Button>
+          </div>
+        </div>
+      </DetailDrawer>
+
+      <DetailDrawer
+        open={goalTypeChangePickerOpen}
+        onClose={() => setGoalTypeChangePickerOpen(false)}
+        size="md"
+        subtitle="Change goal type"
+        title="Select goal type"
+      >
+        <div className="space-y-5">
+          <div className="space-y-2">
+            <span className="theme-label">Goal type</span>
+            {renderLifeGoalTypeSelector('edit-change')}
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setGoalTypeChangePickerOpen(false)}>
+              Done
+            </Button>
+          </div>
+        </div>
       </DetailDrawer>
 
       <DetailDrawer

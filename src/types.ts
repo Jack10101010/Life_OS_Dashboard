@@ -329,6 +329,7 @@ export interface LifeGoalTaskSubtask {
 export interface LifeGoalTask {
   id: string
   text: string
+  milestoneId?: string | null
   phase?: string
   description: string
   notes: string
@@ -340,12 +341,23 @@ export interface LifeGoalTask {
   completedAt: string | null
 }
 
+export interface LifeGoalMilestone {
+  id: string
+  title: string
+  description: string
+  targetDate: string | null
+  completed: boolean
+  completedAt: string | null
+  order: number
+}
+
 export interface LifeGoal {
   id: string
   title: string
   category: string
   goalType: LifeGoalType
   relatedGoalIds: string[]
+  milestonesEnabled: boolean
   whyItMatters: string
   visionStatement: string
   visionImages: string[]
@@ -356,6 +368,7 @@ export interface LifeGoal {
   status: LifeGoalStatus
   isPrimary: boolean
   order: number
+  milestones: LifeGoalMilestone[]
   tasks: LifeGoalTask[]
   linkedHabitIds: string[]
   archivedAt: string | null
