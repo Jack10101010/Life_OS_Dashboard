@@ -17,6 +17,8 @@ type LifeGoalTaskPeekProps = {
     datePanelPosition: FloatingPanelPosition | null
     dateViewMonth: Date
     priorityOptions: Array<{ value: LifeGoalTaskPriority; label: string }>
+    milestoneOptions: Array<{ value: string; label: string }>
+    showMilestoneField: boolean
     relativeDueMeta: { label: string; compactLabel: string; toneClassName: string } | null
     weekdayLabels: readonly string[]
     todayIsoDate: string
@@ -51,6 +53,7 @@ type LifeGoalTaskPeekProps = {
     onTitleChange: (value: string) => void
     onDescriptionChange: (value: string) => void
     onNotesChange: (value: string) => void
+    onMilestoneChange: (value: string | null) => void
     onPriorityChange: (value: LifeGoalTaskPriority) => void
     tagDraft: string
     setTagDraft: (value: string) => void
@@ -351,6 +354,27 @@ export function LifeGoalTaskPeek({
 
                   <div className="space-y-2 border-t border-white/[0.05] pt-2.5 lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
                     <div className="space-y-0.5">
+                      {data.showMilestoneField ? (
+                        <div className="space-y-0.5">
+                          <p className="text-[11px] uppercase tracking-[0.18em] text-mist/58">Milestone</p>
+                          <div className="relative">
+                            <select
+                              value={task.milestoneId ?? ''}
+                              onChange={(event) => actions.onMilestoneChange(event.target.value || null)}
+                              className="theme-input w-full appearance-none rounded-[18px] border px-3 py-1.5 pr-9 text-sm outline-none"
+                            >
+                              {data.milestoneOptions.map((option) => (
+                                <option key={option.value || 'none'} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                            <span className="theme-text-faint pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs">▾</span>
+                          </div>
+                        </div>
+                      ) : null}
+
+                      <div className="space-y-0.5">
                       <p className="text-[11px] uppercase tracking-[0.18em] text-mist/58">Due date</p>
                       <div ref={refs.dateFieldRef} className="relative">
                         <button
@@ -455,6 +479,7 @@ export function LifeGoalTaskPeek({
                             </PopoverSurface>
                           ) : null}
                         </OverlayRoot>
+                      </div>
                       </div>
                     </div>
 

@@ -226,13 +226,6 @@ export function LifeGoalRoadmapPanel({
             <div className="space-y-1 text-xs text-mist">
               <p>{data.milestoneSummaryText ?? `${data.completedCount} completed • ${data.remainingCount} remaining`}</p>
             </div>
-            <button
-              type="button"
-              onClick={() => actions.onAddMilestone?.()}
-              className="inline-flex items-center rounded-full border border-white/[0.06] bg-white/[0.02] px-2.5 py-1 text-[11px] uppercase tracking-[0.14em] text-white/54 transition hover:border-white/[0.1] hover:text-white/74"
-            >
-              + Add milestone
-            </button>
           </div>
         ) : (
           <div className="flex items-end justify-between gap-3">

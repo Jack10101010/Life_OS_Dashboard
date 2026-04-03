@@ -172,6 +172,9 @@ type CompletionPulseState = {
   left: number
 }
 
+type LifeGoalVisionMode = 'images' | 'statement' | 'images-statement'
+type LifeGoalVisionEditMode = LifeGoalVisionMode | 'hide'
+
 function createLifeGoalDraftTask(text = ''): LifeGoalDraftTask {
   return {
     id: `life-goal-draft-task-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
@@ -256,6 +259,19 @@ function isLifeGoalTaskDraftEmpty(task: LifeGoalTask) {
     task.subtasks.length === 0 &&
     normalizedPhase === 'general'
   )
+}
+
+function getMilestoneTaskProgress(tasks: LifeGoalTask[]) {
+  const total = tasks.length
+  const completed = tasks.filter((task) => task.completed).length
+  const percent = total > 0 ? Math.round((completed / total) * 100) : null
+  return { total, completed, percent }
+}
+
+function inferLifeGoalVisionMode(goal: Pick<LifeGoal, 'visionImages' | 'visionStatement'>): LifeGoalVisionMode {
+  if (goal.visionStatement.trim() && goal.visionImages.length > 0) return 'images-statement'
+  if (goal.visionStatement.trim() && goal.visionImages.length === 0) return 'statement'
+  return 'images'
 }
 
 function createEmptyLifeGoalDraft(): LifeGoalDraft {
@@ -1099,6 +1115,18 @@ function renderVisionImageTile(
   className: string,
   options?: {
     fitMode?: 'cover' | 'contain'
+    displayStyle?: 'default' | 'minimal'
+    onOpenPreview?: (image: string) => void
+    overlayLabel?: string | null
+    draggableState?: {
+      enabled: boolean
+      draggedIndex: number | null
+      dragOverIndex: number | null
+      onDragStart: (index: number) => void
+      onDragOver: (event: React.DragEvent<HTMLDivElement>, index: number) => void
+      onDrop: (event: React.DragEvent<HTMLDivElement>, index: number) => void
+      onDragEnd: () => void
+    }
     removable?: boolean
     onRemove?: (index: number) => void
     interactive?: {
@@ -1114,14 +1142,38 @@ function renderVisionImageTile(
   },
 ) {
   const fitMode = options?.fitMode ?? 'cover'
+  const displayStyle = options?.displayStyle ?? 'default'
+  const isMinimalDisplay = displayStyle === 'minimal'
+  const isDragged = options?.draggableState?.draggedIndex === index
+  const isDragOver =
+    options?.draggableState?.dragOverIndex === index &&
+    options.draggableState.draggedIndex !== null &&
+    options.draggableState.draggedIndex !== index
   const content = (
     <>
-      <div className="flex h-full w-full cursor-zoom-in items-center justify-center overflow-hidden rounded-[inherit] bg-white/[0.03]">
+      <div
+        onClick={(event) => {
+          if (!options?.onOpenPreview) return
+          event.stopPropagation()
+          options.onOpenPreview(image)
+        }}
+        className={`flex w-full justify-center overflow-hidden rounded-[inherit] ${
+          isMinimalDisplay ? 'items-start' : 'h-full items-center'
+        } ${
+          options?.onOpenPreview ? 'cursor-zoom-in' : ''
+        } ${
+          isMinimalDisplay ? '' : 'bg-white/[0.03]'
+        }`}
+      >
         <motion.img
           src={image}
           alt=""
-          className={`w-full transition duration-300 group-hover:scale-[1.02] ${
-            fitMode === 'contain' ? 'h-full max-h-full object-contain' : 'h-full object-cover'
+          className={`transition duration-300 group-hover:scale-[1.02] ${
+            isMinimalDisplay
+              ? 'h-auto w-full max-h-[360px] object-contain'
+              : fitMode === 'contain'
+                ? 'h-full w-full max-h-full object-contain'
+                : 'h-full w-full object-cover'
           }`}
           style={
             options?.interactive?.enabled
@@ -1140,6 +1192,13 @@ function renderVisionImageTile(
           className="pointer-events-none absolute inset-0 bg-[linear-gradient(115deg,transparent_18%,rgba(255,255,255,0.08)_50%,transparent_82%)] opacity-40"
           style={{ x: options.interactive.sheenX }}
         />
+      ) : null}
+      {options?.overlayLabel ? (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-[inherit] bg-black/26">
+          <span className="rounded-full border border-white/[0.08] bg-black/38 px-3 py-1 text-[12px] font-medium tracking-[0.08em] text-white/86">
+            {options.overlayLabel}
+          </span>
+        </div>
       ) : null}
       {options?.removable && options.onRemove ? (
         <button
@@ -1165,7 +1224,18 @@ function renderVisionImageTile(
           transformPerspective: 1200,
           transformStyle: 'preserve-3d',
         }}
-        className={`group relative overflow-hidden rounded-[18px] border border-white/[0.05] bg-white/[0.02] transition duration-300 hover:border-white/[0.08] hover:shadow-[0_12px_32px_rgba(0,0,0,0.22)] ${className}`}
+        draggable={options?.draggableState?.enabled}
+        onDragStart={() => options?.draggableState?.onDragStart(index)}
+        onDragOver={(event) => options?.draggableState?.onDragOver(event, index)}
+        onDrop={(event) => options?.draggableState?.onDrop(event, index)}
+        onDragEnd={options?.draggableState?.onDragEnd}
+        className={`group relative overflow-hidden rounded-[18px] transition duration-300 ${className} ${
+          isMinimalDisplay
+            ? 'bg-transparent hover:shadow-[0_10px_24px_rgba(0,0,0,0.14)]'
+            : 'border border-white/[0.05] bg-white/[0.02] hover:border-white/[0.08] hover:shadow-[0_12px_32px_rgba(0,0,0,0.22)]'
+        } ${options?.draggableState?.enabled ? 'cursor-grab active:cursor-grabbing' : ''} ${
+          isDragged ? 'z-[2] scale-[1.02] opacity-80 shadow-[0_16px_36px_rgba(0,0,0,0.22)]' : ''
+        } ${isDragOver ? 'ring-1 ring-white/14' : ''}`}
       >
         {content}
       </motion.div>
@@ -1175,7 +1245,18 @@ function renderVisionImageTile(
   return (
     <div
       key={`vision-image-${index}`}
-      className={`group relative overflow-hidden rounded-[18px] border border-white/[0.05] bg-white/[0.02] transition duration-300 hover:border-white/[0.08] hover:shadow-[0_12px_32px_rgba(0,0,0,0.22)] ${className}`}
+      draggable={options?.draggableState?.enabled}
+      onDragStart={() => options?.draggableState?.onDragStart(index)}
+      onDragOver={(event) => options?.draggableState?.onDragOver(event, index)}
+      onDrop={(event) => options?.draggableState?.onDrop(event, index)}
+      onDragEnd={options?.draggableState?.onDragEnd}
+      className={`group relative overflow-hidden rounded-[18px] transition duration-300 ${className} ${
+        isMinimalDisplay
+          ? 'bg-transparent hover:shadow-[0_10px_24px_rgba(0,0,0,0.14)]'
+          : 'border border-white/[0.05] bg-white/[0.02] hover:border-white/[0.08] hover:shadow-[0_12px_32px_rgba(0,0,0,0.22)]'
+      } ${options?.draggableState?.enabled ? 'cursor-grab active:cursor-grabbing' : ''} ${
+        isDragged ? 'z-[2] scale-[1.02] opacity-80 shadow-[0_16px_36px_rgba(0,0,0,0.22)]' : ''
+      } ${isDragOver ? 'ring-1 ring-white/14' : ''}`}
     >
       {content}
     </div>
@@ -1186,6 +1267,17 @@ function renderVisionImageLayout(
   images: string[],
   options?: {
     fitMode?: 'cover' | 'contain'
+    displayStyle?: 'default' | 'minimal'
+    onOpenPreview?: (image: string) => void
+    draggableState?: {
+      enabled: boolean
+      draggedIndex: number | null
+      dragOverIndex: number | null
+      onDragStart: (index: number) => void
+      onDragOver: (event: React.DragEvent<HTMLDivElement>, index: number) => void
+      onDrop: (event: React.DragEvent<HTMLDivElement>, index: number) => void
+      onDragEnd: () => void
+    }
     removable?: boolean
     onRemove?: (index: number) => void
     interactive?: {
@@ -1200,39 +1292,63 @@ function renderVisionImageLayout(
     }
   },
 ) {
-  const visibleImages = images.slice(0, LIFE_GOAL_VISION_IMAGE_LIMIT)
+  const visibleImages =
+    options?.displayStyle === 'minimal'
+      ? images.slice(0, Math.min(2, LIFE_GOAL_VISION_IMAGE_LIMIT))
+      : images.slice(0, LIFE_GOAL_VISION_IMAGE_LIMIT)
   if (visibleImages.length === 0) return null
+  const hiddenImageCount = Math.max(0, images.length - visibleImages.length)
+
+  const renderTile = (image: string, index: number, tileClassName: string) =>
+    renderVisionImageTile(image, index, tileClassName, {
+      ...options,
+      overlayLabel: hiddenImageCount > 0 && index === visibleImages.length - 1 ? `+${hiddenImageCount}` : null,
+    })
 
   if (visibleImages.length === 1) {
     return (
       <div className="w-full">
-        {renderVisionImageTile(visibleImages[0], 0, 'aspect-[16/9] w-full', options)}
+        {renderTile(
+          visibleImages[0],
+          0,
+          options?.displayStyle === 'minimal' ? 'w-full' : 'aspect-[16/9] w-full',
+        )}
       </div>
     )
   }
 
   if (visibleImages.length === 2) {
     return (
-      <div className="grid grid-cols-2 gap-2">
-        {visibleImages.map((image, index) => renderVisionImageTile(image, index, 'aspect-[1.08/1]', options))}
+      <div className={`grid grid-cols-2 gap-3 ${options?.displayStyle === 'minimal' ? 'items-start' : ''}`}>
+        {visibleImages.map((image, index) =>
+          renderTile(image, index, options?.displayStyle === 'minimal' ? 'w-full' : 'aspect-[1.08/1]'),
+        )}
       </div>
     )
   }
 
   if (visibleImages.length === 3) {
     return (
-      <div className="space-y-2">
-        <div className="grid grid-cols-2 gap-2">
-          {visibleImages.slice(0, 2).map((image, index) => renderVisionImageTile(image, index, 'aspect-[1.08/1]', options))}
+      <div className="space-y-3">
+        <div className={`grid grid-cols-2 gap-3 ${options?.displayStyle === 'minimal' ? 'items-start' : ''}`}>
+          {visibleImages
+            .slice(0, 2)
+            .map((image, index) => renderTile(image, index, options?.displayStyle === 'minimal' ? 'w-full' : 'aspect-[1.08/1]'))}
         </div>
-        {renderVisionImageTile(visibleImages[2], 2, 'aspect-[2.1/1] w-full', options)}
+        {renderTile(
+          visibleImages[2],
+          2,
+          options?.displayStyle === 'minimal' ? 'w-full' : 'aspect-[2.1/1] w-full',
+        )}
       </div>
     )
   }
 
   return (
-    <div className="grid grid-cols-2 gap-2">
-      {visibleImages.map((image, index) => renderVisionImageTile(image, index, 'aspect-[1.08/1]', options))}
+    <div className={`grid grid-cols-2 gap-3 ${options?.displayStyle === 'minimal' ? 'items-start' : ''}`}>
+      {visibleImages.map((image, index) =>
+        renderTile(image, index, options?.displayStyle === 'minimal' ? 'w-full' : 'aspect-[1.08/1]'),
+      )}
     </div>
   )
 }
@@ -1302,7 +1418,12 @@ export function GoalsPage({
   const [canUseVisionTilt, setCanUseVisionTilt] = useState(false)
   const [visionCollapsedByGoal, setVisionCollapsedByGoal] = useState<Record<string, boolean>>({})
   const [visionEditorOpenByGoal, setVisionEditorOpenByGoal] = useState<Record<string, boolean>>({})
+  const [visionModeByGoal, setVisionModeByGoal] = useState<Record<string, LifeGoalVisionMode>>({})
+  const [visionEditModeByGoal, setVisionEditModeByGoal] = useState<Record<string, LifeGoalVisionEditMode>>({})
+  const [visionPreviewImage, setVisionPreviewImage] = useState<string | null>(null)
   const [visionDropActive, setVisionDropActive] = useState(false)
+  const [draggedVisionImageIndex, setDraggedVisionImageIndex] = useState<number | null>(null)
+  const [dragOverVisionImageIndex, setDragOverVisionImageIndex] = useState<number | null>(null)
   const [outcomeMilestoneViewByGoal, setOutcomeMilestoneViewByGoal] = useState<Record<string, 'tasks' | 'milestones'>>({})
   const [selectedMilestoneIdByGoal, setSelectedMilestoneIdByGoal] = useState<Record<string, string | null>>({})
   const [goalTypeChangeConfirmationOpen, setGoalTypeChangeConfirmationOpen] = useState(false)
@@ -1512,6 +1633,26 @@ export function GoalsPage({
   )
   const selectedLifeGoalVisionCollapsed = selectedLifeGoal ? (visionCollapsedByGoal[selectedLifeGoal.id] ?? false) : false
   const selectedLifeGoalVisionEditorOpen = selectedLifeGoal ? (visionEditorOpenByGoal[selectedLifeGoal.id] ?? false) : false
+  const selectedLifeGoalVisionMode = selectedLifeGoal
+    ? (visionModeByGoal[selectedLifeGoal.id] ?? inferLifeGoalVisionMode(selectedLifeGoal))
+    : 'images'
+  const selectedLifeGoalVisionEditMode = selectedLifeGoal
+    ? (visionEditModeByGoal[selectedLifeGoal.id] ?? (selectedLifeGoalVisionCollapsed ? 'hide' : selectedLifeGoalVisionMode))
+    : 'images'
+  const selectedLifeGoalShowVisionEditUI = selectedLifeGoalVisionEditorOpen || !selectedLifeGoalHasVision
+  const selectedLifeGoalVisionImageCount = selectedLifeGoal?.visionImages.length ?? 0
+  const selectedLifeGoalCanUploadVisionImages = selectedLifeGoalVisionImageCount < LIFE_GOAL_VISION_IMAGE_LIMIT
+  const selectedLifeGoalShowImagesDisplay = Boolean(
+    !selectedLifeGoalShowVisionEditUI &&
+      (selectedLifeGoalVisionMode === 'images' || selectedLifeGoalVisionMode === 'images-statement') &&
+      selectedLifeGoal?.visionImages.length,
+  )
+  const selectedLifeGoalShowStatementDisplay = Boolean(
+    !selectedLifeGoalShowVisionEditUI &&
+      (selectedLifeGoalVisionMode === 'statement' || selectedLifeGoalVisionMode === 'images-statement') &&
+      selectedLifeGoal?.visionStatement.trim(),
+  )
+  const visionPreviewSurfaceRef = useRef<HTMLDivElement | null>(null)
   const visionTiltX = useMotionValue(0)
   const visionTiltY = useMotionValue(0)
   const visionShiftX = useMotionValue(0)
@@ -1522,6 +1663,10 @@ export function GoalsPage({
   const visionImageShiftX = useSpring(visionShiftX, { stiffness: 140, damping: 20, mass: 0.5 })
   const visionImageShiftY = useSpring(visionShiftY, { stiffness: 140, damping: 20, mass: 0.5 })
   const visionSheenX = useSpring(visionSheen, { stiffness: 120, damping: 24, mass: 0.5 })
+  useOverlayScrollLock(Boolean(visionPreviewImage))
+  useFocusTrap(Boolean(visionPreviewImage), visionPreviewSurfaceRef, {
+    onEscape: () => setVisionPreviewImage(null),
+  })
   const selectedRoadmapSections = useRoadmapSections(selectedLifeGoal?.tasks ?? [])
   const selectedTaskPeek = useMemo(
     () => (selectedLifeGoal && selectedTaskPeekId ? selectedLifeGoal.tasks.find((task) => task.id === selectedTaskPeekId) ?? null : null),
@@ -1604,6 +1749,10 @@ export function GoalsPage({
 
   const updateSelectedLifeGoalVisionStatement = (value: string) => {
     if (!selectedLifeGoal) return
+    setVisionModeByGoal((current) => ({
+      ...current,
+      [selectedLifeGoal.id]: 'statement',
+    }))
     onUpdateLifeGoal(selectedLifeGoal.id, (goal) => ({
       ...goal,
       visionStatement: value.slice(0, 120),
@@ -1718,6 +1867,34 @@ export function GoalsPage({
     }))
   }
 
+  const setSelectedLifeGoalVisionEditMode = (value: LifeGoalVisionEditMode) => {
+    if (!selectedLifeGoal) return
+    setVisionEditModeByGoal((current) => ({
+      ...current,
+      [selectedLifeGoal.id]: value,
+    }))
+  }
+
+  const openSelectedLifeGoalVisionEditor = () => {
+    if (!selectedLifeGoal) return
+    setSelectedLifeGoalVisionEditMode(selectedLifeGoalVisionCollapsed ? 'hide' : selectedLifeGoalVisionMode)
+    setSelectedLifeGoalVisionEditorOpen(true)
+  }
+
+  const applySelectedLifeGoalVisionEditMode = () => {
+    if (!selectedLifeGoal) return
+    if (selectedLifeGoalVisionEditMode === 'hide') {
+      setSelectedLifeGoalVisionCollapsed(true)
+    } else {
+      setSelectedLifeGoalVisionCollapsed(false)
+      setVisionModeByGoal((current) => ({
+        ...current,
+        [selectedLifeGoal.id]: selectedLifeGoalVisionEditMode,
+      }))
+    }
+    setSelectedLifeGoalVisionEditorOpen(false)
+  }
+
   const appendSelectedLifeGoalVisionImages = async (files: FileList | File[]) => {
     if (!selectedLifeGoal) return
     const fileList = Array.from(files).filter((file) => file.type.startsWith('image/'))
@@ -1741,6 +1918,10 @@ export function GoalsPage({
     const validImages = nextImages.filter(Boolean)
     if (validImages.length === 0) return
 
+    setVisionModeByGoal((current) => ({
+      ...current,
+      [selectedLifeGoal.id]: 'images',
+    }))
     onUpdateLifeGoal(selectedLifeGoal.id, (goal) => ({
       ...goal,
       visionImages: [...goal.visionImages, ...validImages].slice(0, LIFE_GOAL_VISION_IMAGE_LIMIT),
@@ -1755,6 +1936,28 @@ export function GoalsPage({
       visionImages: goal.visionImages.filter((_, index) => index !== imageIndex),
       updatedAt: new Date().toISOString(),
     }))
+  }
+
+  const reorderSelectedLifeGoalVisionImages = (fromIndex: number, toIndex: number) => {
+    if (!selectedLifeGoal || fromIndex === toIndex) return
+    onUpdateLifeGoal(selectedLifeGoal.id, (goal) => {
+      if (
+        fromIndex < 0 ||
+        toIndex < 0 ||
+        fromIndex >= goal.visionImages.length ||
+        toIndex >= goal.visionImages.length
+      ) {
+        return goal
+      }
+      const nextImages = [...goal.visionImages]
+      const [movedImage] = nextImages.splice(fromIndex, 1)
+      nextImages.splice(toIndex, 0, movedImage)
+      return {
+        ...goal,
+        visionImages: nextImages,
+        updatedAt: new Date().toISOString(),
+      }
+    })
   }
 
   const handleVisionImageMouseMove = (event: React.MouseEvent<HTMLDivElement>) => {
@@ -5150,6 +5353,16 @@ const renderLifeGoalOverviewPage = () => {
         ? `All ${goalMilestones.length} milestones complete`
         : `${Math.max(1, currentMilestoneIndex + 1)} of ${goalMilestones.length} milestones`
       : null
+    const milestoneOptions =
+      milestonesEnabled
+        ? [
+            { value: '', label: 'No milestone' },
+            ...goalMilestones.map((milestone, index) => ({
+              value: milestone.id,
+              label: `${index + 1}. ${milestone.title.trim() || `Milestone ${index + 1}`}${currentMilestone?.id === milestone.id ? ' — Current' : ''}`,
+            })),
+          ]
+        : []
     const milestoneDateTarget = milestoneDatePickerMilestoneId
       ? goalMilestones.find((milestone) => milestone.id === milestoneDatePickerMilestoneId) ?? null
       : null
@@ -5167,6 +5380,12 @@ const renderLifeGoalOverviewPage = () => {
     const sortedCompletedTasks = sortTasksForDisplay(roadmapSections.completed, taskListSortMode)
     const sortedPlannedTasks = roadmapSections.current ? [roadmapSections.current, ...sortedUpcomingTasks] : sortedUpcomingTasks
     const milestoneMap = new Map(goalMilestones.map((milestone) => [milestone.id, milestone]))
+    const explicitlyAssignedTasksByMilestone = new Map(
+      goalMilestones.map((milestone) => [
+        milestone.id,
+        selectedLifeGoal.tasks.filter((task) => task.milestoneId === milestone.id),
+      ]),
+    )
     const roadmapTasksGroupedByMilestone =
       isOutcomeGoal && milestonesEnabled && currentMilestone
         ? goalMilestones
@@ -5578,24 +5797,26 @@ const renderLifeGoalOverviewPage = () => {
 
             return (
               <div key={`roadmap-milestone-group-${milestone.id}`} className={groupIndex > 0 ? 'pt-5' : ''}>
-                {isCurrentGroup ? (
-                  <p className="pb-2 pl-[36px] text-[10px] font-medium uppercase tracking-[0.18em] text-[rgb(var(--theme-accent-rgb)/0.96)] [text-shadow:0_0_10px_rgb(var(--theme-accent-rgb)/0.42),0_0_18px_rgb(var(--theme-accent-rgb)/0.18)]">
-                    You are here
-                  </p>
-                ) : null}
+                <div className="relative pl-[36px]">
+                  {isCurrentGroup ? (
+                    <p className="pb-1 text-[10px] font-medium uppercase tracking-[0.18em] text-[rgb(var(--theme-accent-rgb)/0.88)] [text-shadow:0_0_8px_rgb(var(--theme-accent-rgb)/0.24)]">
+                      You are here
+                    </p>
+                  ) : null}
+                </div>
                 <div className="relative pb-3 pl-[36px]">
-                  <span
-                    aria-hidden="true"
-                    className="pointer-events-none absolute left-[3px] top-[9px] h-px w-[18px]"
-                    style={{
-                      background: isCurrentGroup
-                        ? 'linear-gradient(90deg, rgb(var(--theme-accent-rgb)/0) 0%, rgb(var(--theme-accent-rgb)/0.24) 50%, rgb(var(--theme-accent-rgb)/0) 100%)'
-                        : groupIndex === 1
-                          ? 'linear-gradient(90deg, rgb(255 255 255 / 0) 0%, rgb(255 255 255 / 0.12) 50%, rgb(255 255 255 / 0) 100%)'
-                          : 'linear-gradient(90deg, rgb(255 255 255 / 0) 0%, rgb(255 255 255 / 0.08) 50%, rgb(255 255 255 / 0) 100%)',
-                    }}
-                  />
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative flex flex-wrap items-center gap-2">
+                    <span
+                      aria-hidden="true"
+                      className="pointer-events-none absolute left-[-33px] top-1/2 h-px w-[18px] -translate-y-1/2"
+                      style={{
+                        background: isCurrentGroup
+                          ? 'linear-gradient(90deg, rgb(var(--theme-accent-rgb)/0) 0%, rgb(var(--theme-accent-rgb)/0.24) 50%, rgb(var(--theme-accent-rgb)/0) 100%)'
+                          : groupIndex === 1
+                            ? 'linear-gradient(90deg, rgb(255 255 255 / 0) 0%, rgb(255 255 255 / 0.12) 50%, rgb(255 255 255 / 0) 100%)'
+                            : 'linear-gradient(90deg, rgb(255 255 255 / 0) 0%, rgb(255 255 255 / 0.08) 50%, rgb(255 255 255 / 0) 100%)',
+                      }}
+                    />
                     <p className={`text-[11px] uppercase tracking-[0.16em] ${isCurrentGroup ? 'text-white/78' : 'text-mist/56'}`}>
                       {milestone.title}
                     </p>
@@ -5616,9 +5837,6 @@ const renderLifeGoalOverviewPage = () => {
                       </span>
                     ) : null}
                   </div>
-                  {milestone.description.trim() ? (
-                    <p className="mt-1 line-clamp-1 text-[12px] text-mist/52">{milestone.description.trim()}</p>
-                  ) : null}
                 </div>
                 <div className="space-y-0.5">
                   {incompleteGroupTasks.map((task) =>
@@ -5648,6 +5866,28 @@ const renderLifeGoalOverviewPage = () => {
             +{hiddenParentGoalsCount}
           </span>
         ) : null}
+      </>
+    )
+    const detailHeaderRelationshipChips = (
+      <>
+        {isDirectionalGoal
+          ? renderGoalTypeInfoChip(
+              'Direction',
+              'Long-term life direction. Not something to complete.',
+              'border-white/[0.08] bg-white/[0.04] text-white/76',
+            )
+          : isSystemGoal
+            ? renderGoalTypeInfoChip(
+                'System',
+                'A system goal is a broader supporting engine. Use habits for simple repeatable behaviors, and save one-time checkpoints for milestones or tasks.',
+                'border-[rgb(var(--theme-info-rgb)/0.12)] bg-[rgb(var(--theme-info-rgb)/0.06)] text-[rgb(var(--theme-info-rgb)/0.76)]',
+              )
+            : renderGoalTypeInfoChip(
+                'Outcome',
+                'An outcome goal is a destination with a clear finish. Use tasks for the execution steps to reach it.',
+                'border-white/[0.08] bg-white/[0.03] text-white/75',
+              )}
+        {renderParentGoalChips()}
       </>
     )
     const linkedGoalsSection = (
@@ -5979,11 +6219,33 @@ const renderLifeGoalOverviewPage = () => {
       isOutcomeGoal && milestonesEnabled ? (
         goalMilestones.length > 0 ? (
           <div className="space-y-2">
+            {goalMilestones.length > 1 ? (
+              <div className="mb-1 flex items-center gap-2 px-1 pb-2">
+                {goalMilestones.map((milestone, index) => {
+                  const isCurrentMilestone = currentMilestone?.id === milestone.id && !milestone.completed
+                  return (
+                    <span
+                      key={`milestone-progress-${milestone.id}`}
+                      title={milestone.title.trim() || `Milestone ${index + 1}`}
+                      className={`inline-flex h-2.5 w-2.5 rounded-full border transition ${
+                        milestone.completed
+                          ? 'border-[rgb(var(--theme-accent-rgb)/0.36)] bg-[rgb(var(--theme-accent-rgb)/0.74)]'
+                          : isCurrentMilestone
+                            ? 'border-[rgb(var(--theme-accent-rgb)/0.34)] bg-[rgb(var(--theme-accent-rgb)/0.18)] shadow-[0_0_0_2px_rgb(var(--theme-accent-rgb)/0.06)]'
+                            : 'border-white/[0.18] bg-transparent'
+                      }`}
+                    />
+                  )
+                })}
+              </div>
+            ) : null}
             {goalMilestones.map((milestone, milestoneIndex) => {
               const isCurrentMilestone = currentMilestone?.id === milestone.id && !milestone.completed
               const isSelectedMilestone = selectedMilestone?.id === milestone.id
               const milestoneDueMeta = milestone.targetDate ? getRelativeDueMeta(milestone.targetDate) : null
               const milestoneDescriptionPreview = milestone.description.trim()
+              const milestoneTasks = explicitlyAssignedTasksByMilestone.get(milestone.id) ?? []
+              const milestoneTaskProgress = getMilestoneTaskProgress(milestoneTasks)
               return (
                 <div
                   key={milestone.id}
@@ -6050,10 +6312,28 @@ const renderLifeGoalOverviewPage = () => {
                               {formatDate(milestone.targetDate)}
                             </span>
                           ) : null}
+                          {milestoneTaskProgress.percent != null ? (
+                            <span
+                              className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] ${
+                                milestoneTaskProgress.percent === 100
+                                  ? 'border-[rgb(var(--theme-accent-rgb)/0.16)] bg-[rgb(var(--theme-accent-rgb)/0.08)] text-[rgb(var(--theme-accent-rgb)/0.72)]'
+                                  : milestoneTaskProgress.percent > 0
+                                    ? 'border-white/[0.08] bg-white/[0.03] text-white/56'
+                                    : 'border-white/[0.05] bg-white/[0.016] text-white/40'
+                              }`}
+                            >
+                              {milestoneTaskProgress.percent}% complete
+                            </span>
+                          ) : null}
                         </div>
                       </div>
                       {!isSelectedMilestone && milestoneDescriptionPreview ? (
                         <p className="mt-1 line-clamp-2 text-[12px] leading-5 text-white/58">{milestoneDescriptionPreview}</p>
+                      ) : null}
+                      {!isSelectedMilestone && milestoneTaskProgress.percent != null ? (
+                        <p className="mt-1 text-[12px] text-mist/56">
+                          {milestoneTaskProgress.completed}/{milestoneTaskProgress.total} tasks complete
+                        </p>
                       ) : null}
                     </div>
                   </div>
@@ -6075,6 +6355,7 @@ const renderLifeGoalOverviewPage = () => {
                                   title: event.target.value,
                                 }))
                               }
+                              autoFocus={isSelectedMilestone}
                               placeholder={`Milestone ${milestoneIndex + 1}`}
                               spellCheck={true}
                               className="theme-input w-full rounded-xl border px-3 py-2 text-sm outline-none"
@@ -6168,6 +6449,16 @@ const renderLifeGoalOverviewPage = () => {
                 </div>
               )
             })}
+            <button
+              type="button"
+              onClick={addSelectedLifeGoalMilestone}
+              className="group flex w-full items-center gap-3 rounded-[20px] border border-dashed border-white/[0.08] bg-white/[0.012] px-4 py-3.5 text-left transition hover:border-white/[0.14] hover:bg-white/[0.02]"
+            >
+              <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.02] text-[15px] text-white/44 transition group-hover:text-white/64">
+                +
+              </span>
+              <span className="text-[15px] font-medium text-white/54 transition group-hover:text-white/74">Add milestone</span>
+            </button>
           </div>
         ) : (
           <div className="pl-[36px] pt-1">
@@ -6850,12 +7141,15 @@ const renderLifeGoalOverviewPage = () => {
             >
               ← Back to Goal
             </button>
-            <Button
-              variant="ghost"
-              onClick={(event) => openEditLifeGoalComposer(selectedLifeGoal, event.currentTarget)}
-            >
-              Edit Goal
-            </Button>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {detailHeaderRelationshipChips}
+              <Button
+                variant="ghost"
+                onClick={(event) => openEditLifeGoalComposer(selectedLifeGoal, event.currentTarget)}
+              >
+                Edit Goal
+              </Button>
+            </div>
           </div>
 
           {isOutcomeGoal ? goalWorkspaceRail : null}
@@ -6926,7 +7220,8 @@ const renderLifeGoalOverviewPage = () => {
           >
             ← Back to Life Goals
           </button>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            {detailHeaderRelationshipChips}
             <Button
               variant="ghost"
               onClick={(event) => openEditLifeGoalComposer(selectedLifeGoal, event.currentTarget)}
@@ -6952,24 +7247,6 @@ const renderLifeGoalOverviewPage = () => {
                   title={selectedLifeGoal.title}
                   categoryChip={
                     <>
-                      {isDirectionalGoal
-                        ? renderGoalTypeInfoChip(
-                            'Direction',
-                            'Long-term life direction. Not something to complete.',
-                            'border-white/[0.08] bg-white/[0.04] text-white/76',
-                          )
-                        : isSystemGoal
-                          ? renderGoalTypeInfoChip(
-                              'System',
-                              'A system goal is a broader supporting engine. Use habits for simple repeatable behaviors, and save one-time checkpoints for milestones or tasks.',
-                              'border-[rgb(var(--theme-info-rgb)/0.12)] bg-[rgb(var(--theme-info-rgb)/0.06)] text-[rgb(var(--theme-info-rgb)/0.76)]',
-                            )
-                          : renderGoalTypeInfoChip(
-                              'Outcome',
-                              'An outcome goal is a destination with a clear finish. Use tasks for the execution steps to reach it.',
-                              'border-white/[0.08] bg-white/[0.03] text-white/75',
-                            )}
-                      {renderParentGoalChips()}
                       {selectedGoalCategory ? (
                         <span
                           className={`${goalHeaderChipClassName} gap-1.5 text-white/70`}
@@ -7020,10 +7297,19 @@ const renderLifeGoalOverviewPage = () => {
 
               <div
                 className={`rounded-[22px] border border-white/[0.04] bg-[rgb(var(--theme-surface-elevated-rgb)/0.42)] px-4 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.015)] ${
-                  selectedLifeGoalVisionEditorOpen
+                  selectedLifeGoalVisionEditorOpen || selectedLifeGoalVisionCollapsed
                     ? ''
                     : 'xl:flex xl:min-h-0 xl:flex-1 xl:flex-col xl:overflow-hidden'
-                }`}
+                } ${!selectedLifeGoalShowVisionEditUI ? 'cursor-pointer' : ''}`}
+                onClick={() => {
+                  if (selectedLifeGoalVisionCollapsed) {
+                    openSelectedLifeGoalVisionEditor()
+                    return
+                  }
+                  if (!selectedLifeGoalShowVisionEditUI) {
+                    openSelectedLifeGoalVisionEditor()
+                  }
+                }}
               >
                 <input
                   ref={visionUploadInputRef}
@@ -7041,42 +7327,14 @@ const renderLifeGoalOverviewPage = () => {
                 <div className="flex w-full items-start justify-between gap-3 text-left">
                   <div className="min-w-0">
                     <p className="text-[11px] uppercase tracking-[0.18em] text-mist/58">Vision</p>
-                    <p className="mt-1 text-[13px] leading-5 text-mist/62">
-                      {selectedLifeGoalVisionCollapsed
-                        ? 'A small reminder of what this is really for.'
-                        : selectedLifeGoalHasVision
-                          ? 'A small reminder of what this is really for.'
-                          : 'Add a visual reminder of why this goal matters'}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2 pt-0.5">
                     {!selectedLifeGoalVisionCollapsed ? (
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          setSelectedLifeGoalVisionEditorOpen((current) => !current)
-                        }}
-                        className="text-[11px] uppercase tracking-[0.16em] text-mist/44 transition hover:text-white/66"
-                      >
-                        {selectedLifeGoalVisionEditorOpen || !selectedLifeGoalHasVision ? 'Done' : 'Edit'}
-                      </button>
+                      <p className="mt-1 text-[13px] leading-5 text-mist/62">Small reminder of what this is really for</p>
                     ) : null}
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        setSelectedLifeGoalVisionCollapsed((current) => !current)
-                      }}
-                      className="text-[11px] uppercase tracking-[0.16em] text-mist/44 transition hover:text-white/66"
-                    >
-                      {selectedLifeGoalVisionCollapsed ? 'Show' : 'Hide'}
-                      </button>
-                    </div>
+                  </div>
                 </div>
 
                 <AnimatePresence initial={false}>
-                  {!selectedLifeGoalVisionCollapsed ? (
+                  {!selectedLifeGoalVisionCollapsed || selectedLifeGoalShowVisionEditUI ? (
                     <motion.div
                       key="vision-body"
                       initial={{ opacity: 0, height: 0, y: -4 }}
@@ -7084,135 +7342,227 @@ const renderLifeGoalOverviewPage = () => {
                       exit={{ opacity: 0, height: 0, y: -4 }}
                       transition={{ duration: 0.2, ease: 'easeOut' }}
                       className={`overflow-hidden ${
-                        selectedLifeGoalVisionEditorOpen ? '' : 'xl:flex xl:min-h-0 xl:flex-1'
+                        selectedLifeGoalShowVisionEditUI ? '' : 'xl:flex xl:min-h-0 xl:flex-1 xl:flex-col'
                       }`}
+                      onClick={(event) => {
+                        if (selectedLifeGoalShowVisionEditUI) {
+                          event.stopPropagation()
+                        }
+                      }}
                     >
                       <div
                         className={
-                          selectedLifeGoalVisionEditorOpen
+                          selectedLifeGoalShowVisionEditUI
                             ? ''
-                            : 'xl:roadmap-scroll xl:h-full xl:min-h-0 xl:overflow-y-auto xl:pr-1'
+                            : 'xl:roadmap-scroll xl:flex xl:h-full xl:min-h-0 xl:flex-1 xl:flex-col xl:overflow-y-auto xl:pr-1'
                         }
                       >
-                      {!selectedLifeGoalHasVision && !selectedLifeGoalVisionEditorOpen ? (
-                        <div className="mt-3 min-h-[210px] rounded-[18px] border border-white/[0.05] bg-white/[0.02] px-4 py-4">
-                          <div className="flex h-full min-h-[178px] flex-col justify-between gap-4">
-                            <div>
-                              <p className="text-[15px] font-medium text-white/82">Vision</p>
-                              <p className="mt-2 max-w-[28rem] text-[13px] leading-6 text-mist/62">
-                                Add a visual reminder of why this goal matters
-                              </p>
-                            </div>
-                            <div>
-                              <button
-                                type="button"
-                                onClick={() => setSelectedLifeGoalVisionEditorOpen(true)}
-                                className="inline-flex items-center rounded-full border border-white/[0.06] bg-white/[0.025] px-3 py-1.5 text-[11px] uppercase tracking-[0.14em] text-white/58 transition hover:border-white/[0.1] hover:text-white/78"
-                              >
-                                Add vision
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      ) : selectedLifeGoalVisionEditorOpen || !selectedLifeGoalHasVision ? (
+                      {selectedLifeGoalShowVisionEditUI ? (
                         <div className="mt-3.5 space-y-3">
-                          <div
-                            onDragOver={(event) => {
-                              event.preventDefault()
-                              if (!visionDropActive) setVisionDropActive(true)
-                            }}
-                            onDragLeave={(event) => {
-                              event.preventDefault()
-                              if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
-                              setVisionDropActive(false)
-                            }}
-                            onDrop={async (event) => {
-                              event.preventDefault()
-                              setVisionDropActive(false)
-                              if (event.dataTransfer.files?.length) {
-                                await appendSelectedLifeGoalVisionImages(event.dataTransfer.files)
-                              }
-                            }}
-                            className={`rounded-[18px] border border-dashed px-3.5 py-3 transition ${
-                              visionDropActive
-                                ? 'border-[rgb(var(--theme-accent-rgb)/0.24)] bg-[rgb(var(--theme-accent-rgb)/0.05)]'
-                                : 'border-white/[0.06] bg-white/[0.02]'
-                            }`}
-                          >
-                            <div className="flex flex-wrap items-center justify-between gap-3">
-                              <div>
-                                <p className="text-[12px] text-white/76">Images</p>
-                                <p className="mt-1 text-[12px] text-mist/52">
-                                  Drag in images or upload up to {LIFE_GOAL_VISION_IMAGE_LIMIT}.
-                                </p>
-                              </div>
+                          <div className="inline-flex rounded-full border border-white/[0.06] bg-white/[0.02] p-1">
+                            {([
+                              ['images', 'Images'],
+                              ['statement', 'Statement'],
+                              ['images-statement', 'Images + Statement'],
+                              ['hide', 'Hide'],
+                            ] as const).map(([mode, label]) => (
                               <button
+                                key={mode}
                                 type="button"
-                                onClick={() => visionUploadInputRef.current?.click()}
-                                className="inline-flex items-center rounded-full border border-white/[0.06] bg-white/[0.025] px-3 py-1.5 text-[11px] uppercase tracking-[0.14em] text-white/58 transition hover:border-white/[0.1] hover:text-white/78"
+                                onClick={() => setSelectedLifeGoalVisionEditMode(mode)}
+                                className={`rounded-full px-3 py-1.5 text-[11px] uppercase tracking-[0.14em] transition ${
+                                  selectedLifeGoalVisionEditMode === mode
+                                    ? 'theme-button-secondary'
+                                    : 'text-white/44 hover:text-white/68'
+                                }`}
                               >
-                                Upload
+                                {label}
                               </button>
-                            </div>
+                            ))}
                           </div>
 
-                          {selectedLifeGoal.visionImages.length > 0 ? (
-                            renderVisionImageLayout(selectedLifeGoal.visionImages, {
-                              fitMode: 'contain',
-                              removable: true,
-                              onRemove: removeSelectedLifeGoalVisionImage,
-                              interactive: singleVisionInteractive
-                                ? {
+                          {selectedLifeGoalVisionEditMode === 'images' || selectedLifeGoalVisionEditMode === 'images-statement' ? (
+                            <div className="space-y-3">
+                              {selectedLifeGoal.visionImages.length > 0 ? (
+                                renderVisionImageLayout(selectedLifeGoal.visionImages, {
+                                  draggableState: {
                                     enabled: true,
-                                    rotateX: visionRotateX,
-                                    rotateY: visionRotateY,
-                                    shiftX: visionImageShiftX,
-                                    shiftY: visionImageShiftY,
-                                    sheenX: visionSheenX,
-                                    onMouseMove: handleVisionImageMouseMove,
-                                    onMouseLeave: resetVisionImageTilt,
+                                    draggedIndex: draggedVisionImageIndex,
+                                    dragOverIndex: dragOverVisionImageIndex,
+                                    onDragStart: (index) => {
+                                      setDraggedVisionImageIndex(index)
+                                      setDragOverVisionImageIndex(null)
+                                    },
+                                    onDragOver: (event, index) => {
+                                      event.preventDefault()
+                                      if (dragOverVisionImageIndex !== index) {
+                                        setDragOverVisionImageIndex(index)
+                                      }
+                                    },
+                                    onDrop: (event, index) => {
+                                      event.preventDefault()
+                                      if (draggedVisionImageIndex !== null) {
+                                        reorderSelectedLifeGoalVisionImages(draggedVisionImageIndex, index)
+                                      }
+                                      setDraggedVisionImageIndex(null)
+                                      setDragOverVisionImageIndex(null)
+                                    },
+                                    onDragEnd: () => {
+                                      setDraggedVisionImageIndex(null)
+                                      setDragOverVisionImageIndex(null)
+                                    },
+                                  },
+                                  fitMode: 'contain',
+                                  removable: true,
+                                  onRemove: removeSelectedLifeGoalVisionImage,
+                                  interactive: singleVisionInteractive
+                                    ? {
+                                        enabled: true,
+                                        rotateX: visionRotateX,
+                                        rotateY: visionRotateY,
+                                        shiftX: visionImageShiftX,
+                                        shiftY: visionImageShiftY,
+                                        sheenX: visionSheenX,
+                                        onMouseMove: handleVisionImageMouseMove,
+                                        onMouseLeave: resetVisionImageTilt,
+                                      }
+                                    : undefined,
+                                })
+                              ) : null}
+
+                              <div
+                                onDragOver={(event) => {
+                                  event.preventDefault()
+                                  if (!visionDropActive) setVisionDropActive(true)
+                                }}
+                                onDragLeave={(event) => {
+                                  event.preventDefault()
+                                  if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
+                                  setVisionDropActive(false)
+                                }}
+                                onDrop={async (event) => {
+                                  event.preventDefault()
+                                  setVisionDropActive(false)
+                                  if (event.dataTransfer.files?.length) {
+                                    await appendSelectedLifeGoalVisionImages(event.dataTransfer.files)
                                   }
-                                : undefined,
-                            })
+                                }}
+                                className={`rounded-[18px] border border-dashed px-3.5 py-3 transition ${
+                                  visionDropActive
+                                    ? 'border-[rgb(var(--theme-accent-rgb)/0.24)] bg-[rgb(var(--theme-accent-rgb)/0.05)]'
+                                    : 'border-white/[0.06] bg-white/[0.02]'
+                                }`}
+                              >
+                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                  <div>
+                                    <p className="text-[12px] text-white/76">Images</p>
+                                    <p className="mt-1 text-[12px] text-mist/52">
+                                      Drag in images or upload up to {LIFE_GOAL_VISION_IMAGE_LIMIT}.
+                                    </p>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (!selectedLifeGoalCanUploadVisionImages) return
+                                      visionUploadInputRef.current?.click()
+                                    }}
+                                    disabled={!selectedLifeGoalCanUploadVisionImages}
+                                    className={`inline-flex items-center rounded-full border px-3 py-1.5 text-[11px] uppercase tracking-[0.14em] transition ${
+                                      selectedLifeGoalCanUploadVisionImages
+                                        ? 'border-white/[0.06] bg-white/[0.025] text-white/58 hover:border-white/[0.1] hover:text-white/78'
+                                        : 'cursor-not-allowed border-white/[0.03] bg-white/[0.015] text-white/24'
+                                    }`}
+                                  >
+                                    Upload
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
                           ) : null}
 
-                          <div className="space-y-1">
-                            <p className="text-[11px] uppercase tracking-[0.18em] text-mist/58">Statement</p>
-                            <div className="rounded-[18px] border border-white/[0.05] bg-white/[0.025] px-3.5 py-2.5">
-                              <input
-                                type="text"
-                                value={selectedLifeGoal.visionStatement}
-                                onChange={(event) => updateSelectedLifeGoalVisionStatement(event.target.value)}
-                                maxLength={120}
-                                spellCheck={true}
-                                placeholder="A short reminder of what this goal makes possible"
-                                className="w-full bg-transparent text-sm text-white outline-none placeholder:text-white/26"
-                              />
-                              <p className="mt-2 text-[11px] text-mist/42">{selectedLifeGoal.visionStatement.length}/120</p>
+                          {selectedLifeGoalVisionEditMode === 'statement' || selectedLifeGoalVisionEditMode === 'images-statement' ? (
+                            <div className="space-y-1">
+                              <div className="rounded-[18px] border border-white/[0.05] bg-white/[0.025] px-3.5 py-3">
+                                <textarea
+                                  value={selectedLifeGoal.visionStatement}
+                                  onChange={(event) => updateSelectedLifeGoalVisionStatement(event.target.value)}
+                                  maxLength={120}
+                                  spellCheck={true}
+                                  rows={4}
+                                  placeholder="A short reminder of what this goal makes possible"
+                                  className="min-h-[120px] w-full resize-none bg-transparent text-sm leading-6 text-white outline-none placeholder:text-white/26"
+                                />
+                                <p className="mt-2 text-[11px] text-mist/42">{selectedLifeGoal.visionStatement.length}/120</p>
+                              </div>
                             </div>
+                          ) : null}
+
+                          <div className="flex justify-end pt-1">
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                applySelectedLifeGoalVisionEditMode()
+                              }}
+                              className="inline-flex items-center rounded-full border border-white/[0.08] bg-white/[0.025] px-3.5 py-1.5 text-[11px] uppercase tracking-[0.14em] text-white/64 transition hover:border-white/[0.12] hover:text-white/84"
+                            >
+                              Done
+                            </button>
                           </div>
                         </div>
                       ) : (
-                        <div className="mt-3 space-y-3">
-                          {selectedLifeGoal.visionImages.length > 0 ? (
-                            renderVisionImageLayout(selectedLifeGoal.visionImages, {
-                              fitMode: 'contain',
-                              interactive: singleVisionInteractive
-                                ? {
-                                    enabled: true,
-                                    rotateX: visionRotateX,
-                                    rotateY: visionRotateY,
-                                    shiftX: visionImageShiftX,
-                                    shiftY: visionImageShiftY,
-                                    sheenX: visionSheenX,
-                                    onMouseMove: handleVisionImageMouseMove,
-                                    onMouseLeave: resetVisionImageTilt,
-                                  }
-                                : undefined,
-                            })
-                          ) : null}
-                          {selectedLifeGoal.visionStatement.trim() ? (
-                            <p className="text-[13px] leading-6 text-white/78">{selectedLifeGoal.visionStatement.trim()}</p>
+                        <div
+                          className={`mt-2 w-full ${
+                            selectedLifeGoalShowStatementDisplay && !selectedLifeGoalShowImagesDisplay
+                              ? 'flex min-h-[280px] flex-1 flex-col'
+                              : ''
+                          }`}
+                        >
+                          {selectedLifeGoalShowImagesDisplay && selectedLifeGoal.visionImages.length > 0 ? (
+                            <div className="space-y-3">
+                              {renderVisionImageLayout(selectedLifeGoal.visionImages, {
+                                displayStyle: 'minimal',
+                                fitMode: 'contain',
+                                onOpenPreview: setVisionPreviewImage,
+                                interactive: singleVisionInteractive
+                                  ? {
+                                      enabled: true,
+                                      rotateX: visionRotateX,
+                                      rotateY: visionRotateY,
+                                      shiftX: visionImageShiftX,
+                                      shiftY: visionImageShiftY,
+                                      sheenX: visionSheenX,
+                                      onMouseMove: handleVisionImageMouseMove,
+                                      onMouseLeave: resetVisionImageTilt,
+                                    }
+                                  : undefined,
+                              })}
+
+                              {selectedLifeGoalVisionMode === 'images-statement' && selectedLifeGoal.visionStatement.trim() ? (
+                                <div className="space-y-2 px-2 pb-1 pt-0.5 text-center sm:space-y-2.5">
+                                  <div className="mx-auto h-px w-[34%] max-w-[220px] min-w-[120px] bg-white/[0.08]" />
+                                  <p
+                                    className="mx-auto max-w-[34rem] text-[18px] font-medium leading-[1.58] tracking-[0.012em] text-white/86 [text-shadow:0_0_18px_rgba(var(--theme-accent-rgb),0.08)] sm:text-[19px]"
+                                    style={{
+                                      display: '-webkit-box',
+                                      WebkitLineClamp: 3,
+                                      WebkitBoxOrient: 'vertical',
+                                      overflow: 'hidden',
+                                    }}
+                                  >
+                                    {selectedLifeGoal.visionStatement.trim()}
+                                  </p>
+                                </div>
+                              ) : null}
+                            </div>
+                          ) : selectedLifeGoalShowStatementDisplay ? (
+                            <div className="flex h-full w-full flex-1 items-center justify-center bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.05),rgba(255,255,255,0.016)_34%,rgba(255,255,255,0)_72%)] px-6 py-8 text-center sm:px-10 sm:py-10">
+                              <div className="w-full max-w-[46rem]">
+                                <p className="mx-auto max-w-[30rem] text-center text-[28px] leading-[1.45] tracking-[-0.02em] text-white/88 sm:text-[34px]">
+                                  {selectedLifeGoal.visionStatement.trim()}
+                                </p>
+                              </div>
+                            </div>
                           ) : null}
                         </div>
                       )}
@@ -7991,6 +8341,33 @@ const renderLifeGoalOverviewPage = () => {
           datePanelPosition: taskPeekDatePanelPosition,
           dateViewMonth: taskPeekDateViewMonth,
           priorityOptions: taskPriorityOptions,
+          milestoneOptions:
+            selectedLifeGoal?.goalType === 'outcome' && selectedLifeGoal.milestonesEnabled
+              ? [
+                  { value: '', label: 'No milestone' },
+                  ...(selectedLifeGoal.milestones ?? [])
+                    .slice()
+                    .sort((left, right) => left.order - right.order)
+                    .map((milestone, index) => ({
+                      value: milestone.id,
+                      label: `${index + 1}. ${milestone.title.trim() || `Milestone ${index + 1}`}${
+                        ((selectedLifeGoal.milestones ?? [])
+                          .slice()
+                          .sort((left, right) => left.order - right.order)
+                          .find((candidate) => !candidate.completed) ??
+                          (() => {
+                            const orderedMilestones = (selectedLifeGoal.milestones ?? [])
+                              .slice()
+                              .sort((left, right) => left.order - right.order)
+                            return orderedMilestones.length > 0 ? orderedMilestones[orderedMilestones.length - 1] : null
+                          })())?.id === milestone.id
+                          ? ' — Current'
+                          : ''
+                      }`,
+                    })),
+                ]
+              : [],
+          showMilestoneField: Boolean(selectedLifeGoal?.goalType === 'outcome' && selectedLifeGoal?.milestonesEnabled),
           relativeDueMeta: selectedTaskPeek?.dueDate ? getRelativeDueMeta(selectedTaskPeek.dueDate) : null,
           weekdayLabels: LIFE_GOAL_WEEKDAY_LABELS,
           todayIsoDate: getTodayIsoDate(),
@@ -8027,6 +8404,7 @@ const renderLifeGoalOverviewPage = () => {
           onTitleChange: (value) => updateSelectedTaskPeek((task) => ({ ...task, text: value })),
           onDescriptionChange: (value) => updateSelectedTaskPeek((task) => ({ ...task, description: value })),
           onNotesChange: (value) => updateSelectedTaskPeek((task) => ({ ...task, notes: value })),
+          onMilestoneChange: (value) => updateSelectedTaskPeek((task) => ({ ...task, milestoneId: value })),
           onPriorityChange: (value) => updateSelectedTaskPeek((task) => ({ ...task, priority: value })),
           tagDraft: taskPeekTagDraft,
           setTagDraft: setTaskPeekTagDraft,
@@ -8137,6 +8515,36 @@ const renderLifeGoalOverviewPage = () => {
           </motion.div>
         ) : null}
       </AnimatePresence>
+
+      <OverlayRoot open={Boolean(visionPreviewImage)}>
+        {visionPreviewImage ? (
+          <>
+            <OverlayBackdrop
+              zIndexClassName="z-[120]"
+              className="bg-black/78 backdrop-blur-[6px]"
+              onClick={() => setVisionPreviewImage(null)}
+            />
+            <ModalSurface
+              zIndexClassName="z-[121]"
+              containerClassName="fixed inset-0 grid place-items-center px-4 py-6 sm:px-8 sm:py-8"
+              panelClassName="w-full max-w-[min(1100px,calc(100vw-2rem))] bg-transparent"
+              onBackdropClick={() => setVisionPreviewImage(null)}
+            >
+              <div
+                ref={visionPreviewSurfaceRef}
+                className="flex max-h-[calc(100vh-3rem)] w-full items-center justify-center outline-none"
+                tabIndex={-1}
+              >
+                <img
+                  src={visionPreviewImage}
+                  alt=""
+                  className="max-h-[calc(100vh-3rem)] w-auto max-w-full rounded-[22px] object-contain shadow-[0_24px_80px_rgba(0,0,0,0.38)]"
+                />
+              </div>
+            </ModalSurface>
+          </>
+        ) : null}
+      </OverlayRoot>
 
       <AnimatePresence>
         {completionPulse ? (
