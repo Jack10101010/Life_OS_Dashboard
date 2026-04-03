@@ -7,6 +7,7 @@ type LifeGoalRoadmapPanelProps = {
     remainingCount: number
     lastCompletedText: string | null
     milestoneSummaryText?: string
+    notesContent?: ReactNode
     sortControl?: ReactNode
     currentContent: ReactNode
     upcomingContent: ReactNode
@@ -17,7 +18,7 @@ type LifeGoalRoadmapPanelProps = {
   actions: {
     onToggleHighPriorityFocus: () => void
     onToggleOrganizationMode: () => void
-    onSetProgressView: (view: 'tasks' | 'milestones') => void
+    onSetProgressView: (view: 'tasks' | 'milestones' | 'notes') => void
     onOpenRoadmap: () => void
     onRoadmapKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void
     onAddTask: (trigger?: HTMLElement | null) => void
@@ -27,8 +28,9 @@ type LifeGoalRoadmapPanelProps = {
     roadmapHighPriorityFocus: boolean
     completedOpen: boolean
     showHighPriorityFocus: boolean
-    progressView: 'tasks' | 'milestones'
+    progressView: 'tasks' | 'milestones' | 'notes'
     showMilestonesView: boolean
+    showNotesView: boolean
     organizationMode: 'default' | 'tag'
     showTagGrouping: boolean
   }
@@ -84,9 +86,47 @@ export function LifeGoalRoadmapPanel({
                 >
                   Milestones
                 </button>
+                {uiState.showNotesView ? (
+                  <button
+                    type="button"
+                    onClick={() => actions.onSetProgressView('notes')}
+                    className={`rounded-full px-2.5 py-1 text-[9px] uppercase tracking-[0.14em] transition ${
+                      uiState.progressView === 'notes'
+                        ? 'theme-button-secondary text-white'
+                        : 'text-white/42 hover:text-white/68'
+                    }`}
+                  >
+                    Notes
+                  </button>
+                ) : null}
               </div>
             ) : (
-              <p className="text-xs uppercase tracking-[0.18em] text-mist/68">Task roadmap</p>
+              <div className="theme-surface-soft inline-flex rounded-full border p-1">
+                <button
+                  type="button"
+                  onClick={() => actions.onSetProgressView('tasks')}
+                  className={`rounded-full px-2.5 py-1 text-[9px] uppercase tracking-[0.14em] transition ${
+                    uiState.progressView === 'tasks'
+                      ? 'theme-button-secondary text-white'
+                      : 'text-white/42 hover:text-white/68'
+                  }`}
+                >
+                  Task Roadmap
+                </button>
+                {uiState.showNotesView ? (
+                  <button
+                    type="button"
+                    onClick={() => actions.onSetProgressView('notes')}
+                    className={`rounded-full px-2.5 py-1 text-[9px] uppercase tracking-[0.14em] transition ${
+                      uiState.progressView === 'notes'
+                        ? 'theme-button-secondary text-white'
+                        : 'text-white/42 hover:text-white/68'
+                    }`}
+                  >
+                    Notes
+                  </button>
+                ) : null}
+              </div>
             )}
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
@@ -100,7 +140,7 @@ export function LifeGoalRoadmapPanel({
                     : 'border-white/[0.045] bg-white/[0.018] text-white/50 hover:border-white/[0.08] hover:text-white/70'
                 }`}
               >
-                High priority
+                Priority
               </button>
             ) : null}
             {uiState.progressView === 'tasks' ? (
@@ -176,11 +216,17 @@ export function LifeGoalRoadmapPanel({
       </div>
 
       <div
-        className="roadmap-scroll border-t border-white/[0.05] px-4 pt-3 xl:min-h-0 xl:flex-1 xl:overflow-y-auto xl:overscroll-contain"
+        className={`roadmap-scroll border-t border-white/[0.05] xl:min-h-0 xl:flex-1 xl:overscroll-contain ${
+          uiState.progressView === 'notes' ? 'xl:overflow-hidden' : 'xl:overflow-y-auto'
+        } ${
+          uiState.progressView === 'notes' ? 'px-px pt-px' : 'px-4 pt-3'
+        }`}
         tabIndex={0}
-        onKeyDown={actions.onRoadmapKeyDown}
+        onKeyDown={uiState.progressView === 'tasks' ? actions.onRoadmapKeyDown : undefined}
       >
-        {uiState.progressView === 'milestones' ? (
+        {uiState.progressView === 'notes' ? (
+          data.notesContent ?? <p className="pb-4 text-sm text-mist">{data.emptyMessage}</p>
+        ) : uiState.progressView === 'milestones' ? (
           data.milestoneContent ?? <p className="pb-4 pl-[36px] text-sm text-mist">{data.emptyMessage}</p>
         ) : data.plannedTaskCount > 0 ? (
           <div className="relative">
@@ -219,7 +265,13 @@ export function LifeGoalRoadmapPanel({
       </div>
 
       <div className="border-t border-white/[0.08] px-4 py-3">
-        {uiState.progressView === 'milestones' ? (
+        {uiState.progressView === 'notes' ? (
+          <div className="flex items-end justify-between gap-3">
+            <div className="space-y-1 text-xs text-mist">
+              <p>Auto-saves instantly</p>
+            </div>
+          </div>
+        ) : uiState.progressView === 'milestones' ? (
           <div className="flex items-end justify-between gap-3">
             <div className="space-y-1 text-xs text-mist">
               <p>{data.milestoneSummaryText ?? `${data.completedCount} completed • ${data.remainingCount} remaining`}</p>

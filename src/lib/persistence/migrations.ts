@@ -436,6 +436,10 @@ function normalizeLifeGoal(goal: Partial<LifeGoal>, index: number): LifeGoal {
       : [],
     milestonesEnabled,
     whyItMatters: typeof goal.whyItMatters === 'string' ? goal.whyItMatters.trim() : '',
+    notes:
+      typeof (goal as Partial<LifeGoal> & { notes?: unknown }).notes === 'string'
+        ? (goal as Partial<LifeGoal> & { notes?: string }).notes ?? ''
+        : '',
     visionStatement:
       typeof (goal as Partial<LifeGoal> & { visionStatement?: unknown }).visionStatement === 'string'
         ? ((goal as Partial<LifeGoal> & { visionStatement?: string }).visionStatement ?? '').trim().slice(0, 120)

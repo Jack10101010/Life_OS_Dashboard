@@ -359,6 +359,7 @@ export interface LifeGoal {
   relatedGoalIds: string[]
   milestonesEnabled: boolean
   whyItMatters: string
+  notes: string
   visionStatement: string
   visionImages: string[]
   minimumVersion: string

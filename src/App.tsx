@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Sidebar } from './components/layout/Sidebar'
 import { TopBar } from './components/layout/TopBar'
@@ -27,20 +27,106 @@ import { LifeGoal, LifeGoalCategoryColor, LifeGoalCategoryDefinition, PageId } f
 
 const DEV_NOTES_ENABLED_PAGES: PageId[] = ['tasks', 'notes', 'analytics', 'trade-log', 'settings']
 type GoalsView = 'life-overview' | 'life-detail' | 'habit-goals'
+type AppHistoryState = {
+  __appNavigation: true
+  page: PageId
+  goalsView: GoalsView
+  selectedLifeGoalId: string | null
+}
+
+const GOALS_BASE_PATH = '/goals'
+
+function buildAppPath(page: PageId, goalsView: GoalsView, selectedLifeGoalId: string | null) {
+  if (page === 'goals') {
+    return goalsView === 'life-detail' && selectedLifeGoalId
+      ? `${GOALS_BASE_PATH}/${encodeURIComponent(selectedLifeGoalId)}`
+      : GOALS_BASE_PATH
+  }
+
+  return '/'
+}
+
+function buildAppHistoryState(page: PageId, goalsView: GoalsView, selectedLifeGoalId: string | null): AppHistoryState {
+  return {
+    __appNavigation: true,
+    page,
+    goalsView,
+    selectedLifeGoalId,
+  }
+}
+
+function isAppHistoryState(value: unknown): value is AppHistoryState {
+  if (!value || typeof value !== 'object') return false
+  const candidate = value as Partial<AppHistoryState>
+  return candidate.__appNavigation === true
+}
+
+function getInitialGoalUrlState(defaultSelectedLifeGoalId: string | null): {
+  pageOverride: PageId | null
+  goalsViewOverride: GoalsView | null
+  selectedLifeGoalIdOverride: string | null
+} {
+  if (typeof window === 'undefined') {
+    return {
+      pageOverride: null,
+      goalsViewOverride: null,
+      selectedLifeGoalIdOverride: defaultSelectedLifeGoalId,
+    }
+  }
+
+  const pathname = window.location.pathname.replace(/\/+$/, '') || '/'
+
+  if (pathname === GOALS_BASE_PATH) {
+    return {
+      pageOverride: 'goals',
+      goalsViewOverride: 'life-overview',
+      selectedLifeGoalIdOverride: defaultSelectedLifeGoalId,
+    }
+  }
+
+  if (pathname.startsWith(`${GOALS_BASE_PATH}/`)) {
+    const rawGoalId = pathname.slice(GOALS_BASE_PATH.length + 1)
+    const nextGoalId = rawGoalId ? decodeURIComponent(rawGoalId) : defaultSelectedLifeGoalId
+    return {
+      pageOverride: 'goals',
+      goalsViewOverride: nextGoalId ? 'life-detail' : 'life-overview',
+      selectedLifeGoalIdOverride: nextGoalId,
+    }
+  }
+
+  return {
+    pageOverride: null,
+    goalsViewOverride: null,
+    selectedLifeGoalIdOverride: defaultSelectedLifeGoalId,
+  }
+}
 
 export default function App() {
   const currentYear = new Date().getUTCFullYear()
   const persisted = useMemo(() => loadPersistedAppState(currentYear), [])
+  const initialGoalUrlState = useMemo(
+    () => getInitialGoalUrlState(persisted.lifeGoals[0]?.id ?? null),
+    [persisted],
+  )
   const [hasHydratedFromStorage, setHasHydratedFromStorage] = useState(false)
-  const appShell = useAppShellState(persisted)
+  const appShell = useAppShellState(
+    initialGoalUrlState.pageOverride
+      ? {
+          ...persisted,
+          page: initialGoalUrlState.pageOverride,
+        }
+      : persisted,
+  )
   const settingsState = useSettingsState(persisted.settings)
   const trackerState = useTrackerState(persisted, currentYear, settingsState.settings.enableBadHabitTracking)
   const habitTrackerState = useHabitTrackerState(persisted)
   const [tasks, setTasks] = useState(persisted.tasks)
   const [lifeGoals, setLifeGoals] = useState<LifeGoal[]>(persisted.lifeGoals)
   const [lifeGoalCategories, setLifeGoalCategories] = useState<LifeGoalCategoryDefinition[]>(persisted.lifeGoalCategories)
-  const [selectedLifeGoalId, setSelectedLifeGoalId] = useState<string | null>(persisted.lifeGoals[0]?.id ?? null)
-  const [goalsView, setGoalsView] = useState<GoalsView>('life-overview')
+  const [selectedLifeGoalId, setSelectedLifeGoalId] = useState<string | null>(initialGoalUrlState.selectedLifeGoalIdOverride)
+  const [goalsView, setGoalsView] = useState<GoalsView>(initialGoalUrlState.goalsViewOverride ?? 'life-overview')
+  const isApplyingHistoryRef = useRef(false)
+  const hasInitializedHistoryRef = useRef(false)
 
   const { settings, setSettings, hydrate: hydrateSettings } = settingsState
   const {
@@ -230,6 +316,76 @@ export default function App() {
     moodShowHabitMarkers,
     hasHydratedFromStorage,
   ])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const applyLocationState = (historyState: unknown) => {
+      const pathname = window.location.pathname.replace(/\/+$/, '') || '/'
+
+      isApplyingHistoryRef.current = true
+
+      if (pathname === GOALS_BASE_PATH) {
+        setPage('goals')
+        setGoalsView('life-overview')
+        return
+      }
+
+      if (pathname.startsWith(`${GOALS_BASE_PATH}/`)) {
+        const rawGoalId = pathname.slice(GOALS_BASE_PATH.length + 1)
+        const nextGoalId = rawGoalId ? decodeURIComponent(rawGoalId) : null
+        setPage('goals')
+        setGoalsView(nextGoalId ? 'life-detail' : 'life-overview')
+        if (nextGoalId) {
+          setSelectedLifeGoalId(nextGoalId)
+        }
+        return
+      }
+
+      if (isAppHistoryState(historyState)) {
+        setPage(historyState.page)
+        setGoalsView(historyState.goalsView)
+        setSelectedLifeGoalId(historyState.selectedLifeGoalId)
+      }
+    }
+
+    applyLocationState(window.history.state)
+    hasInitializedHistoryRef.current = true
+
+    const handlePopState = (event: PopStateEvent) => {
+      applyLocationState(event.state)
+    }
+
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [setPage])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !hasInitializedHistoryRef.current) return
+
+    const nextPath = buildAppPath(page, goalsView, selectedLifeGoalId)
+    const nextState = buildAppHistoryState(page, goalsView, selectedLifeGoalId)
+    const currentPath = window.location.pathname.replace(/\/+$/, '') || '/'
+    const currentState = window.history.state
+    const matchesCurrentState =
+      isAppHistoryState(currentState) &&
+      currentState.page === nextState.page &&
+      currentState.goalsView === nextState.goalsView &&
+      currentState.selectedLifeGoalId === nextState.selectedLifeGoalId
+
+    if (currentPath === nextPath && matchesCurrentState) {
+      isApplyingHistoryRef.current = false
+      return
+    }
+
+    if (isApplyingHistoryRef.current) {
+      window.history.replaceState(nextState, '', nextPath)
+      isApplyingHistoryRef.current = false
+      return
+    }
+
+    window.history.pushState(nextState, '', nextPath)
+  }, [goalsView, page, selectedLifeGoalId])
 
   const buildPersistedSnapshot = () => ({
     dataByYear,
