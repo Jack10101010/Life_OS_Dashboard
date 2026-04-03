@@ -6,7 +6,6 @@ type LifeGoalRoadmapPanelProps = {
     completedCount: number
     remainingCount: number
     lastCompletedText: string | null
-    executionSummaryText: string
     milestoneSummaryText?: string
     sortControl?: ReactNode
     currentContent: ReactNode
@@ -22,7 +21,6 @@ type LifeGoalRoadmapPanelProps = {
     onOpenRoadmap: () => void
     onRoadmapKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => void
     onAddTask: (trigger?: HTMLElement | null) => void
-    onAddMilestone?: () => void
     onToggleCompleted: () => void
   }
   uiState: {

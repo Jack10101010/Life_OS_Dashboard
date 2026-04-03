@@ -1641,17 +1641,23 @@ export function GoalsPage({
     : 'images'
   const selectedLifeGoalShowVisionEditUI = selectedLifeGoalVisionEditorOpen || !selectedLifeGoalHasVision
   const selectedLifeGoalVisionImageCount = selectedLifeGoal?.visionImages.length ?? 0
+  const selectedLifeGoalVisionHasImages = selectedLifeGoalVisionImageCount > 0
+  const selectedLifeGoalVisionHasStatement = Boolean(selectedLifeGoal?.visionStatement.trim())
   const selectedLifeGoalCanUploadVisionImages = selectedLifeGoalVisionImageCount < LIFE_GOAL_VISION_IMAGE_LIMIT
-  const selectedLifeGoalShowImagesDisplay = Boolean(
+  const selectedLifeGoalVisionShowsImagesInDisplay = Boolean(
     !selectedLifeGoalShowVisionEditUI &&
       (selectedLifeGoalVisionMode === 'images' || selectedLifeGoalVisionMode === 'images-statement') &&
-      selectedLifeGoal?.visionImages.length,
+      selectedLifeGoalVisionHasImages,
   )
-  const selectedLifeGoalShowStatementDisplay = Boolean(
+  const selectedLifeGoalVisionShowsStatementInDisplay = Boolean(
     !selectedLifeGoalShowVisionEditUI &&
       (selectedLifeGoalVisionMode === 'statement' || selectedLifeGoalVisionMode === 'images-statement') &&
-      selectedLifeGoal?.visionStatement.trim(),
+      selectedLifeGoalVisionHasStatement,
   )
+  const selectedLifeGoalVisionEditShowsImages =
+    selectedLifeGoalVisionEditMode === 'images' || selectedLifeGoalVisionEditMode === 'images-statement'
+  const selectedLifeGoalVisionEditShowsStatement =
+    selectedLifeGoalVisionEditMode === 'statement' || selectedLifeGoalVisionEditMode === 'images-statement'
   const visionPreviewSurfaceRef = useRef<HTMLDivElement | null>(null)
   const visionTiltX = useMotionValue(0)
   const visionTiltY = useMotionValue(0)
@@ -1680,6 +1686,19 @@ export function GoalsPage({
     () => (selectedTaskPeek ? selectedTaskPeek.subtasks.filter((subtask) => subtask.completed) : []),
     [selectedTaskPeek],
   )
+
+  useEffect(() => {
+    if (selectedLifeGoalShowVisionEditUI && selectedLifeGoalVisionEditShowsImages) return
+    setVisionDropActive(false)
+    setDraggedVisionImageIndex(null)
+    setDragOverVisionImageIndex(null)
+  }, [selectedLifeGoalShowVisionEditUI, selectedLifeGoalVisionEditShowsImages, selectedLifeGoal?.id])
+
+  useEffect(() => {
+    if (visionPreviewImage && !selectedLifeGoalVisionHasImages) {
+      setVisionPreviewImage(null)
+    }
+  }, [selectedLifeGoalVisionHasImages, visionPreviewImage])
 
   useEffect(() => {
     if (goalsView !== 'life-detail' || !selectedLifeGoal?.id) return
@@ -1743,10 +1762,6 @@ export function GoalsPage({
 
     return () => window.cancelAnimationFrame(frame)
   }, [goalsView, prefersReducedMotion, taskMomentumTransition?.nextTaskId])
-  const singleVisionInteractive = Boolean(
-    canUseVisionTilt && !prefersReducedMotion && (selectedLifeGoal?.visionImages.length ?? 0) === 1,
-  )
-
   const updateSelectedLifeGoalVisionStatement = (value: string) => {
     if (!selectedLifeGoal) return
     setVisionModeByGoal((current) => ({
@@ -1978,6 +1993,22 @@ export function GoalsPage({
     visionShiftY.set(0)
     visionSheen.set(0)
   }
+
+  const singleVisionInteractive = Boolean(
+    canUseVisionTilt && !prefersReducedMotion && (selectedLifeGoal?.visionImages.length ?? 0) === 1,
+  )
+  const visionImageInteractiveOptions = singleVisionInteractive
+    ? {
+        enabled: true,
+        rotateX: visionRotateX,
+        rotateY: visionRotateY,
+        shiftX: visionImageShiftX,
+        shiftY: visionImageShiftY,
+        sheenX: visionSheenX,
+        onMouseMove: handleVisionImageMouseMove,
+        onMouseLeave: resetVisionImageTilt,
+      }
+    : undefined
 
   useEffect(() => {
     if (!selectedLifeGoal) {
@@ -5344,15 +5375,9 @@ const renderLifeGoalOverviewPage = () => {
       goalMilestones.find((milestone) => !milestone.completed) ?? (goalMilestones.length > 0 ? goalMilestones[goalMilestones.length - 1] : null)
     const selectedMilestoneId = selectedMilestoneIdByGoal[selectedLifeGoal.id] ?? null
     const selectedMilestone = goalMilestones.find((milestone) => milestone.id === selectedMilestoneId) ?? null
-    const currentMilestoneIndex = currentMilestone ? goalMilestones.findIndex((milestone) => milestone.id === currentMilestone.id) : -1
     const completedMilestoneCount = goalMilestones.filter((milestone) => milestone.completed).length
     const outcomeMilestoneView =
       selectedLifeGoal ? (outcomeMilestoneViewByGoal[selectedLifeGoal.id] ?? 'tasks') : 'tasks'
-    const currentMilestoneMeta = currentMilestone
-      ? currentMilestone.completed
-        ? `All ${goalMilestones.length} milestones complete`
-        : `${Math.max(1, currentMilestoneIndex + 1)} of ${goalMilestones.length} milestones`
-      : null
     const milestoneOptions =
       milestonesEnabled
         ? [
@@ -5374,7 +5399,6 @@ const renderLifeGoalOverviewPage = () => {
     const roadmapHasHighPriorityTasks =
       (roadmapSections.current ? getPriorityScore(roadmapSections.current) === 3 : false) ||
       roadmapSections.upcoming.some((task) => getPriorityScore(task) === 3)
-    const roadmapExecutionSummaryText = `${roadmapSections.current ? 1 : 0} now · ${roadmapSections.upcoming.length} next · ${roadmapSections.completed.length} done`
     const roadmapHasTaggedTasks = selectedLifeGoal.tasks.some((task) => normalizeTaskTags(task.tags).length > 0)
     const sortedUpcomingTasks = sortTasksForDisplay(roadmapSections.upcoming, taskListSortMode)
     const sortedCompletedTasks = sortTasksForDisplay(roadmapSections.completed, taskListSortMode)
@@ -7381,7 +7405,7 @@ const renderLifeGoalOverviewPage = () => {
                             ))}
                           </div>
 
-                          {selectedLifeGoalVisionEditMode === 'images' || selectedLifeGoalVisionEditMode === 'images-statement' ? (
+                          {selectedLifeGoalVisionEditShowsImages ? (
                             <div className="space-y-3">
                               {selectedLifeGoal.visionImages.length > 0 ? (
                                 renderVisionImageLayout(selectedLifeGoal.visionImages, {
@@ -7415,18 +7439,7 @@ const renderLifeGoalOverviewPage = () => {
                                   fitMode: 'contain',
                                   removable: true,
                                   onRemove: removeSelectedLifeGoalVisionImage,
-                                  interactive: singleVisionInteractive
-                                    ? {
-                                        enabled: true,
-                                        rotateX: visionRotateX,
-                                        rotateY: visionRotateY,
-                                        shiftX: visionImageShiftX,
-                                        shiftY: visionImageShiftY,
-                                        sheenX: visionSheenX,
-                                        onMouseMove: handleVisionImageMouseMove,
-                                        onMouseLeave: resetVisionImageTilt,
-                                      }
-                                    : undefined,
+                                  interactive: visionImageInteractiveOptions,
                                 })
                               ) : null}
 
@@ -7480,7 +7493,7 @@ const renderLifeGoalOverviewPage = () => {
                             </div>
                           ) : null}
 
-                          {selectedLifeGoalVisionEditMode === 'statement' || selectedLifeGoalVisionEditMode === 'images-statement' ? (
+                          {selectedLifeGoalVisionEditShowsStatement ? (
                             <div className="space-y-1">
                               <div className="rounded-[18px] border border-white/[0.05] bg-white/[0.025] px-3.5 py-3">
                                 <textarea
@@ -7513,29 +7526,18 @@ const renderLifeGoalOverviewPage = () => {
                       ) : (
                         <div
                           className={`mt-2 w-full ${
-                            selectedLifeGoalShowStatementDisplay && !selectedLifeGoalShowImagesDisplay
+                            selectedLifeGoalVisionShowsStatementInDisplay && !selectedLifeGoalVisionShowsImagesInDisplay
                               ? 'flex min-h-[280px] flex-1 flex-col'
                               : ''
                           }`}
                         >
-                          {selectedLifeGoalShowImagesDisplay && selectedLifeGoal.visionImages.length > 0 ? (
+                          {selectedLifeGoalVisionShowsImagesInDisplay && selectedLifeGoal.visionImages.length > 0 ? (
                             <div className="space-y-3">
                               {renderVisionImageLayout(selectedLifeGoal.visionImages, {
                                 displayStyle: 'minimal',
                                 fitMode: 'contain',
                                 onOpenPreview: setVisionPreviewImage,
-                                interactive: singleVisionInteractive
-                                  ? {
-                                      enabled: true,
-                                      rotateX: visionRotateX,
-                                      rotateY: visionRotateY,
-                                      shiftX: visionImageShiftX,
-                                      shiftY: visionImageShiftY,
-                                      sheenX: visionSheenX,
-                                      onMouseMove: handleVisionImageMouseMove,
-                                      onMouseLeave: resetVisionImageTilt,
-                                    }
-                                  : undefined,
+                                interactive: visionImageInteractiveOptions,
                               })}
 
                               {selectedLifeGoalVisionMode === 'images-statement' && selectedLifeGoal.visionStatement.trim() ? (
@@ -7555,7 +7557,7 @@ const renderLifeGoalOverviewPage = () => {
                                 </div>
                               ) : null}
                             </div>
-                          ) : selectedLifeGoalShowStatementDisplay ? (
+                          ) : selectedLifeGoalVisionShowsStatementInDisplay ? (
                             <div className="flex h-full w-full flex-1 items-center justify-center bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.05),rgba(255,255,255,0.016)_34%,rgba(255,255,255,0)_72%)] px-6 py-8 text-center sm:px-10 sm:py-10">
                               <div className="w-full max-w-[46rem]">
                                 <p className="mx-auto max-w-[30rem] text-center text-[28px] leading-[1.45] tracking-[-0.02em] text-white/88 sm:text-[34px]">
@@ -7580,7 +7582,6 @@ const renderLifeGoalOverviewPage = () => {
                 completedCount: selectedLifeGoalProgress.completedTaskItems.length,
                 remainingCount: roadmapRemainingCount,
                 lastCompletedText: selectedLifeGoalProgress.lastCompletedTask?.text ?? null,
-                executionSummaryText: roadmapExecutionSummaryText,
                 milestoneSummaryText:
                   goalMilestones.length > 0
                     ? `${completedMilestoneCount}/${goalMilestones.length} milestones complete`
@@ -7916,7 +7917,6 @@ const renderLifeGoalOverviewPage = () => {
                   }
                 },
                 onAddTask: (trigger) => openNewTaskPeek(trigger),
-                onAddMilestone: () => addSelectedLifeGoalMilestone(),
                 onToggleCompleted: () => setRoadmapCompletedOpen((current) => !current),
               }}
               uiState={{
