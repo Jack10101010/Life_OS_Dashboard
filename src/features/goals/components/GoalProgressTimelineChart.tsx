@@ -15,6 +15,12 @@ type EventPoint = {
   tasksForDay: string[]
 }
 
+type ExpectedPoint = {
+  date: string
+  dayIndex: number
+  progressPercent: number
+}
+
 const TIMEFRAME_OPTIONS: TimeframeOption[] = [
   { value: 7, label: '7d' },
   { value: 14, label: '14d' },
@@ -155,28 +161,100 @@ function buildRoundedStepPath(
   return pathSegments.join(' ')
 }
 
+function buildExpectedLinePath(
+  expectedPoints: ExpectedPoint[],
+  xForDayIndex: (dayIndex: number) => number,
+  yForPercent: (percent: number) => number,
+) {
+  if (expectedPoints.length === 0) return ''
+
+  return expectedPoints
+    .map((point, index) => {
+      const x = xForDayIndex(point.dayIndex)
+      const y = yForPercent(point.progressPercent)
+      return `${index === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`
+    })
+    .join(' ')
+}
+
+function clampDateIso(date: string, minDate: string, maxDate: string) {
+  if (date < minDate) return minDate
+  if (date > maxDate) return maxDate
+  return date
+}
+
+function getDayDiff(startDate: string, endDate: string) {
+  return Math.max(
+    0,
+    Math.round((new Date(`${endDate}T00:00:00Z`).getTime() - new Date(`${startDate}T00:00:00Z`).getTime()) / 86400000),
+  )
+}
+
+function buildExpectedPoints(
+  startDate: string,
+  endDate: string,
+  totalTasks: number,
+  chartStartDate: string,
+  chartEndDate: string,
+) {
+  if (totalTasks <= 0 || !isValidIsoDate(startDate) || !isValidIsoDate(endDate) || endDate <= startDate) return []
+
+  const visibleStartDate = clampDateIso(startDate, chartStartDate, chartEndDate)
+  const visibleEndDate = clampDateIso(endDate, chartStartDate, chartEndDate)
+  const totalDurationDays = Math.max(1, getDayDiff(startDate, endDate))
+  const visibleDurationDays = getDayDiff(visibleStartDate, visibleEndDate)
+  const points: ExpectedPoint[] = []
+
+  for (let dayOffset = 0; dayOffset <= visibleDurationDays; dayOffset += 1) {
+    const date = shiftIsoDate(visibleStartDate, dayOffset)
+    const elapsedDays = getDayDiff(startDate, date)
+    points.push({
+      date,
+      dayIndex: getDayDiff(chartStartDate, date),
+      progressPercent: Math.max(0, Math.min(100, (elapsedDays / totalDurationDays) * 100)),
+    })
+  }
+
+  return points
+}
+
 export function GoalProgressTimelineChart({
   tasks,
   goalStartDate,
   goalCreatedAt,
+  goalTargetDate,
 }: {
   tasks: LifeGoalTask[]
   goalStartDate: string
   goalCreatedAt: string
+  goalTargetDate?: string | null
 }) {
   const [timeframeDays, setTimeframeDays] = useState(30)
   const [hoveredPointDate, setHoveredPointDate] = useState<string | null>(null)
+  const [showExpectedProgress, setShowExpectedProgress] = useState(true)
   const todayIsoDate = getTodayIsoDate()
   const timeframeStartDate = shiftIsoDate(todayIsoDate, -(timeframeDays - 1))
   const goalAnchorDate = isValidIsoDate(goalStartDate)
     ? goalStartDate
     : goalCreatedAt.slice(0, 10)
+  const hasTargetDate = isValidIsoDate(goalTargetDate)
+  const completedTasks = tasks.filter((task) => task.completed)
+  const lastCompletedDate = [...completedTasks]
+    .map((task) => task.completedAt?.slice(0, 10) ?? null)
+    .filter((date): date is string => Boolean(date) && isValidIsoDate(date))
+    .sort((left, right) => right.localeCompare(left))[0] ?? null
+  const expectedEndDate =
+    hasTargetDate
+      ? lastCompletedDate && lastCompletedDate < (goalTargetDate as string)
+        ? lastCompletedDate
+        : (goalTargetDate as string)
+      : null
+  const chartEndDate =
+    expectedEndDate && expectedEndDate > todayIsoDate
+      ? expectedEndDate
+      : todayIsoDate
   const startDate = goalAnchorDate > timeframeStartDate ? goalAnchorDate : timeframeStartDate
-  const effectiveTimeframeDays =
-    Math.max(
-      1,
-      Math.round((new Date(`${todayIsoDate}T00:00:00Z`).getTime() - new Date(`${startDate}T00:00:00Z`).getTime()) / 86400000) + 1,
-    )
+  const effectiveTimeframeDays = Math.max(1, getDayDiff(startDate, chartEndDate) + 1)
 
   const svgWidth = 100
   const totalTasks = Math.max(tasks.length, 1)
@@ -192,16 +270,27 @@ export function GoalProgressTimelineChart({
   const yForPercent = (percent: number) => margin.top + plotHeight - (Math.max(0, Math.min(100, percent)) / 100) * plotHeight
 
   const eventPoints = useMemo(() => buildEventPoints(tasks, startDate, effectiveTimeframeDays), [tasks, startDate, effectiveTimeframeDays])
+  const expectedPoints = useMemo(
+    () =>
+      expectedEndDate
+        ? buildExpectedPoints(goalAnchorDate, expectedEndDate, tasks.length, startDate, chartEndDate)
+        : [],
+    [expectedEndDate, goalAnchorDate, tasks.length, startDate, chartEndDate],
+  )
   const tickIndices = getTickIndices(effectiveTimeframeDays)
   const hoveredPoint = hoveredPointDate ? eventPoints.find((point) => point.date === hoveredPointDate) ?? null : null
+  const todayIndex = getDayDiff(startDate, todayIsoDate)
+  const actualEndDayIndex = Math.min(effectiveTimeframeDays - 1, todayIndex)
 
   const linePath = buildRoundedStepPath(
     eventPoints,
     xForDayIndex,
     yForPercent,
     xForDayIndex(0),
-    margin.left + plotWidth,
+    xForDayIndex(actualEndDayIndex),
   )
+  const expectedLinePath = buildExpectedLinePath(expectedPoints, xForDayIndex, yForPercent)
+  const shouldShowExpectedLine = showExpectedProgress && Boolean(expectedLinePath)
   const tooltipLeft = hoveredPoint ? `${(xForDayIndex(hoveredPoint.dayIndex) / svgWidth) * 100}%` : '0%'
   const tooltipTop = hoveredPoint ? `${(yForPercent(hoveredPoint.progressPercent) / svgHeight) * 100}%` : '0%'
 
@@ -213,6 +302,24 @@ export function GoalProgressTimelineChart({
           <p className="mt-1 text-sm text-mist">Task completions over time.</p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-1.5">
+          {expectedLinePath ? (
+            <button
+              type="button"
+              onClick={() => setShowExpectedProgress((current) => !current)}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] tracking-[0.08em] transition ${
+                shouldShowExpectedLine
+                  ? 'border-[rgb(var(--theme-accent-rgb)/0.12)] bg-[rgb(var(--theme-accent-rgb)/0.045)] text-[rgb(var(--theme-accent-rgb)/0.58)]'
+                  : 'border-white/[0.04] bg-transparent text-mist/42 hover:border-white/[0.06] hover:text-mist/56'
+              }`}
+            >
+              <span
+                className={`h-1.5 w-3 rounded-full transition ${
+                  shouldShowExpectedLine ? 'bg-[rgb(var(--theme-accent-rgb)/0.38)]' : 'bg-white/[0.14]'
+                }`}
+              />
+              Expected
+            </button>
+          ) : null}
           {TIMEFRAME_OPTIONS.map((option) => (
             <button
               key={option.value}
@@ -300,6 +407,18 @@ export function GoalProgressTimelineChart({
             strokeLinejoin="round"
           />
 
+          {shouldShowExpectedLine ? (
+            <path
+              d={expectedLinePath}
+              fill="none"
+              stroke="rgb(var(--theme-accent-rgb) / 0.24)"
+              strokeWidth="0.16"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeDasharray="0.7 0.8"
+            />
+          ) : null}
+
           {eventPoints.map((point, index) => {
             const x = xForDayIndex(point.dayIndex)
             const y = yForPercent(point.progressPercent)
@@ -367,7 +486,9 @@ export function GoalProgressTimelineChart({
                   fill={axisTextFill}
                   fontSize={axisFontSize}
                 >
-                  {isLast ? 'Today' : formatAxisDateLabel(shiftIsoDate(startDate, index))}
+                  {index === todayIndex
+                    ? 'Today'
+                    : formatAxisDateLabel(shiftIsoDate(startDate, index))}
                 </text>
               </g>
             )

@@ -137,6 +137,27 @@ export function getDefaultPersistedAppState(currentYear: number): PersistedAppSt
 
 export function normalizePersistedAppState(parsed: Partial<PersistedAppState>, currentYear: number): PersistedAppState {
   const defaults = getDefaultPersistedAppState(currentYear)
+  const rawLifeGoals = Array.isArray(parsed.lifeGoals) ? parsed.lifeGoals : defaults.lifeGoals
+  const legacySystemGoalIds = new Set(
+    (Array.isArray(parsed.lifeGoals) ? parsed.lifeGoals : [])
+      .map((goal) => (goal && typeof goal === 'object' ? (goal as unknown as Record<string, unknown>) : {}))
+      .filter((goal) => goal.goalType === 'system')
+      .map((goal) => goal.id)
+      .filter((goalId): goalId is string => typeof goalId === 'string' && goalId.length > 0),
+  )
+  const normalizedLifeGoals = rawLifeGoals
+    .map((goal, index) => normalizeLifeGoal(goal, index))
+    .filter((goal) => goal.title)
+    .filter((goal) => !legacySystemGoalIds.has(goal.id))
+  const outcomeGoalIds = new Set(normalizedLifeGoals.filter((goal) => goal.goalType === 'outcome').map((goal) => goal.id))
+  const directionalGoalIds = new Set(normalizedLifeGoals.filter((goal) => goal.goalType === 'directional').map((goal) => goal.id))
+  const cleanedLifeGoals = normalizedLifeGoals.map((goal) => ({
+      ...goal,
+      relatedGoalIds:
+        goal.goalType === 'directional'
+          ? goal.relatedGoalIds.filter((relatedGoalId) => outcomeGoalIds.has(relatedGoalId) && relatedGoalId !== goal.id)
+          : [],
+    }))
   const normalizedDataByYear = ensureYearDataset(
     parsed.dataByYear && typeof parsed.dataByYear === 'object'
       ? Object.fromEntries(
@@ -242,8 +263,8 @@ export function normalizePersistedAppState(parsed: Partial<PersistedAppState>, c
     badHabitLogs: migratedBadHabitLogs,
     tags: cleanedTagState.tags,
     tasks: Array.isArray(parsed.tasks) ? parsed.tasks.map(normalizeTask).filter((task) => task.text) : defaults.tasks,
-    lifeGoals: Array.isArray(parsed.lifeGoals) ? parsed.lifeGoals.map((goal, index) => normalizeLifeGoal(goal, index)).filter((goal) => goal.title) : defaults.lifeGoals,
-    lifeGoalCategories: normalizeLifeGoalCategories(parsed.lifeGoalCategories, Array.isArray(parsed.lifeGoals) ? parsed.lifeGoals : defaults.lifeGoals),
+    lifeGoals: cleanedLifeGoals,
+    lifeGoalCategories: normalizeLifeGoalCategories(parsed.lifeGoalCategories, cleanedLifeGoals),
     settings: parsed.settings
       ? {
           ...defaults.settings,
@@ -260,8 +281,8 @@ export function normalizePersistedAppState(parsed: Partial<PersistedAppState>, c
         }
       : defaults.filters,
     habitTrackers: Array.isArray(parsed.habitTrackers)
-      ? parsed.habitTrackers.map((tracker) => ({
-          ...syncHabitTrackerAchievements(normalizeHabitTracker({
+      ? parsed.habitTrackers.map((tracker) => {
+          const normalizedTracker = syncHabitTrackerAchievements(normalizeHabitTracker({
             ...tracker,
             habitType: tracker.habitType ?? 'checkbox',
             colorIntensity: tracker.colorIntensity ?? 100,
@@ -301,8 +322,14 @@ export function normalizePersistedAppState(parsed: Partial<PersistedAppState>, c
                 },
               ]),
             ),
-          })),
-        }))
+          }))
+
+          return {
+            ...normalizedTracker,
+            linkedGoalIds: normalizedTracker.linkedGoalIds.filter((goalId) => outcomeGoalIds.has(goalId)),
+            linkedDirectionIds: normalizedTracker.linkedDirectionIds.filter((goalId) => directionalGoalIds.has(goalId)),
+          }
+        })
       : defaults.habitTrackers,
     habitEntryDraft:
       parsed.habitEntryDraft && typeof parsed.habitEntryDraft === 'object'
@@ -380,7 +407,7 @@ function normalizeLifeGoal(goal: Partial<LifeGoal>, index: number): LifeGoal {
   const createdAt = typeof goal.createdAt === 'string' && goal.createdAt ? goal.createdAt : new Date().toISOString()
   const defaultStartDate = createdAt.slice(0, 10)
   const goalType: LifeGoalType =
-    goal.goalType === 'system' || goal.goalType === 'directional' || goal.goalType === 'outcome'
+    goal.goalType === 'directional' || goal.goalType === 'outcome'
       ? goal.goalType
       : 'outcome'
   const milestones = Array.isArray((goal as Partial<LifeGoal> & { milestones?: unknown[] }).milestones)

@@ -1,8 +1,10 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { RefObject, useEffect, useRef } from 'react'
+import { RefObject, useEffect, useRef, useState } from 'react'
 import { Button } from '../../../components/ui/Button'
 import { FloatingPanelPosition, ModalSurface, OverlayBackdrop, OverlayRoot, PopoverSurface, DialogSurface } from '../../../components/layout/OverlayPrimitives'
 import { LifeGoalTask, LifeGoalTaskPriority } from '../../../types'
+
+const PLAIN_TEXT_BULLET_PREFIXES = ['- ', '• '] as const
 
 type DeleteConfirmation =
   | { kind: 'task'; taskId: string }
@@ -19,6 +21,7 @@ type LifeGoalTaskPeekProps = {
     priorityOptions: Array<{ value: LifeGoalTaskPriority; label: string }>
     milestoneOptions: Array<{ value: string; label: string }>
     showMilestoneField: boolean
+    lockedMilestoneLabel: string | null
     relativeDueMeta: { label: string; compactLabel: string; toneClassName: string } | null
     weekdayLabels: readonly string[]
     todayIsoDate: string
@@ -96,8 +99,9 @@ export function LifeGoalTaskPeek({
   actions,
 }: LifeGoalTaskPeekProps) {
   const task = data.task
-  const descriptionRef = useRef<HTMLTextAreaElement | null>(null)
   const notesRef = useRef<HTMLTextAreaElement | null>(null)
+  const taskActionsRef = useRef<HTMLDivElement | null>(null)
+  const [taskActionsOpen, setTaskActionsOpen] = useState(false)
   const taskDescription = task?.description ?? ''
   const taskNotes = task?.notes ?? ''
   const taskId = task?.id ?? null
@@ -108,15 +112,89 @@ export function LifeGoalTaskPeek({
     element.style.height = `${element.scrollHeight}px`
   }
 
+  const handlePlainTextBulletKeyDown = (
+    event: React.KeyboardEvent<HTMLTextAreaElement>,
+    onChange: (value: string) => void,
+  ) => {
+    if (
+      event.key !== 'Enter' ||
+      event.shiftKey ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.altKey
+    ) {
+      return
+    }
+
+    const textarea = event.currentTarget
+    const { value, selectionStart, selectionEnd } = textarea
+    if (selectionStart !== selectionEnd) return
+
+    const lineStart = value.lastIndexOf('\n', selectionStart - 1) + 1
+    const nextLineBreakIndex = value.indexOf('\n', selectionStart)
+    const lineEnd = nextLineBreakIndex === -1 ? value.length : nextLineBreakIndex
+    const currentLine = value.slice(lineStart, lineEnd)
+    const bulletPrefix = PLAIN_TEXT_BULLET_PREFIXES.find((prefix) => currentLine.startsWith(prefix))
+
+    if (!bulletPrefix) return
+
+    event.preventDefault()
+
+    if (currentLine === bulletPrefix) {
+      const nextValue = value.slice(0, lineStart) + value.slice(lineEnd)
+      onChange(nextValue)
+      requestAnimationFrame(() => {
+        textarea.focus()
+        textarea.setSelectionRange(lineStart, lineStart)
+      })
+      return
+    }
+
+    const nextValue = `${value.slice(0, selectionStart)}\n${bulletPrefix}${value.slice(selectionEnd)}`
+    const nextCaretPosition = selectionStart + 1 + bulletPrefix.length
+    onChange(nextValue)
+    requestAnimationFrame(() => {
+      textarea.focus()
+      textarea.setSelectionRange(nextCaretPosition, nextCaretPosition)
+    })
+  }
+
   useEffect(() => {
     if (!uiState.open || !taskId) return
-    autosizeTextarea(descriptionRef.current)
-  }, [taskDescription, taskId, uiState.open])
+    const trimmedDescription = taskDescription.trim()
+    if (!trimmedDescription) return
+
+    const trimmedNotes = taskNotes.trim()
+    const mergedNotes = trimmedNotes
+      ? trimmedNotes.includes(trimmedDescription)
+        ? taskNotes
+        : `${trimmedDescription}\n\n${taskNotes}`
+      : taskDescription
+
+    if (mergedNotes !== taskNotes) {
+      actions.onNotesChange(mergedNotes)
+    }
+
+    actions.onDescriptionChange('')
+  }, [actions, taskDescription, taskId, taskNotes, uiState.open])
 
   useEffect(() => {
     if (!uiState.open || !taskId) return
     autosizeTextarea(notesRef.current)
-  }, [taskId, taskNotes, uiState.notesOpen, uiState.open])
+  }, [taskId, taskNotes, uiState.open])
+
+  useEffect(() => {
+    if (!taskActionsOpen) return
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!taskActionsRef.current?.contains(event.target as Node)) {
+        setTaskActionsOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    return () => document.removeEventListener('mousedown', handlePointerDown)
+  }, [taskActionsOpen])
 
   if (!uiState.open || !task) return null
 
@@ -128,28 +206,58 @@ export function LifeGoalTaskPeek({
           <ModalSurface
             zIndexClassName="z-[1010]"
             containerClassName="grid place-items-center overflow-hidden px-4 py-6 sm:px-6 sm:py-8"
-            panelClassName="theme-popover relative mx-auto w-[min(920px,calc(100vw-2rem))] max-w-[920px] overflow-hidden rounded-[30px] border border-white/[0.06] bg-[rgb(var(--theme-surface-elevated-rgb)/0.96)] shadow-[0_28px_90px_rgba(0,0,0,0.34)] sm:w-[min(920px,calc(100vw-3rem))]"
+            panelClassName="theme-popover relative mx-auto w-[min(920px,calc(100vw-2rem))] max-w-[920px] overflow-hidden rounded-[32px] border border-white/[0.055] bg-[rgb(var(--theme-surface-elevated-rgb)/0.965)] shadow-[0_34px_96px_rgba(15,23,42,0.24)] sm:w-[min(920px,calc(100vw-3rem))]"
             onBackdropClick={actions.onClose}
           >
             <div ref={refs.panelRef} role="dialog" aria-modal="true" aria-label="Task detail">
-              <div className="flex items-center justify-between gap-3 border-b border-white/[0.05] px-6 py-4">
+              <div className="flex items-start justify-between gap-4 border-b border-white/[0.055] px-7 py-5">
                 <div className="min-w-0">
-                  <p className="text-[11px] uppercase tracking-[0.18em] text-mist/62">Task detail</p>
+                  <p className="text-xs uppercase tracking-[0.22em] text-mist/58">Task detail</p>
+                  <p className="mt-2 text-[13px] leading-6 text-mist/48">
+                    Tighten the details, timing, and next actions without losing execution flow.
+                  </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={actions.onClose}
-                  className="inline-flex items-center rounded-full border border-white/[0.06] bg-white/[0.02] px-2.5 py-1 text-[11px] uppercase tracking-[0.14em] text-white/58 transition hover:border-white/[0.1] hover:text-white/78"
-                >
-                  Close
-                </button>
+                <div className="flex items-center gap-2" ref={taskActionsRef}>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      aria-haspopup="menu"
+                      aria-expanded={taskActionsOpen}
+                      onClick={() => setTaskActionsOpen((current) => !current)}
+                      className="theme-button-secondary inline-flex h-10 w-10 items-center justify-center rounded-full border text-sm transition"
+                    >
+                      •••
+                    </button>
+                    {taskActionsOpen ? (
+                      <div className="theme-popover absolute right-0 top-[calc(100%+8px)] z-40 min-w-[164px] overflow-hidden rounded-[18px] border border-white/[0.06] bg-[rgb(var(--theme-surface-elevated-rgb)/0.98)] p-1.5 shadow-[0_18px_40px_rgba(15,23,42,0.28)]">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTaskActionsOpen(false)
+                            actions.onToggleDeleteConfirmation('task')
+                          }}
+                          className="flex w-full items-center rounded-[14px] px-3 py-2.5 text-left text-sm text-[rgb(var(--theme-negative-rgb)/0.82)] transition hover:bg-[rgb(var(--theme-negative-rgb)/0.1)] hover:text-[rgb(var(--theme-negative-rgb)/0.96)]"
+                        >
+                          Delete task
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={actions.onClose}
+                    className="theme-button-secondary inline-flex items-center rounded-full border px-3 py-1.5 text-sm transition"
+                  >
+                    Close
+                  </button>
+                </div>
               </div>
 
-              <div className="max-h-[min(78vh,760px)] overflow-y-auto overscroll-contain px-6 py-3.5 pb-20">
-                <div className="grid gap-4 lg:grid-cols-[minmax(0,1.4fr)_minmax(220px,0.6fr)]">
-                  <div className="space-y-3.5">
-                    <div className="max-w-[34rem] space-y-1">
-                      <p className="text-[11px] uppercase tracking-[0.18em] text-mist/58">Task</p>
+              <div className="max-h-[min(78vh,760px)] overflow-y-auto overscroll-contain px-7 py-5 pb-20">
+                <div className="grid gap-5 lg:items-stretch lg:grid-cols-[minmax(0,1.32fr)_minmax(272px,0.68fr)]">
+                  <div className="space-y-4.5">
+                    <div className="max-w-[34rem] space-y-1.5">
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-mist/56">Task</p>
                       <textarea
                         ref={refs.titleRef}
                         value={task.text}
@@ -161,23 +269,26 @@ export function LifeGoalTaskPeek({
                       />
                     </div>
 
-                    <div className="space-y-1">
-                      <p className="text-[11px] uppercase tracking-[0.18em] text-mist/58">Description</p>
+                    <div className="border-t border-white/[0.04] pt-4">
+                    <div className="space-y-2">
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-mist/56">Notes & details</p>
                       <textarea
-                        ref={descriptionRef}
-                        value={task.description}
-                        onChange={(event) => actions.onDescriptionChange(event.target.value)}
+                        ref={notesRef}
+                        value={task.notes}
+                        onChange={(event) => actions.onNotesChange(event.target.value)}
+                        onKeyDown={(event) => handlePlainTextBulletKeyDown(event, actions.onNotesChange)}
                         onInput={(event) => autosizeTextarea(event.currentTarget)}
-                        rows={2}
+                        rows={4}
                         spellCheck={true}
-                        className="w-full resize-none overflow-hidden rounded-[20px] border border-white/[0.05] bg-white/[0.025] px-4 py-2.5 text-sm leading-6 text-white outline-none placeholder:text-white/24"
-                        placeholder="Short context for the task..."
+                        className="theme-input w-full resize-none overflow-hidden rounded-[20px] border border-white/[0.03] bg-white/[0.01] px-4 py-2.5 text-sm leading-6 outline-none"
+                        placeholder="Context, details, reminders..."
                       />
                     </div>
+                    </div>
 
-                    <div className="space-y-1.5 pt-2">
+                    <div className="space-y-1.5 pt-0.5">
                       <div className="flex items-center justify-between gap-3">
-                        <p className="text-[11px] uppercase tracking-[0.18em] text-mist/58">Subtasks</p>
+                        <p className="text-[11px] uppercase tracking-[0.18em] text-mist/56">Subtasks</p>
                         <p className="text-[11px] text-mist/42">{data.completedSubtasks.length}/{task.subtasks.length}</p>
                       </div>
                       <div className="space-y-1.5">
@@ -189,20 +300,22 @@ export function LifeGoalTaskPeek({
                             onDragOver={(event) => actions.onSubtaskReorderOver(event, subtask.id)}
                             onDrop={(event) => actions.onSubtaskReorderDrop(event, subtask.id)}
                             onDragEnd={actions.onSubtaskReorderEnd}
-                            className={`group grid grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-[14px] px-2.5 py-1.5 transition hover:bg-white/[0.03] focus-within:bg-white/[0.03] focus-within:ring-1 focus-within:ring-white/[0.06] ${
+                            className={`group grid grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-[14px] border border-white/[0.03] bg-white/[0.014] px-3 py-2 transition hover:bg-white/[0.026] focus-within:bg-white/[0.026] focus-within:ring-1 focus-within:ring-white/[0.05] ${
                               uiState.dragOverSubtaskId === subtask.id && uiState.draggedSubtaskId && uiState.draggedSubtaskId !== subtask.id ? 'bg-white/[0.045]' : ''
                             }`}
                           >
                             <button
                               type="button"
                               onClick={(event) => actions.onSubtaskToggle(subtask.id, event.currentTarget)}
-                              className={`h-[17px] w-[17px] shrink-0 rounded-full border transition ${
+                              className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border transition ${
                                 subtask.completed
-                                  ? 'border-[rgb(var(--theme-accent-rgb)/0.95)] bg-[rgb(var(--theme-accent-rgb)/0.95)]'
+                                  ? 'border-[rgb(var(--theme-accent-rgb)/0.95)] bg-[rgb(var(--theme-accent-rgb)/0.95)] shadow-[0_0_0_1px_rgb(var(--theme-accent-rgb)/0.12)]'
                                   : 'border-white/[0.22] bg-transparent hover:border-white/[0.34]'
                               }`}
                               aria-label={subtask.completed ? 'Mark subtask incomplete' : 'Mark subtask complete'}
-                            />
+                            >
+                              {subtask.completed ? <span aria-hidden="true" className="text-[10px] text-black/80">✓</span> : null}
+                            </button>
                             <input
                               ref={(element) => actions.setSubtaskInputRef(subtask.id, element)}
                               value={subtask.text}
@@ -231,132 +344,111 @@ export function LifeGoalTaskPeek({
                             </button>
                           </div>
                         ))}
-                        {data.completedSubtasks.length > 0 ? (
-                          <div className="pt-0.5">
+                        <div className={data.activeSubtasks.length > 0 ? 'mt-2.5 border-t border-white/[0.04] pt-3' : 'pt-1'}>
+                          {uiState.subtaskEntryOpen ? (
+                            <div className="grid grid-cols-[18px_minmax(0,1fr)] items-center gap-2.5 rounded-[14px] border border-white/[0.045] bg-white/[0.012] px-3 py-2">
+                              <span aria-hidden="true" className="flex h-4 w-4 items-center justify-center text-[14px] text-white/38">
+                                +
+                              </span>
+                              <input
+                                ref={refs.subtaskDraftRef}
+                                value={uiState.subtaskDraft}
+                                onChange={(event) => actions.setSubtaskDraft(event.target.value)}
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) {
+                                    event.preventDefault()
+                                    actions.onAddSubtask()
+                                  }
+                                  if (event.key === 'Escape') {
+                                    event.preventDefault()
+                                    actions.setSubtaskDraft('')
+                                    actions.setSubtaskEntryOpen(false)
+                                  }
+                                }}
+                                spellCheck={true}
+                                className="w-full bg-transparent text-sm leading-5 text-white/88 outline-none placeholder:text-white/24"
+                                placeholder="Add subtask"
+                                autoFocus
+                              />
+                            </div>
+                          ) : (
                             <button
                               type="button"
-                              onClick={() => actions.setCompletedSubtasksOpen((current) => !current)}
-                              className="flex w-full items-center justify-between gap-3 rounded-[14px] px-2 py-1 text-left text-[11px] uppercase tracking-[0.14em] text-mist/46 transition hover:bg-white/[0.02] hover:text-white/64"
-                            >
-                              <span>Completed ({data.completedSubtasks.length})</span>
-                              <span className="text-white/34">{uiState.completedSubtasksOpen ? '−' : '+'}</span>
-                            </button>
-                            <AnimatePresence initial={false}>
-                              {uiState.completedSubtasksOpen ? (
-                                <motion.div
-                                  initial={{ opacity: 0, height: 0, y: -4 }}
-                                  animate={{ opacity: 1, height: 'auto', y: 0 }}
-                                  exit={{ opacity: 0, height: 0, y: -4 }}
-                                  transition={{ duration: 0.16, ease: 'easeOut' }}
-                                  className="overflow-hidden"
-                                >
-                                  <div className="mt-1 space-y-0.5">
-                                    {data.completedSubtasks.map((subtask) => (
-                                      <div
-                                        key={subtask.id}
-                                        className="grid grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-[12px] px-2 py-1.5"
-                                      >
-                                        <span aria-hidden="true" className="text-[12px] leading-none text-white/36">
-                                          ✓
-                                        </span>
-                                        <p className="truncate text-[13px] leading-5 text-white/42">{subtask.text}</p>
-                                        <button
-                                          type="button"
-                                          onClick={(event) => actions.onSubtaskToggle(subtask.id, event.currentTarget)}
-                                          className="text-[11px] uppercase tracking-[0.14em] text-[rgb(var(--theme-info-rgb)/0.58)] transition hover:text-[rgb(var(--theme-info-rgb)/0.88)]"
-                                        >
-                                          Restore
-                                        </button>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </motion.div>
-                              ) : null}
-                            </AnimatePresence>
-                          </div>
-                        ) : null}
-                        {uiState.subtaskEntryOpen ? (
-                          <div className="grid grid-cols-[18px_minmax(0,1fr)] items-center gap-2.5 rounded-[14px] px-2.5 py-1.5 ring-1 ring-white/[0.06]">
-                            <span aria-hidden="true" className="flex h-4 w-4 items-center justify-center text-[14px] text-white/44">
-                              +
-                            </span>
-                            <input
-                              ref={refs.subtaskDraftRef}
-                              value={uiState.subtaskDraft}
-                              onChange={(event) => actions.setSubtaskDraft(event.target.value)}
-                              onKeyDown={(event) => {
-                                if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) {
-                                  event.preventDefault()
-                                  actions.onAddSubtask()
-                                }
-                                if (event.key === 'Escape') {
-                                  event.preventDefault()
-                                  actions.setSubtaskDraft('')
-                                  actions.setSubtaskEntryOpen(false)
-                                }
-                              }}
-                              spellCheck={true}
-                              className="w-full bg-transparent text-sm leading-5 text-white outline-none placeholder:text-white/24"
-                              placeholder="Add subtask"
-                              autoFocus
-                            />
-                          </div>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => actions.setSubtaskEntryOpen(true)}
-                            className="grid w-full grid-cols-[18px_minmax(0,1fr)] items-center gap-2.5 rounded-[14px] px-2.5 py-1.5 text-left text-sm text-white/48 transition hover:bg-white/[0.03] hover:text-white/72"
+                              onClick={() => actions.setSubtaskEntryOpen(true)}
+                            className="grid w-full grid-cols-[18px_minmax(0,1fr)] items-center gap-2.5 rounded-[14px] border border-dashed border-white/[0.05] bg-white/[0.012] px-3 py-2 text-left text-sm text-white/30 transition hover:border-white/[0.08] hover:bg-white/[0.018] hover:text-white/46"
                           >
-                            <span aria-hidden="true" className="flex h-4 w-4 items-center justify-center text-[14px]">
+                            <span aria-hidden="true" className="flex h-4 w-4 items-center justify-center text-[14px] text-white/38">
                               +
                             </span>
-                            <span>Add subtask</span>
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
-                    {uiState.notesOpen ? (
-                      <div className="space-y-1">
-                        <div className="flex items-center justify-between gap-3">
-                          <p className="text-[11px] uppercase tracking-[0.18em] text-mist/58">Notes</p>
-                          {task.notes.trim() ? null : (
-                            <button
-                              type="button"
-                              onClick={() => actions.setNotesOpen(false)}
-                              className="text-[11px] uppercase tracking-[0.14em] text-white/40 transition hover:text-white/66"
-                            >
-                              Hide
+                              <span>Add subtask</span>
                             </button>
                           )}
                         </div>
-                          <textarea
-                            ref={notesRef}
-                            value={task.notes}
-                            onChange={(event) => actions.onNotesChange(event.target.value)}
-                            onInput={(event) => autosizeTextarea(event.currentTarget)}
-                            rows={4}
-                            spellCheck={true}
-                            className="w-full resize-none overflow-hidden rounded-[20px] border border-white/[0.05] bg-white/[0.025] px-4 py-2.5 text-sm leading-6 text-white outline-none placeholder:text-white/24"
-                            placeholder="Optional notes..."
-                          />
+                        {data.completedSubtasks.length > 0 ? (
+                          <div className="mt-2">
+                            <div className="mt-4 border-t border-white/[0.06] pt-[10px]">
+                              <button
+                                type="button"
+                                onClick={() => actions.setCompletedSubtasksOpen((current) => !current)}
+                                className="flex w-full items-center justify-between gap-3 rounded-[14px] px-3 py-1.5 text-left text-[11px] uppercase tracking-[0.08em] text-mist/75 transition hover:bg-white/[0.02] hover:text-white/54"
+                              >
+                                <span>Completed ({data.completedSubtasks.length})</span>
+                                <span className="text-white/30">{uiState.completedSubtasksOpen ? '−' : '+'}</span>
+                              </button>
+                              <AnimatePresence initial={false}>
+                                {uiState.completedSubtasksOpen ? (
+                                  <motion.div
+                                    initial={{ opacity: 0, height: 0, y: -4 }}
+                                    animate={{ opacity: 1, height: 'auto', y: 0 }}
+                                    exit={{ opacity: 0, height: 0, y: -4 }}
+                                    transition={{ duration: 0.16, ease: 'easeOut' }}
+                                    className="overflow-hidden"
+                                  >
+                                    <div className="mt-1 space-y-1 opacity-70">
+                                      {data.completedSubtasks.map((subtask) => (
+                                        <div
+                                          key={subtask.id}
+                                          className="grid grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-[12px] border border-white/[0.024] bg-white/[0.01] px-3 py-2"
+                                        >
+                                          <span aria-hidden="true" className="text-[12px] leading-none text-white/34">
+                                            ✓
+                                          </span>
+                                          <p className="truncate text-[13px] leading-5 text-white/42 line-through decoration-white/[0.18]">{subtask.text}</p>
+                                          <button
+                                            type="button"
+                                            onClick={(event) => actions.onSubtaskToggle(subtask.id, event.currentTarget)}
+                                            className="text-[11px] uppercase tracking-[0.14em] text-[rgb(var(--theme-info-rgb)/0.54)] transition hover:text-[rgb(var(--theme-info-rgb)/0.82)]"
+                                          >
+                                            Restore
+                                          </button>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </motion.div>
+                                ) : null}
+                              </AnimatePresence>
+                            </div>
+                          </div>
+                        ) : null}
                       </div>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => actions.setNotesOpen(true)}
-                        className="inline-flex items-center rounded-full border border-white/[0.06] bg-white/[0.02] px-3 py-1.5 text-[11px] uppercase tracking-[0.14em] text-white/54 transition hover:border-white/[0.1] hover:text-white/74"
-                      >
-                        Add notes
-                      </button>
-                    )}
+                    </div>
                   </div>
 
-                  <div className="space-y-2 border-t border-white/[0.05] pt-2.5 lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
-                    <div className="space-y-0.5">
-                      {data.showMilestoneField ? (
-                        <div className="space-y-0.5">
-                          <p className="text-[11px] uppercase tracking-[0.18em] text-mist/58">Milestone</p>
+                  <div className="space-y-3 rounded-[24px] border border-white/[0.05] bg-white/[0.018] px-4 py-4 lg:h-full">
+                    <div className="space-y-3">
+                      {data.lockedMilestoneLabel ? (
+                        <div className="space-y-1.5">
+                          <p className="text-[11px] uppercase tracking-[0.18em] text-mist/56">Milestone</p>
+                          <div className="rounded-[18px] border border-white/[0.05] bg-white/[0.022] px-3 py-2">
+                            <p className="text-[11px] text-mist/48">Adding to:</p>
+                            <p className="mt-1 text-sm text-white/82">{data.lockedMilestoneLabel}</p>
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {data.showMilestoneField && !data.lockedMilestoneLabel ? (
+                        <div className="space-y-1.5">
+                          <p className="text-[11px] uppercase tracking-[0.18em] text-mist/56">Milestone</p>
                           <div className="relative">
                             <select
                               value={task.milestoneId ?? ''}
@@ -374,8 +466,8 @@ export function LifeGoalTaskPeek({
                         </div>
                       ) : null}
 
-                      <div className="space-y-0.5">
-                      <p className="text-[11px] uppercase tracking-[0.18em] text-mist/58">Due date</p>
+                      <div className="space-y-1.5">
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-mist/56">Due date</p>
                       <div ref={refs.dateFieldRef} className="relative">
                         <button
                           type="button"
@@ -483,15 +575,15 @@ export function LifeGoalTaskPeek({
                       </div>
                     </div>
 
-                    <div className="space-y-0.5">
-                      <p className="text-[11px] uppercase tracking-[0.18em] text-mist/58">Priority</p>
-                      <div className="inline-flex flex-wrap gap-1 rounded-[18px] bg-white/[0.02] p-1">
+                    <div className="space-y-1.5">
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-mist/56">Priority</p>
+                      <div className="flex w-full flex-nowrap gap-1 rounded-[18px] bg-white/[0.02] p-1">
                         {data.priorityOptions.map((option) => (
                           <button
                             key={option.value}
                             type="button"
                             onClick={() => actions.onPriorityChange(option.value)}
-                            className={`inline-flex h-6 items-center rounded-full border px-2.5 text-[10px] uppercase tracking-[0.12em] transition ${
+                            className={`inline-flex h-6 min-w-0 flex-1 items-center justify-center rounded-full border px-2 text-[10px] uppercase tracking-[0.12em] transition ${
                               task.priority === option.value
                                 ? option.value === 'high'
                                   ? 'border-[rgb(var(--theme-negative-rgb)/0.28)] bg-[rgb(var(--theme-negative-rgb)/0.08)] text-[rgb(var(--theme-negative-rgb)/0.95)]'
@@ -505,9 +597,9 @@ export function LifeGoalTaskPeek({
                       </div>
                     </div>
 
-                    <div className="space-y-0.5">
-                      <p className="text-[11px] uppercase tracking-[0.18em] text-mist/58">Tags</p>
-                      <div className="rounded-[18px] border border-white/[0.03] bg-white/[0.018] px-3 py-2 transition focus-within:border-white/[0.08] focus-within:bg-white/[0.025]">
+                    <div className="space-y-1.5">
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-mist/56">Tags</p>
+                      <div className="rounded-[18px] border border-white/[0.045] bg-white/[0.02] px-3 py-2 transition focus-within:border-white/[0.08] focus-within:bg-white/[0.025]">
                         {task.tags.length > 0 ? (
                           <div className="mb-1.5 flex flex-wrap gap-1.5">
                             {task.tags.map((tag) => (
@@ -556,38 +648,29 @@ export function LifeGoalTaskPeek({
                 </div>
               </div>
 
-              <div className="sticky bottom-0 flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.08] bg-[rgb(var(--theme-surface-elevated-rgb)/0.985)] px-6 py-2 shadow-[0_-10px_20px_rgba(0,0,0,0.12)] backdrop-blur-[10px]">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <Button
-                    variant="ghost"
-                    className="theme-danger-soft hover:border-[rgb(var(--theme-negative-rgb)/0.38)] hover:bg-[rgb(var(--theme-negative-rgb)/0.12)] hover:text-[rgb(var(--theme-negative-rgb)/0.98)]"
-                    style={{
-                      borderColor: 'rgb(var(--theme-negative-rgb) / 0.28)',
-                      backgroundColor: 'rgb(var(--theme-negative-rgb) / 0.08)',
-                    }}
-                    onClick={() => actions.onToggleDeleteConfirmation('task')}
-                  >
-                    Delete task
-                  </Button>
-                </div>
-                <div className="flex flex-wrap items-center justify-end gap-1.5">
+              <div className="sticky bottom-0 flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.055] bg-[rgb(var(--theme-surface-elevated-rgb)/0.972)] px-7 py-3.5 backdrop-blur-[8px]">
+                <p className="text-[12px] text-mist/38">Changes saved automatically</p>
+                <div className="flex flex-wrap items-center justify-end gap-2">
                   {task.completed ? (
-                    <Button variant="ghost" onClick={(event) => actions.onRestoreTask(event.currentTarget)}>
+                    <Button variant="ghost" className="px-3.5 py-2 text-sm" onClick={(event) => actions.onRestoreTask(event.currentTarget)}>
                       Restore task
                     </Button>
                   ) : (
                     <>
                       <Button
                         variant="soft"
-                        className="border-[rgb(var(--theme-accent-rgb)/0.22)] !text-[rgb(var(--theme-accent-rgb))] shadow-[0_10px_24px_rgba(0,0,0,0.12)] hover:border-[rgb(var(--theme-accent-rgb)/0.34)] hover:!text-[rgb(var(--theme-accent-rgb))]"
+                        className="px-4 py-2 text-sm border-[rgb(var(--theme-accent-rgb)/0.18)] !text-[rgb(var(--theme-accent-rgb))] hover:border-[rgb(var(--theme-accent-rgb)/0.28)] hover:!text-[rgb(var(--theme-accent-rgb))]"
                         style={{
-                          borderColor: 'rgb(var(--theme-accent-rgb) / 0.22)',
-                          backgroundColor: 'rgb(var(--theme-accent-rgb) / 0.12)',
+                          borderColor: 'rgb(var(--theme-accent-rgb) / 0.18)',
+                          backgroundColor: 'rgb(var(--theme-accent-rgb) / 0.08)',
                           color: 'rgb(var(--theme-accent-rgb))',
                         }}
                         onClick={(event) => actions.onCompleteTask(event.currentTarget)}
                       >
-                        Mark complete
+                        <span className="inline-flex items-center gap-2">
+                          <span aria-hidden="true" className="text-[13px] leading-none">✓</span>
+                          <span>Mark complete</span>
+                        </span>
                       </Button>
                     </>
                   )}

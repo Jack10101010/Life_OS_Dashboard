@@ -86,7 +86,7 @@ export function HabitTrackerSettingsModal({
 
   if (!draft) return null
 
-  const systemGoals = lifeGoals.filter((goal) => !goal.archivedAt && goal.goalType === 'system')
+  const outcomeGoals = lifeGoals.filter((goal) => !goal.archivedAt && goal.goalType === 'outcome')
   const directionalGoals = lifeGoals.filter((goal) => !goal.archivedAt && goal.goalType === 'directional')
   const safeLinkedGoalIds = draft.linkedGoalIds ?? []
   const safeLinkedDirectionIds = draft.linkedDirectionIds ?? []
@@ -291,11 +291,11 @@ export function HabitTrackerSettingsModal({
         <div className="rounded-2xl border border-[#2A2A2A] bg-[#181818] px-4 py-4">
           <div className="space-y-4">
             <div>
-              <p className="text-sm text-[#B0B0B0]">Supports system goals</p>
-              <p className="mt-1 text-xs text-[#8C8C8C]">Link this habit to the system goals it helps maintain.</p>
+              <p className="text-sm text-[#B0B0B0]">Supports goals</p>
+              <p className="mt-1 text-xs text-[#8C8C8C]">Link this habit to the outcome goals it helps support.</p>
               <div className="mt-3 flex flex-wrap gap-2">
-                {systemGoals.length > 0 ? (
-                  systemGoals.map((goal) => {
+                {outcomeGoals.length > 0 ? (
+                  outcomeGoals.map((goal) => {
                     const active = safeLinkedGoalIds.includes(goal.id)
                     return (
                       <button
@@ -313,7 +313,7 @@ export function HabitTrackerSettingsModal({
                     )
                   })
                 ) : (
-                  <p className="text-xs text-[#8C8C8C]">No system goals yet.</p>
+                  <p className="text-xs text-[#8C8C8C]">No outcome goals yet.</p>
                 )}
               </div>
             </div>

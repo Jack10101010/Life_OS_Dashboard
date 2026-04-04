@@ -292,7 +292,7 @@ export interface HabitTrackerEntryDraft {
 
 export type LifeGoalStatus = 'not-started' | 'in-motion' | 'paused' | 'complete'
 export type LifeGoalCategoryColor = 'green' | 'blue' | 'purple' | 'amber' | 'teal' | 'red' | 'neutral'
-export type LifeGoalType = 'outcome' | 'system' | 'directional'
+export type LifeGoalType = 'outcome' | 'directional'
 
 export interface LifeGoalCategoryDefinition {
   name: string
@@ -358,6 +358,7 @@ export interface LifeGoal {
   goalType: LifeGoalType
   relatedGoalIds: string[]
   milestonesEnabled: boolean
+  showProgressStrip?: boolean
   whyItMatters: string
   notes: string
   visionStatement: string

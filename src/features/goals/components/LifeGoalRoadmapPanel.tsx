@@ -6,6 +6,8 @@ type LifeGoalRoadmapPanelProps = {
     completedCount: number
     remainingCount: number
     lastCompletedText: string | null
+    roadmapLineColor?: string
+    roadmapLineWidth?: number
     milestoneSummaryText?: string
     notesContent?: ReactNode
     sortControl?: ReactNode
@@ -232,12 +234,10 @@ export function LifeGoalRoadmapPanel({
           <div className="relative">
             <span
               aria-hidden="true"
-              className="pointer-events-none absolute bottom-3 left-[12px] top-3 w-px bg-white/[0.15]"
+              className="pointer-events-none absolute bottom-3 left-[12px] top-3"
               style={{
-                background:
-                  data.currentContent
-                    ? 'linear-gradient(180deg, rgb(var(--theme-border-subtle-rgb)/0.12) 0%, rgb(var(--theme-accent-rgb)/0.14) 46%, rgb(var(--theme-border-subtle-rgb)/0.12) 100%)'
-                    : undefined,
+                width: `${data.roadmapLineWidth ?? 1}px`,
+                backgroundColor: data.currentContent ? data.roadmapLineColor : 'rgb(var(--theme-border-subtle-rgb) / 0.16)',
               }}
             />
             {data.currentContent}
