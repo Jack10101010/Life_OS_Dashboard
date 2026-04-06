@@ -67,6 +67,7 @@ export function TopBar({
       className={`theme-border-subtle border-b ${
         isGoalsPage ? 'pt-3 pb-3 sm:pt-3.5 sm:pb-3.5' : 'pt-5 pb-4 sm:pt-6 sm:pb-5'
       }`}
+      style={isGoalsPage ? { borderBottomColor: 'rgba(255,255,255,0.055)' } : undefined}
     >
       <PageContainer width="wide" className={sidebarCollapsed ? 'lg:pl-16' : ''}>
         <div className={`flex flex-col ${isGoalsPage ? 'gap-2' : 'gap-4'} lg:flex-row lg:items-center lg:justify-between`}>

@@ -8,6 +8,8 @@ type LifeGoalRoadmapPanelProps = {
     lastCompletedText: string | null
     roadmapLineColor?: string
     roadmapLineWidth?: number
+    roadmapTimelineX?: number
+    roadmapContentInset?: number
     milestoneSummaryText?: string
     notesContent?: ReactNode
     sortControl?: ReactNode
@@ -45,6 +47,8 @@ export function LifeGoalRoadmapPanel({
 }: LifeGoalRoadmapPanelProps) {
   const [controlsOpen, setControlsOpen] = useState(false)
   const controlsRef = useRef<HTMLDivElement | null>(null)
+  const timelineX = data.roadmapTimelineX ?? 12
+  const contentInset = data.roadmapContentInset ?? 36
 
   useEffect(() => {
     if (!controlsOpen) return
@@ -229,13 +233,14 @@ export function LifeGoalRoadmapPanel({
         {uiState.progressView === 'notes' ? (
           data.notesContent ?? <p className="pb-4 text-sm text-mist">{data.emptyMessage}</p>
         ) : uiState.progressView === 'milestones' ? (
-          data.milestoneContent ?? <p className="pb-4 pl-[36px] text-sm text-mist">{data.emptyMessage}</p>
+          data.milestoneContent ?? <p className="pb-4 text-sm text-mist" style={{ paddingLeft: `${contentInset}px` }}>{data.emptyMessage}</p>
         ) : data.plannedTaskCount > 0 ? (
           <div className="relative">
             <span
               aria-hidden="true"
-              className="pointer-events-none absolute bottom-3 left-[12px] top-3"
+              className="pointer-events-none absolute bottom-3 top-3"
               style={{
+                left: `${timelineX}px`,
                 width: `${data.roadmapLineWidth ?? 1}px`,
                 backgroundColor: data.currentContent ? data.roadmapLineColor : 'rgb(var(--theme-border-subtle-rgb) / 0.16)',
               }}
@@ -247,7 +252,8 @@ export function LifeGoalRoadmapPanel({
                 <button
                   type="button"
                   onClick={actions.onToggleCompleted}
-                  className="flex w-full items-center justify-between gap-3 pb-2 pl-[36px] text-left text-[11px] uppercase tracking-[0.16em] text-mist/56 transition hover:text-white/68"
+                  className="flex w-full items-center justify-between gap-3 pb-2 text-left text-[11px] uppercase tracking-[0.16em] text-mist/56 transition hover:text-white/68"
+                  style={{ paddingLeft: `${contentInset}px` }}
                 >
                   <span>Completed · {data.completedCount}</span>
                   <span className="text-white/34">{uiState.completedOpen ? '−' : '+'}</span>
@@ -256,11 +262,11 @@ export function LifeGoalRoadmapPanel({
               </div>
             ) : null}
             {!data.currentContent && !data.upcomingContent ? (
-              <p className="pb-4 pl-[36px] text-sm text-mist">{data.emptyMessage}</p>
+              <p className="pb-4 text-sm text-mist" style={{ paddingLeft: `${contentInset}px` }}>{data.emptyMessage}</p>
             ) : null}
           </div>
         ) : (
-          <p className="pb-4 pl-[36px] text-sm text-mist">{data.emptyMessage}</p>
+          <p className="pb-4 text-sm text-mist" style={{ paddingLeft: `${contentInset}px` }}>{data.emptyMessage}</p>
         )}
       </div>
 

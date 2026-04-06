@@ -359,10 +359,13 @@ export interface LifeGoal {
   relatedGoalIds: string[]
   milestonesEnabled: boolean
   showProgressStrip?: boolean
+  showExpectedProgressLine?: boolean
   whyItMatters: string
   notes: string
   visionStatement: string
   visionImages: string[]
+  visionMode?: 'images' | 'statement' | 'images-statement'
+  visionCollapsed?: boolean
   minimumVersion: string
   ifThenPlan: string
   startDate: string

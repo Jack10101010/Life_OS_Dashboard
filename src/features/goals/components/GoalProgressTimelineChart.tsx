@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { LifeGoalTask } from '../../../types'
 
 type TimeframeOption = {
@@ -223,15 +223,23 @@ export function GoalProgressTimelineChart({
   goalStartDate,
   goalCreatedAt,
   goalTargetDate,
+  showExpectedProgressDefault = true,
+  onShowExpectedProgressChange,
 }: {
   tasks: LifeGoalTask[]
   goalStartDate: string
   goalCreatedAt: string
   goalTargetDate?: string | null
+  showExpectedProgressDefault?: boolean
+  onShowExpectedProgressChange?: (value: boolean) => void
 }) {
   const [timeframeDays, setTimeframeDays] = useState(30)
   const [hoveredPointDate, setHoveredPointDate] = useState<string | null>(null)
-  const [showExpectedProgress, setShowExpectedProgress] = useState(true)
+  const [showExpectedProgress, setShowExpectedProgress] = useState(showExpectedProgressDefault)
+
+  useEffect(() => {
+    setShowExpectedProgress(showExpectedProgressDefault)
+  }, [showExpectedProgressDefault])
   const todayIsoDate = getTodayIsoDate()
   const timeframeStartDate = shiftIsoDate(todayIsoDate, -(timeframeDays - 1))
   const goalAnchorDate = isValidIsoDate(goalStartDate)
@@ -305,7 +313,11 @@ export function GoalProgressTimelineChart({
           {expectedLinePath ? (
             <button
               type="button"
-              onClick={() => setShowExpectedProgress((current) => !current)}
+              onClick={() => {
+                const nextValue = !showExpectedProgress
+                setShowExpectedProgress(nextValue)
+                onShowExpectedProgressChange?.(nextValue)
+              }}
               className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] tracking-[0.08em] transition ${
                 shouldShowExpectedLine
                   ? 'border-[rgb(var(--theme-accent-rgb)/0.12)] bg-[rgb(var(--theme-accent-rgb)/0.045)] text-[rgb(var(--theme-accent-rgb)/0.58)]'

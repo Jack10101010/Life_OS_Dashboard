@@ -17,6 +17,7 @@ import {
   useReturnFocusOnClose,
 } from '../../components/layout/OverlayPrimitives'
 import { Button } from '../../components/ui/Button'
+import { readJsonStorage, writeJsonStorage } from '../../lib/persistence/storage'
 import {
   getAchievementDetailLabel,
   getTrackerGoalLabel,
@@ -78,6 +79,27 @@ type GoalDetailItem =
 
 type GoalsView = 'life-overview' | 'life-detail' | 'habit-goals'
 type LifeGoalDetailTab = 'focus' | 'tasks' | 'roadmap' | 'why' | 'progress'
+type GoalOverviewViewMode = 'list' | 'board' | 'timeline'
+type GoalOverviewGroupBy = 'none' | 'status' | 'category' | 'life-direction'
+type GoalOverviewSortBy = 'manual' | 'due' | 'priority' | 'updated'
+type GoalOverviewColumnKey =
+  | 'category'
+  | 'belongsTo'
+  | 'due'
+  | 'status'
+  | 'milestones'
+  | 'startDate'
+  | 'targetDate'
+  | 'priority'
+type GoalOverviewColumns = Record<GoalOverviewColumnKey, boolean>
+type GoalOverviewViewControls = {
+  view: GoalOverviewViewMode
+  groupBy: GoalOverviewGroupBy
+  sortBy: GoalOverviewSortBy
+  showCompleted: boolean
+  columns: GoalOverviewColumns
+  columnOrder: GoalOverviewColumnKey[]
+}
 type LifeGoalComposerMode = 'create' | 'edit'
 type LifeGoalOverviewMode = 'manual' | 'grouped'
 type LifeGoalOverviewDensity = 'compact' | 'expanded'
@@ -215,6 +237,79 @@ type CompletionPulseState = {
 type LifeGoalVisionMode = 'images' | 'statement' | 'images-statement'
 type LifeGoalVisionEditMode = LifeGoalVisionMode | 'hide'
 
+const GOAL_OVERVIEW_VIEW_CONTROLS_STORAGE_KEY = 'goals-overview-view-controls-v1'
+const GOAL_OVERVIEW_COLUMN_ORDER: GoalOverviewColumnKey[] = [
+  'priority',
+  'category',
+  'belongsTo',
+  'due',
+  'startDate',
+  'targetDate',
+  'milestones',
+  'status',
+]
+const DEFAULT_GOAL_OVERVIEW_COLUMNS: GoalOverviewColumns = {
+  category: true,
+  belongsTo: true,
+  due: true,
+  status: true,
+  milestones: false,
+  startDate: true,
+  targetDate: true,
+  priority: true,
+}
+const DEFAULT_GOAL_OVERVIEW_VIEW_CONTROLS: GoalOverviewViewControls = {
+  view: 'list',
+  groupBy: 'none',
+  sortBy: 'manual',
+  showCompleted: false,
+  columns: DEFAULT_GOAL_OVERVIEW_COLUMNS,
+  columnOrder: GOAL_OVERVIEW_COLUMN_ORDER,
+}
+
+function normalizeGoalOverviewViewControls(
+  value: Partial<GoalOverviewViewControls> | null | undefined,
+): GoalOverviewViewControls {
+  const candidateColumnOrder = Array.isArray(value?.columnOrder)
+    ? value.columnOrder.filter((column): column is GoalOverviewColumnKey => GOAL_OVERVIEW_COLUMN_ORDER.includes(column as GoalOverviewColumnKey))
+    : []
+  const normalizedColumnOrder = [
+    ...candidateColumnOrder,
+    ...GOAL_OVERVIEW_COLUMN_ORDER.filter((column) => !candidateColumnOrder.includes(column)),
+  ]
+
+  return {
+    view:
+      value?.view === 'list' || value?.view === 'board' || value?.view === 'timeline'
+        ? value.view
+        : DEFAULT_GOAL_OVERVIEW_VIEW_CONTROLS.view,
+    groupBy:
+      value?.groupBy === 'none' ||
+      value?.groupBy === 'status' ||
+      value?.groupBy === 'category' ||
+      value?.groupBy === 'life-direction'
+        ? value.groupBy
+        : DEFAULT_GOAL_OVERVIEW_VIEW_CONTROLS.groupBy,
+    sortBy:
+      value?.sortBy === 'manual' ||
+      value?.sortBy === 'due' ||
+      value?.sortBy === 'priority' ||
+      value?.sortBy === 'updated'
+        ? value.sortBy
+        : DEFAULT_GOAL_OVERVIEW_VIEW_CONTROLS.sortBy,
+    showCompleted:
+      typeof value?.showCompleted === 'boolean'
+        ? value.showCompleted
+        : DEFAULT_GOAL_OVERVIEW_VIEW_CONTROLS.showCompleted,
+    columns: {
+      ...DEFAULT_GOAL_OVERVIEW_COLUMNS,
+      ...(value?.columns ?? {}),
+      milestones: false,
+    },
+    columnOrder: normalizedColumnOrder,
+  }
+}
+
 function createLifeGoalDraftTask(text = ''): LifeGoalDraftTask {
   return {
     id: `life-goal-draft-task-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
@@ -340,6 +435,26 @@ function formatDate(date: string) {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
+  })
+}
+
+function formatDateShortYear(date: string) {
+  return new Date(`${date}T00:00:00Z`).toLocaleDateString('en-IE', {
+    day: 'numeric',
+    month: 'short',
+    year: '2-digit',
+  })
+}
+
+function formatDateContextual(date: string) {
+  const targetDate = new Date(`${date}T00:00:00Z`)
+  const today = new Date(`${getTodayIsoDate()}T00:00:00Z`)
+  const sameYear = targetDate.getUTCFullYear() === today.getUTCFullYear()
+
+  return targetDate.toLocaleDateString('en-IE', {
+    day: 'numeric',
+    month: 'short',
+    ...(sameYear ? {} : { year: '2-digit' as const }),
   })
 }
 
@@ -784,6 +899,13 @@ function getLifeGoalCategoryChipStyle(color: LifeGoalCategoryColor) {
   }
 }
 
+function getLifeGoalCategoryChipTextStyle(color: LifeGoalCategoryColor) {
+  const variable = getLifeGoalCategoryColorTokenVariable(color)
+  return {
+    color: `rgb(var(${variable}) / 0.82)`,
+  }
+}
+
 function getLifeGoalAccentBarStyle(color: LifeGoalCategoryColor): CSSProperties {
   const variable = getLifeGoalCategoryColorTokenVariable(color)
   return {
@@ -1000,10 +1122,13 @@ function createLifeGoalFromDraft(draft: LifeGoalDraft): LifeGoal {
     relatedGoalIds: Array.from(new Set(draft.relatedGoalIds.filter(Boolean))),
     milestonesEnabled: draft.goalType === 'outcome' ? draft.milestonesEnabled : false,
     showProgressStrip: draft.showProgressStrip,
+    showExpectedProgressLine: true,
     whyItMatters: draft.whyItMatters.trim(),
     notes: '',
     visionStatement: '',
     visionImages: [],
+    visionCollapsed: true,
+    visionMode: 'images',
     minimumVersion: draft.minimumVersion.trim(),
     ifThenPlan: draft.ifThenPlan.trim(),
     startDate: draft.startDate,
@@ -1584,6 +1709,18 @@ export function GoalsPage({
   const [lifeGoalOverviewMode, setLifeGoalOverviewMode] = useState<LifeGoalOverviewMode>('manual')
   const [lifeGoalOverviewDensity, setLifeGoalOverviewDensity] = useState<LifeGoalOverviewDensity>('compact')
   const [lifeGoalOverviewSort, setLifeGoalOverviewSort] = useState<LifeGoalOverviewSort>('due')
+  const [goalOverviewViewControls, setGoalOverviewViewControls] = useState<GoalOverviewViewControls>(() =>
+    normalizeGoalOverviewViewControls(readJsonStorage<GoalOverviewViewControls>(GOAL_OVERVIEW_VIEW_CONTROLS_STORAGE_KEY)),
+  )
+  const [goalOverviewControlsPanelOpen, setGoalOverviewControlsPanelOpen] = useState(false)
+  const [goalOverviewCompletedOpen, setGoalOverviewCompletedOpen] = useState(false)
+  const [goalOverviewDraggedColumn, setGoalOverviewDraggedColumn] = useState<Exclude<GoalOverviewColumnKey, 'milestones'> | null>(null)
+  const [goalOverviewStatusMenuGoalId, setGoalOverviewStatusMenuGoalId] = useState<string | null>(null)
+  const [goalOverviewActiveDateField, setGoalOverviewActiveDateField] = useState<{
+    goalId: string
+    field: 'startDate' | 'targetDate'
+  } | null>(null)
+  const [goalOverviewDatePanelPosition, setGoalOverviewDatePanelPosition] = useState<FloatingPanelPosition | null>(null)
   const [lifeGoalOverviewViewMenuOpen, setLifeGoalOverviewViewMenuOpen] = useState(false)
   const [lifeGoalOverviewViewPanelPosition, setLifeGoalOverviewViewPanelPosition] = useState<FloatingPanelPosition | null>(null)
   const [lifeGoalOverviewSortMenuOpen, setLifeGoalOverviewSortMenuOpen] = useState(false)
@@ -1604,6 +1741,11 @@ export function GoalsPage({
   const editGoalActionsButtonRef = useRef<HTMLButtonElement | null>(null)
   const editGoalActionsMenuRef = useRef<HTMLDivElement | null>(null)
   const lifeGoalOverviewViewFieldRef = useRef<HTMLDivElement | null>(null)
+  const goalOverviewControlsPanelRef = useRef<HTMLDivElement | null>(null)
+  const goalOverviewStatusMenuRef = useRef<HTMLDivElement | null>(null)
+  const goalOverviewDatePanelRef = useRef<HTMLDivElement | null>(null)
+  const goalOverviewStartDateFieldRefs = useRef<Record<string, HTMLButtonElement | null>>({})
+  const goalOverviewTargetDateFieldRefs = useRef<Record<string, HTMLButtonElement | null>>({})
   const lifeGoalOverviewSortFieldRef = useRef<HTMLDivElement | null>(null)
   const lifeGoalCategoryPanelRef = useRef<HTMLDivElement | null>(null)
   const lifeGoalOverviewCategoryFieldRef = useRef<HTMLDivElement | null>(null)
@@ -1639,6 +1781,9 @@ export function GoalsPage({
   const goalCompletionFlashTimeoutRef = useRef<number | null>(null)
   const taskPeekDeleteDialogRef = useRef<HTMLDivElement | null>(null)
   const taskPeekDeleteTriggerRef = useRef<HTMLElement | null>(null)
+  const suppressGoalOverviewRowClickRef = useRef(false)
+  const goalOverviewStatusDismissUntilRef = useRef(0)
+  const goalOverviewDateDismissUntilRef = useRef(0)
   const [pendingDraftTaskFocusId, setPendingDraftTaskFocusId] = useState<string | null>(null)
 
   const sortedLifeGoals = useMemo(() => sortLifeGoals(safeLifeGoals.filter((goal) => !goal.archivedAt)), [safeLifeGoals])
@@ -1772,11 +1917,11 @@ export function GoalsPage({
     selectedLifeGoal?.visionStatement.trim() || (selectedLifeGoal?.visionImages.length ?? 0) > 0,
   )
   const selectedLifeGoalVisionCollapsed = selectedLifeGoal
-    ? (visionCollapsedByGoal[selectedLifeGoal.id] ?? !selectedLifeGoalHasVision)
+    ? (visionCollapsedByGoal[selectedLifeGoal.id] ?? selectedLifeGoal.visionCollapsed ?? !selectedLifeGoalHasVision)
     : false
   const selectedLifeGoalVisionEditorOpen = selectedLifeGoal ? (visionEditorOpenByGoal[selectedLifeGoal.id] ?? false) : false
   const selectedLifeGoalVisionMode = selectedLifeGoal
-    ? (visionModeByGoal[selectedLifeGoal.id] ?? inferLifeGoalVisionMode(selectedLifeGoal))
+    ? (visionModeByGoal[selectedLifeGoal.id] ?? selectedLifeGoal.visionMode ?? inferLifeGoalVisionMode(selectedLifeGoal))
     : 'images'
   const selectedLifeGoalVisionEditMode = selectedLifeGoal
     ? (visionEditModeByGoal[selectedLifeGoal.id] ?? (selectedLifeGoalVisionCollapsed && selectedLifeGoalHasVision ? 'hide' : selectedLifeGoalVisionMode))
@@ -1913,6 +2058,7 @@ export function GoalsPage({
     onUpdateLifeGoal(selectedLifeGoal.id, (goal) => ({
       ...goal,
       visionStatement: value.slice(0, 120),
+      visionMode: 'statement',
       updatedAt: new Date().toISOString(),
     }))
   }
@@ -2017,10 +2163,18 @@ export function GoalsPage({
 
   const setSelectedLifeGoalVisionCollapsed = (value: boolean | ((current: boolean) => boolean)) => {
     if (!selectedLifeGoal) return
+    const nextValue =
+      typeof value === 'function'
+        ? value(visionCollapsedByGoal[selectedLifeGoal.id] ?? selectedLifeGoal.visionCollapsed ?? false)
+        : value
     setVisionCollapsedByGoal((current) => ({
       ...current,
-      [selectedLifeGoal.id]:
-        typeof value === 'function' ? value(current[selectedLifeGoal.id] ?? false) : value,
+      [selectedLifeGoal.id]: nextValue,
+    }))
+    onUpdateLifeGoal(selectedLifeGoal.id, (goal) => ({
+      ...goal,
+      visionCollapsed: nextValue,
+      updatedAt: new Date().toISOString(),
     }))
   }
 
@@ -2067,6 +2221,12 @@ export function GoalsPage({
         ...current,
         [selectedLifeGoal.id]: selectedLifeGoalVisionEditMode,
       }))
+      onUpdateLifeGoal(selectedLifeGoal.id, (goal) => ({
+        ...goal,
+        visionMode: selectedLifeGoalVisionEditMode,
+        visionCollapsed: false,
+        updatedAt: new Date().toISOString(),
+      }))
     }
     setSelectedLifeGoalVisionEditorOpen(false)
   }
@@ -2101,6 +2261,7 @@ export function GoalsPage({
     onUpdateLifeGoal(selectedLifeGoal.id, (goal) => ({
       ...goal,
       visionImages: [...goal.visionImages, ...validImages].slice(0, LIFE_GOAL_VISION_IMAGE_LIMIT),
+      visionMode: 'images',
       updatedAt: new Date().toISOString(),
     }))
   }
@@ -3154,6 +3315,48 @@ export function GoalsPage({
     }))
   }
 
+  const scheduleLifeGoalFromList = (goalId: string) => {
+    const today = getTodayIsoDate()
+    const tomorrowDate = new Date(`${today}T00:00:00Z`)
+    tomorrowDate.setUTCDate(tomorrowDate.getUTCDate() + 1)
+    const tomorrow = tomorrowDate.toISOString().slice(0, 10)
+
+    onUpdateLifeGoal(goalId, (goal) => ({
+      ...goal,
+      status: 'not-started',
+      startDate: isValidIsoDate(goal.startDate) && goal.startDate > today ? goal.startDate : tomorrow,
+      updatedAt: new Date().toISOString(),
+    }))
+  }
+
+  const openGoalOverviewDatePicker = (goalId: string, field: 'startDate' | 'targetDate') => {
+    const goal = safeLifeGoals.find((item) => item.id === goalId)
+    if (!goal) return
+
+    const activeDateValue = goal[field]
+    const nextViewMonth = isValidIsoDate(activeDateValue)
+      ? startOfCalendarMonth(new Date(`${activeDateValue}T00:00:00Z`))
+      : startOfCalendarMonth(getCalendarMonthDate())
+
+    setLifeGoalDateViewMonth(nextViewMonth)
+    setGoalOverviewActiveDateField((current) =>
+      current?.goalId === goalId && current.field === field ? null : { goalId, field },
+    )
+    if (goalOverviewActiveDateField?.goalId === goalId && goalOverviewActiveDateField.field === field) {
+      setGoalOverviewDatePanelPosition(null)
+    }
+  }
+
+  const applyGoalOverviewDate = (goalId: string, field: 'startDate' | 'targetDate', value: string) => {
+    onUpdateLifeGoal(goalId, (goal) => ({
+      ...goal,
+      [field]: value,
+      updatedAt: new Date().toISOString(),
+    }))
+    setGoalOverviewActiveDateField(null)
+    setGoalOverviewDatePanelPosition(null)
+  }
+
   const linkHabitToLifeGoal = (goalId: string, trackerId: string) => {
     onUpdateLifeGoal(goalId, (goal) => ({
       ...goal,
@@ -3466,6 +3669,105 @@ export function GoalsPage({
   }, [lifeGoalOverviewSortMenuOpen])
 
   useEffect(() => {
+    writeJsonStorage(GOAL_OVERVIEW_VIEW_CONTROLS_STORAGE_KEY, goalOverviewViewControls)
+  }, [goalOverviewViewControls])
+
+  useEffect(() => {
+    if (!goalOverviewControlsPanelOpen) return
+
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node
+      if (!goalOverviewControlsPanelRef.current?.contains(target)) {
+        setGoalOverviewControlsPanelOpen(false)
+      }
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setGoalOverviewControlsPanelOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [goalOverviewControlsPanelOpen])
+
+  useEffect(() => {
+    if (!goalOverviewStatusMenuGoalId) return
+
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node
+      const targetElement = target instanceof Element ? target : null
+      const clickedStatusTrigger = targetElement?.closest('[data-goal-status-trigger="true"]')
+      if (!goalOverviewStatusMenuRef.current?.contains(target) && !clickedStatusTrigger) {
+        goalOverviewStatusDismissUntilRef.current = Date.now() + 220
+        suppressGoalOverviewRowClickRef.current = true
+        setGoalOverviewStatusMenuGoalId(null)
+        event.preventDefault()
+        event.stopPropagation()
+        window.setTimeout(() => {
+          suppressGoalOverviewRowClickRef.current = false
+        }, 240)
+      }
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setGoalOverviewStatusMenuGoalId(null)
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown, true)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown, true)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [goalOverviewStatusMenuGoalId])
+
+  useEffect(() => {
+    if (!goalOverviewActiveDateField) return
+
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node
+      const activeFieldRef =
+        goalOverviewActiveDateField.field === 'startDate'
+          ? goalOverviewStartDateFieldRefs.current[goalOverviewActiveDateField.goalId]
+          : goalOverviewTargetDateFieldRefs.current[goalOverviewActiveDateField.goalId]
+
+      if (!activeFieldRef?.contains(target) && !goalOverviewDatePanelRef.current?.contains(target)) {
+        goalOverviewDateDismissUntilRef.current = Date.now() + 220
+        suppressGoalOverviewRowClickRef.current = true
+        setGoalOverviewActiveDateField(null)
+        setGoalOverviewDatePanelPosition(null)
+        event.preventDefault()
+        event.stopPropagation()
+        window.setTimeout(() => {
+          suppressGoalOverviewRowClickRef.current = false
+        }, 240)
+      }
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setGoalOverviewActiveDateField(null)
+        setGoalOverviewDatePanelPosition(null)
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown, true)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown, true)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [goalOverviewActiveDateField])
+
+  useEffect(() => {
     if (!lifeGoalComposerOpen) return
 
     const previousOverflow = document.body.style.overflow
@@ -3548,6 +3850,34 @@ export function GoalsPage({
       window.removeEventListener('scroll', updatePosition, true)
     }
   }, [lifeGoalActiveDateField])
+
+  useEffect(() => {
+    if (!goalOverviewActiveDateField) return
+
+    const updatePosition = () => {
+      const activeFieldRef =
+        goalOverviewActiveDateField.field === 'startDate'
+          ? goalOverviewStartDateFieldRefs.current[goalOverviewActiveDateField.goalId]
+          : goalOverviewTargetDateFieldRefs.current[goalOverviewActiveDateField.goalId]
+      if (!activeFieldRef) return
+
+      setGoalOverviewDatePanelPosition(
+        getFloatingPanelPosition(activeFieldRef, {
+          minWidth: 320,
+          preferredWidth: 348,
+          estimatedHeight: 360,
+        }),
+      )
+    }
+
+    updatePosition()
+    window.addEventListener('resize', updatePosition)
+    window.addEventListener('scroll', updatePosition, true)
+    return () => {
+      window.removeEventListener('resize', updatePosition)
+      window.removeEventListener('scroll', updatePosition, true)
+    }
+  }, [goalOverviewActiveDateField])
 
   useEffect(() => {
     if (!lifeGoalStatusMenuOpen || !lifeGoalStatusFieldRef.current) return
@@ -4658,841 +4988,1082 @@ export function GoalsPage({
   }
 
 const renderLifeGoalOverviewPage = () => {
-    const overviewDropdownTriggerClassName =
-      'theme-surface-soft inline-flex h-7 min-w-[118px] items-center justify-between rounded-full border border-white/[0.05] px-2.5 text-[11px] font-medium text-white/56 transition hover:border-white/[0.08] hover:text-[rgb(var(--theme-text-primary-rgb)/0.84)]'
-    const overviewDropdownPanelClassName =
-      'theme-popover min-w-[188px] overflow-hidden rounded-[18px] border border-white/[0.06] bg-[rgb(var(--theme-surface-elevated-rgb)/0.96)] p-1.5 shadow-[0_18px_40px_rgba(15,23,42,0.18)]'
-    const viewLabel =
-      lifeGoalOverviewMode === 'grouped'
-        ? 'Grouped'
-        : lifeGoalOverviewDensity === 'compact'
-          ? 'Compact'
-          : 'Expanded'
-    const sortLabel =
-      lifeGoalOverviewSort === 'due'
-        ? 'Due'
-        : lifeGoalOverviewSort === 'recent'
-          ? 'Recently added'
-          : lifeGoalOverviewSort === 'name'
-            ? 'A → Z'
-            : 'Status'
+    const allOverviewGoals = sortedLifeGoals.filter((goal) => !goal.archivedAt)
+    const activeOverviewGoals = allOverviewGoals.filter((goal) => goal.status !== 'complete')
+    const completedOverviewGoals = allOverviewGoals.filter((goal) => goal.status === 'complete')
+    const visiblePrimaryGoals = activeOverviewGoals
+    const hasPrimaryContent =
+      goalOverviewViewControls.view === 'board'
+        ? activeOverviewGoals.length > 0 || (goalOverviewViewControls.showCompleted && completedOverviewGoals.length > 0)
+        : visiblePrimaryGoals.length > 0
 
-    const sortOptions: Array<{ id: LifeGoalOverviewSort; label: string }> = [
-      { id: 'due', label: 'Due' },
-      { id: 'recent', label: 'Recently added' },
-      { id: 'name', label: 'A → Z' },
-      { id: 'status', label: 'Status' },
-    ]
+    const getGoalBelongsTo = (goal: LifeGoal) => {
+      const parentDirections = safeLifeGoals.filter(
+        (candidate) =>
+          !candidate.archivedAt &&
+          candidate.id !== goal.id &&
+          (candidate.goalType ?? 'outcome') === 'directional' &&
+          (candidate.relatedGoalIds ?? []).includes(goal.id),
+      )
 
-    return (
-    <div className="mx-auto max-w-[1280px] space-y-4">
-      <div className="relative z-10 border-b border-[rgb(var(--theme-border-subtle-rgb)/0.68)] pb-3">
-        <div className="flex items-center justify-between gap-4 overflow-x-auto overflow-y-visible">
-        <div className="flex min-w-0 flex-1 items-center gap-2 whitespace-nowrap">
-          <div ref={lifeGoalOverviewViewFieldRef} className="relative">
-            <button
-              type="button"
-              onClick={() => {
-                if (lifeGoalOverviewViewMenuOpen) {
-                  setLifeGoalOverviewViewMenuOpen(false)
-                  setLifeGoalOverviewViewPanelPosition(null)
-                  return
-                }
-                setLifeGoalOverviewViewMenuOpen(true)
-              }}
-              className={overviewDropdownTriggerClassName}
-            >
-              <span>{`View: ${viewLabel}`}</span>
-              <span className="ml-2 text-white/34">▾</span>
-            </button>
-          </div>
-        </div>
+      if (parentDirections.length === 0) return null
+      if (parentDirections.length === 1) return parentDirections[0].title
+      return `${parentDirections[0].title} +${parentDirections.length - 1}`
+    }
 
-        <div className="min-w-0 flex-1" />
+    const getGoalPriorityValue = (goal: LifeGoal) =>
+      goal.tasks.reduce((highest, task) => Math.max(highest, getPriorityScore(task)), 0)
 
-        <div className="flex shrink-0 items-center justify-end gap-2 whitespace-nowrap">
-          <div ref={lifeGoalOverviewCategoryFieldRef} className="relative">
-            <button
-              type="button"
-              onClick={() => {
-                if (lifeGoalOverviewCategoryMenuOpen) {
-                  setLifeGoalOverviewCategoryMenuOpen(false)
-                  setLifeGoalOverviewCategoryPanelPosition(null)
-                  return
-                }
-                setLifeGoalOverviewCategoryMenuOpen(true)
-              }}
-              className={overviewDropdownTriggerClassName}
-            >
-              <span>Categories</span>
-              <span className="ml-2 text-white/34">▾</span>
-            </button>
-          </div>
-          <div ref={lifeGoalOverviewSortFieldRef} className="relative">
-            <button
-              type="button"
-              onClick={() => {
-                if (lifeGoalOverviewSortMenuOpen) {
-                  setLifeGoalOverviewSortMenuOpen(false)
-                  setLifeGoalOverviewSortPanelPosition(null)
-                  return
-                }
-                setLifeGoalOverviewSortMenuOpen(true)
-              }}
-              className={overviewDropdownTriggerClassName}
-            >
-              <span>{`Sort: ${sortLabel}`}</span>
-              <span className="ml-2 text-white/34">▾</span>
-            </button>
-          </div>
-          <Button
-            variant="soft"
-            className="border-[rgb(var(--theme-border-strong-rgb))] bg-[linear-gradient(180deg,rgb(var(--theme-surface-elevated-rgb))_0%,rgb(var(--theme-surface-soft-rgb))_100%)] px-3.5 py-1.5 text-[11px] font-semibold tracking-[0.02em] text-white/92 shadow-[inset_0_1px_0_rgb(255_255_255_/_0.24),inset_0_-1px_0_rgb(0_0_0_/_0.1),0_0_0_1px_rgb(255_255_255_/_0.08),0_8px_18px_rgb(15_23_42_/_0.12)]"
-            style={{
-              borderColor: 'rgb(var(--theme-border-strong-rgb))',
-              boxShadow:
-                'inset 0 1px 0 rgb(255 255 255 / 0.24), inset 0 -1px 0 rgb(0 0 0 / 0.1), 0 0 0 1px rgb(255 255 255 / 0.08), 0 8px 18px rgb(15 23 42 / 0.12)',
-            }}
-            onClick={(event) => {
-              openLifeGoalComposer(event.currentTarget)
-              setLifeGoalDraft(createEmptyLifeGoalDraft())
-            }}
-          >
-            + Create Goal
-          </Button>
-        </div>
-        </div>
-      </div>
+    const getGoalPriorityLabel = (goal: LifeGoal) => {
+      const priority = getGoalPriorityValue(goal)
+      const priorityMeta = getLifeGoalTaskPriorityMeta(
+        priority >= 3 ? 'high' : priority === 2 ? 'medium' : priority === 1 ? 'low' : 'none',
+      )
+      return priorityMeta?.label ?? 'None'
+    }
 
-      {sortedLifeGoals.length === 0 && !lifeGoalComposerOpen ? (
-        <div className="theme-surface-soft rounded-[24px] border px-5 py-5">
-          <p className="theme-body-primary">No life goals yet</p>
-          <p className="theme-body-secondary mt-2">Create one meaningful direction to start using the workspace.</p>
-        </div>
-      ) : null}
+    const sortOverviewGoals = (goals: LifeGoal[]) => {
+      switch (goalOverviewViewControls.sortBy) {
+        case 'due':
+          return sortLifeGoalsByDue(goals)
+        case 'priority':
+          return [...goals].sort((left, right) => {
+            const priorityDiff = getGoalPriorityValue(right) - getGoalPriorityValue(left)
+            if (priorityDiff !== 0) return priorityDiff
+            return right.updatedAt.localeCompare(left.updatedAt)
+          })
+        case 'updated':
+          return [...goals].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+        case 'manual':
+        default:
+          return sortLifeGoals(goals)
+      }
+    }
 
-      {lifeGoalOverviewViewMenuOpen && lifeGoalOverviewViewPanelPosition && typeof document !== 'undefined'
-        ? createPortal(
-            <PopoverSurface
-              position={lifeGoalOverviewViewPanelPosition}
-              zIndexClassName="z-[90]"
-              className={overviewDropdownPanelClassName}
-            >
-              <motion.div
-                ref={lifeGoalOverviewViewPanelRef}
-                className="p-0.5"
-                initial={{ opacity: 0, scale: 0.985, y: -4 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.985, y: -4 }}
-                transition={{ duration: 0.14, ease: 'easeOut' }}
-              >
-                {[
-                  { id: 'compact', label: 'Compact' },
-                  { id: 'expanded', label: 'Expanded' },
-                  { id: 'grouped', label: 'Grouped' },
-                ].map((option) => {
-                  const active = viewLabel === option.label
-                  return (
-                    <button
-                      key={option.id}
-                      type="button"
-                      onClick={() => {
-                        if (option.id === 'grouped') {
-                          setLifeGoalOverviewMode('grouped')
-                        } else {
-                          setLifeGoalOverviewMode('manual')
-                          setLifeGoalOverviewDensity(option.id as LifeGoalOverviewDensity)
-                        }
-                        setLifeGoalOverviewViewMenuOpen(false)
-                        setLifeGoalOverviewViewPanelPosition(null)
-                      }}
-                      className={`flex w-full items-center rounded-[14px] px-3 py-2 text-left text-[12px] transition ${
-                        active
-                          ? 'bg-white/[0.06] text-[rgb(var(--theme-text-primary-rgb))]'
-                          : 'text-white/58 hover:bg-white/[0.04] hover:text-[rgb(var(--theme-text-primary-rgb)/0.88)]'
-                      }`}
-                    >
-                      {option.label}
-                    </button>
-                  )
-                })}
-              </motion.div>
-            </PopoverSurface>,
-            document.body,
-          )
-        : null}
+    const getGroupLabel = (goal: LifeGoal) => {
+      switch (goalOverviewViewControls.groupBy) {
+        case 'status':
+          return getLifeGoalStatusMeta(goal.status, goal.startDate).label
+        case 'category':
+          return goal.category.trim() || 'Uncategorized'
+        case 'life-direction':
+          return (goal.goalType ?? 'outcome') === 'directional' ? 'Life directions' : getGoalBelongsTo(goal) ?? 'Unlinked goals'
+        case 'none':
+        default:
+          return ''
+      }
+    }
 
-      {lifeGoalOverviewSortMenuOpen && lifeGoalOverviewSortPanelPosition && typeof document !== 'undefined'
-        ? createPortal(
-            <PopoverSurface
-              position={lifeGoalOverviewSortPanelPosition}
-              zIndexClassName="z-[90]"
-              className={overviewDropdownPanelClassName}
-            >
-              <motion.div
-                ref={lifeGoalOverviewSortPanelRef}
-                className="p-0.5"
-                initial={{ opacity: 0, scale: 0.985, y: -4 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.985, y: -4 }}
-                transition={{ duration: 0.14, ease: 'easeOut' }}
-              >
-                {[
-                  { id: 'due', label: 'Due' },
-                  { id: 'recent', label: 'Recently added' },
-                  { id: 'name', label: 'A → Z' },
-                  { id: 'status', label: 'Status' },
-                ].map((option) => {
-                  const active = lifeGoalOverviewSort === option.id
-                  return (
-                    <button
-                      key={option.id}
-                      type="button"
-                      onClick={() => {
-                        setLifeGoalOverviewSort(option.id as LifeGoalOverviewSort)
-                        setLifeGoalOverviewSortMenuOpen(false)
-                        setLifeGoalOverviewSortPanelPosition(null)
-                      }}
-                      className={`flex w-full items-center rounded-[14px] px-3 py-2 text-left text-[12px] transition ${
-                        active
-                          ? 'bg-white/[0.06] text-[rgb(var(--theme-text-primary-rgb))]'
-                          : 'text-white/58 hover:bg-white/[0.04] hover:text-[rgb(var(--theme-text-primary-rgb)/0.88)]'
-                      }`}
-                    >
-                      {option.label}
-                    </button>
-                  )
-                })}
-              </motion.div>
-            </PopoverSurface>,
-            document.body,
-          )
-        : null}
+    const buildGroupedGoals = (goals: LifeGoal[]) => {
+      const sorted = sortOverviewGoals(goals)
+      if (goalOverviewViewControls.groupBy === 'none') {
+        return [{ label: null, goals: sorted }]
+      }
 
-      {lifeGoalOverviewCategoryMenuOpen && lifeGoalOverviewCategoryPanelPosition && typeof document !== 'undefined'
-        ? createPortal(
-            <PopoverSurface
-              position={lifeGoalOverviewCategoryPanelPosition}
-              zIndexClassName="z-[90]"
-              className={overviewDropdownPanelClassName}
-            >
-              <motion.div
-                ref={lifeGoalOverviewCategoryPanelRef}
-                className="flex min-w-[188px] flex-col gap-1 p-0.5"
-                initial={{ opacity: 0, scale: 0.985, y: -4 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.985, y: -4 }}
-                transition={{ duration: 0.14, ease: 'easeOut' }}
-              >
-                {['all', ...usedLifeGoalCategories].map((category) => {
-                  const active = lifeGoalCategoryFilter === category
-                  const categoryColor = category === 'all' ? 'neutral' : getLifeGoalCategoryColor(category, lifeGoalCategories)
-                  return (
-                    <button
-                      key={category}
-                      type="button"
-                      onClick={() => {
-                        setLifeGoalCategoryFilter(category)
-                        setLifeGoalOverviewCategoryMenuOpen(false)
-                        setLifeGoalOverviewCategoryPanelPosition(null)
-                      }}
-                      className={`flex w-full items-center justify-between rounded-[14px] px-2.5 py-2 text-left transition ${
-                        active
-                          ? 'bg-white/[0.06] text-[rgb(var(--theme-text-primary-rgb))]'
-                          : 'text-white/58 hover:bg-white/[0.04] hover:text-[rgb(var(--theme-text-primary-rgb)/0.84)]'
-                      }`}
-                    >
-                      <span
-                        className="inline-flex items-center gap-1.5 rounded-full border px-2 py-[5px] text-[10px] font-medium tracking-[0.06em] leading-none text-[rgb(var(--theme-text-muted-rgb))]"
-                        style={getLifeGoalCategoryChipStyle(categoryColor)}
-                      >
-                        <span className="h-1.5 w-1.5 rounded-full" style={getLifeGoalCategoryDotStyle(categoryColor)} />
-                        <span>{category === 'all' ? 'All' : category}</span>
-                      </span>
-                      {active ? <span className="text-[10px] uppercase tracking-[0.12em] text-white/42">Selected</span> : null}
-                    </button>
-                  )
-                })}
-              </motion.div>
-            </PopoverSurface>,
-            document.body,
-          )
-        : null}
+      const grouped = new Map<string, LifeGoal[]>()
+      sorted.forEach((goal) => {
+        const label = getGroupLabel(goal)
+        if (!grouped.has(label)) grouped.set(label, [])
+        grouped.get(label)!.push(goal)
+      })
 
-      {visibleLifeGoals.length > 0 ? (() => {
-        const getOverviewRelationshipChips = (goal: LifeGoal) => {
-          const linkedGoals = (goal.relatedGoalIds ?? [])
-            .map((goalId) => safeLifeGoals.find((candidate) => candidate.id === goalId && candidate.id !== goal.id && !candidate.archivedAt))
-            .filter((candidate): candidate is LifeGoal => Boolean(candidate))
-            .filter((candidate, index, items) => items.findIndex((item) => item.id === candidate.id) === index)
+      return Array.from(grouped.entries()).map(([label, groupedGoals]) => ({
+        label,
+        goals: groupedGoals,
+      }))
+    }
 
-          const linkingGoals = safeLifeGoals
-            .filter(
-              (candidate) =>
-                !candidate.archivedAt &&
-                candidate.id !== goal.id &&
-                (candidate.relatedGoalIds ?? []).includes(goal.id),
-            )
-            .filter((candidate, index, items) => items.findIndex((item) => item.id === candidate.id) === index)
+    const activeGroupedGoals = buildGroupedGoals(activeOverviewGoals)
+    const completedGroupedGoals = buildGroupedGoals(completedOverviewGoals)
 
-          const relationshipGoals = [
-            ...linkedGoals.map((candidate) => ({
-              id: candidate.id,
-              label: candidate.title,
-              relationshipLabel: 'Owns',
-              isDirectional: (candidate.goalType ?? 'outcome') === 'directional',
-              direction: 'outgoing' as const,
-            })),
-            ...linkingGoals.map((candidate) => ({
-              id: candidate.id,
-              label: candidate.title,
-              relationshipLabel: 'Belongs to',
-              isDirectional: (candidate.goalType ?? 'outcome') === 'directional',
-              direction: 'incoming' as const,
-            })),
-          ].filter((candidate, index, items) => items.findIndex((item) => item.id === candidate.id) === index)
+    const updateViewControls = (updater: (current: GoalOverviewViewControls) => GoalOverviewViewControls) =>
+      setGoalOverviewViewControls((current) => normalizeGoalOverviewViewControls(updater(current)))
 
-          return {
-            labels: relationshipGoals.slice(0, 2),
-            overflow: Math.max(0, relationshipGoals.length - 2),
-          }
+    const reorderColumnBefore = (
+      sourceColumn: Exclude<GoalOverviewColumnKey, 'milestones'>,
+      targetColumn: Exclude<GoalOverviewColumnKey, 'milestones'>,
+    ) =>
+      updateViewControls((current) => {
+        const movableColumns = current.columnOrder.filter(
+          (item): item is Exclude<GoalOverviewColumnKey, 'milestones'> => item !== 'milestones',
+        )
+        const sourceIndex = movableColumns.indexOf(sourceColumn)
+        const targetIndex = movableColumns.indexOf(targetColumn)
+        if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return current
+
+        const reordered = [...movableColumns]
+        const [removed] = reordered.splice(sourceIndex, 1)
+        reordered.splice(targetIndex, 0, removed)
+
+        return {
+          ...current,
+          columnOrder: reordered,
         }
+      })
 
-        const renderOverviewGoalRow = (goal: LifeGoal) => {
-            const statusMeta = getLifeGoalStatusMeta(goal.status, goal.startDate)
-            const goalDueMeta = isValidIsoDate(goal.targetDate) ? getRelativeDueMeta(goal.targetDate) : null
-            const progress = getLifeGoalProgress(goal)
-            const categoryColor = goal.category ? getLifeGoalCategoryColor(goal.category, safeLifeGoalCategories) : 'neutral'
-            const isDirectional = (goal.goalType ?? 'outcome') === 'directional'
-            const relationshipChips = getOverviewRelationshipChips(goal)
-            const isPrimary = goal.id === featuredOverviewGoalId
-            const isSelected = goal.id === selectedLifeGoalId
-            const canDrag = lifeGoalOverviewMode === 'manual' && !goal.isPrimary
-            const dueText = isDirectional
-              ? null
-              : goalDueMeta
-              ? goalDueMeta.label
+    const renderPriorityIndicator = (goal: LifeGoal) => {
+      const priority = getGoalPriorityValue(goal)
+      if (priority <= 0) return null
+
+      const activeBars = Math.min(priority, 3)
+
+      return (
+        <span className="inline-flex h-4 translate-x-[11px] items-end gap-[2px]" aria-label={`${getGoalPriorityLabel(goal)} priority`} title={`${getGoalPriorityLabel(goal)} priority`}>
+          {[0, 1, 2].map((index) => (
+            <span
+              key={`priority-bar-${index}`}
+              className={`w-[3px] rounded-full transition ${
+                index < activeBars ? 'bg-white/50' : 'bg-white/14'
+              }`}
+              style={{ height: `${6 + index * 3}px` }}
+            />
+          ))}
+        </span>
+      )
+    }
+
+    const getCompletedGoalTimelineLabel = (goal: LifeGoal) => {
+      if (goal.status !== 'complete') return null
+
+      const startedLabel = isValidIsoDate(goal.startDate) ? formatDateShortYear(goal.startDate) : 'No start set'
+      const completedSource = goal.updatedAt?.slice(0, 10)
+      const completedLabel = isValidIsoDate(completedSource ?? '') ? formatDateShortYear(completedSource!) : 'Completed date unavailable'
+
+      return `Started ${startedLabel} · Completed ${completedLabel}`
+    }
+
+    const orderedVisibleColumnKeys = goalOverviewViewControls.columnOrder.filter(
+      (column) => column !== 'milestones' && goalOverviewViewControls.columns[column],
+    )
+
+    const columnMeta: Record<
+      GoalOverviewColumnKey,
+      {
+        label: string
+        width: string
+        render: (goal: LifeGoal) => React.ReactNode
+      }
+    > = {
+      priority: {
+        label: 'Priority',
+        width: '112px',
+        render: (goal) => renderPriorityIndicator(goal),
+      },
+      category: {
+        label: 'Category',
+        width: '112px',
+        render: (goal) => {
+          const categoryColor = goal.category ? getLifeGoalCategoryColor(goal.category, safeLifeGoalCategories) : 'neutral'
+          return goal.category ? (
+            <span
+              className="inline-flex max-w-full items-center truncate rounded-full border px-2 py-[3px] text-[10px] font-medium uppercase leading-none tracking-[0.08em]"
+              style={{ ...getLifeGoalCategoryChipStyle(categoryColor), ...getLifeGoalCategoryChipTextStyle(categoryColor) }}
+            >
+              <span className="truncate">{goal.category}</span>
+            </span>
+          ) : (
+            null
+          )
+        },
+      },
+      belongsTo: {
+        label: 'Supports',
+        width: '112px',
+        render: (goal) => {
+          const belongsTo = getGoalBelongsTo(goal)
+          return belongsTo ? (
+            <span className="relative block overflow-hidden whitespace-nowrap pr-2 text-[12px] text-[rgba(255,255,255,0.62)]">
+              <span className="block truncate">{belongsTo}</span>
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-y-0 right-0 w-6"
+                style={{ background: 'linear-gradient(to right, rgba(0,0,0,0), rgb(var(--theme-surface-rgb)))' }}
+              />
+            </span>
+          ) : null
+        },
+      },
+      due: {
+        label: 'Due',
+        width: '112px',
+        render: (goal) => {
+          if (goal.status === 'complete') {
+            return goal.targetDate ? (
+              <span className="block truncate text-[12px] text-[rgba(255,255,255,0.62)]">{formatDateShortYear(goal.targetDate)}</span>
+            ) : null
+          }
+          const daysUntilDue =
+            isValidIsoDate(goal.targetDate)
+              ? Math.round(
+                  (new Date(`${goal.targetDate}T00:00:00Z`).getTime() - new Date(`${getTodayIsoDate()}T00:00:00Z`).getTime()) / 86400000,
+                )
+              : null
+          const dueToneClassName =
+            daysUntilDue !== null
+              ? daysUntilDue < 0
+                ? 'text-[rgb(var(--theme-negative-rgb)/0.92)]'
+                : daysUntilDue < 7
+                  ? 'text-[rgb(var(--theme-warning-rgb)/0.9)]'
+                  : 'text-[rgba(255,255,255,0.62)]'
+              : 'text-[rgba(255,255,255,0.62)]'
+          const dueLabel =
+            daysUntilDue !== null
+              ? daysUntilDue < 0
+                ? `Overdue ${Math.abs(daysUntilDue)} ${Math.abs(daysUntilDue) === 1 ? 'day' : 'days'}`
+                : `${daysUntilDue}d`
               : goal.targetDate
                 ? formatDate(goal.targetDate)
                 : null
-            const compactDueToneClassName = !goalDueMeta
-              ? 'text-mist/50'
-              : goalDueMeta.toneClassName === 'text-[rgb(var(--theme-negative-rgb)/0.78)]'
-                ? goalDueMeta.toneClassName
-                : goalDueMeta.toneClassName === 'text-[rgb(var(--theme-warning-rgb)/0.76)]'
-                  ? 'text-[rgb(var(--theme-warning-rgb)/0.64)]'
-                  : goalDueMeta.toneClassName === 'text-[rgb(var(--theme-warning-rgb)/0.72)]'
-                    ? 'text-[rgb(var(--theme-warning-rgb)/0.58)]'
-                    : goalDueMeta.toneClassName === 'text-[rgb(var(--theme-warning-rgb)/0.68)]'
-                      ? 'text-[rgb(var(--theme-warning-rgb)/0.56)]'
-                      : 'text-white/50'
-            return (
+          return dueLabel ? (
+            <span className={`block truncate text-[12px] ${dueToneClassName}`}>
+              {dueLabel}
+            </span>
+          ) : (
+            null
+          )
+        },
+      },
+      startDate: {
+        label: 'Start date',
+        width: '112px',
+        render: (goal) => (
+          <button
+            type="button"
+            ref={(node) => {
+              goalOverviewStartDateFieldRefs.current[goal.id] = node
+            }}
+            onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              openGoalOverviewDatePicker(goal.id, 'startDate')
+            }}
+            onMouseDown={(event) => {
+              event.stopPropagation()
+            }}
+            className="block w-full truncate rounded-[10px] px-1.5 py-1 text-left text-[12px] text-[rgba(255,255,255,0.62)] transition hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/[0.12]"
+            aria-label={goal.startDate ? `Edit start date, currently ${formatDateContextual(goal.startDate)}` : 'Set start date'}
+          >
+            {goal.startDate ? (
+              formatDateContextual(goal.startDate)
+            ) : (
+              <span className="inline-flex items-center text-white/46">
+                <svg width="19" height="19" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <rect x="2.25" y="3.25" width="11.5" height="10.5" rx="2.25" stroke="currentColor" strokeWidth="1.2" />
+                  <path d="M5 2.5V4.5M11 2.5V4.5M2.5 6.25H13.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                  <path d="M8 7.75V11.25M6.25 9.5H9.75" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                </svg>
+              </span>
+            )}
+          </button>
+        ),
+      },
+      targetDate: {
+        label: 'Target date',
+        width: '112px',
+        render: (goal) =>
+          (
+            <button
+              type="button"
+              ref={(node) => {
+                goalOverviewTargetDateFieldRefs.current[goal.id] = node
+              }}
+              onClick={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                openGoalOverviewDatePicker(goal.id, 'targetDate')
+              }}
+              onMouseDown={(event) => {
+                event.stopPropagation()
+              }}
+              className="block w-full truncate rounded-[10px] px-1.5 py-1 text-left text-[12px] text-[rgba(255,255,255,0.62)] transition hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/[0.12]"
+              aria-label={goal.targetDate ? `Edit target date, currently ${formatDateContextual(goal.targetDate)}` : 'Set target date'}
+            >
+              {goal.targetDate ? (
+                formatDateContextual(goal.targetDate)
+              ) : (
+                <span className="inline-flex items-center text-white/46">
+                  <svg width="19" height="19" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <rect x="2.25" y="3.25" width="11.5" height="10.5" rx="2.25" stroke="currentColor" strokeWidth="1.2" />
+                    <path d="M5 2.5V4.5M11 2.5V4.5M2.5 6.25H13.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                    <path d="M8 7.75V11.25M6.25 9.5H9.75" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                  </svg>
+                </span>
+              )}
+            </button>
+          ),
+      },
+      milestones: {
+        label: 'Milestones',
+        width: '92px',
+        render: (goal) => {
+          const milestoneCount = getOrderedGoalMilestones(goal).length
+          return milestoneCount > 0 ? <span className="truncate text-[12px] text-white/48">{milestoneCount}</span> : null
+        },
+      },
+      status: {
+        label: 'Status',
+        width: '112px',
+        render: (goal) => {
+          const statusMeta = getLifeGoalStatusMeta(goal.status, goal.startDate)
+          const statusLabel = statusMeta.label === 'Active' ? 'In progress' : statusMeta.label
+          const isStatusMenuOpen = goalOverviewStatusMenuGoalId === goal.id
+          const statusDotClassName =
+            statusMeta.label === 'Active'
+              ? 'bg-emerald-400'
+              : statusMeta.label === 'Scheduled'
+                ? 'bg-blue-400'
+                : statusMeta.label === 'Completed'
+                  ? 'bg-emerald-500/70'
+                  : 'bg-white/30'
+          const statusOptions: Array<{
+            id: 'in-progress' | 'not-started' | 'scheduled'
+            label: string
+            dotClassName: string
+            active: boolean
+            onSelect: () => void
+          }> = [
+            {
+              id: 'in-progress',
+              label: 'In progress',
+              dotClassName: 'bg-emerald-400',
+              active: statusMeta.label === 'Active',
+              onSelect: () => updateLifeGoalStatus(goal.id, 'in-motion'),
+            },
+            {
+              id: 'not-started',
+              label: 'Not Started',
+              dotClassName: 'bg-white/30',
+              active: goal.status === 'not-started' && !isLifeGoalScheduled(goal.status, goal.startDate),
+              onSelect: () => updateLifeGoalStatus(goal.id, 'not-started'),
+            },
+            {
+              id: 'scheduled',
+              label: 'Scheduled',
+              dotClassName: 'bg-blue-400',
+              active: isLifeGoalScheduled(goal.status, goal.startDate),
+              onSelect: () => scheduleLifeGoalFromList(goal.id),
+            },
+          ]
+          return (
+            <div className="relative flex max-w-full items-center">
               <button
-                key={goal.id}
                 type="button"
-                draggable={canDrag}
-                onDragStart={() => {
-                  if (!canDrag) return
-                  setDraggedLifeGoalId(goal.id)
-                  setDragOverLifeGoalId(goal.id)
-                }}
-                onDragEnd={() => {
-                  if (!canDrag) return
-                  setDraggedLifeGoalId(null)
-                  setDragOverLifeGoalId(null)
-                }}
-                onDragOver={(event) => {
-                  if (!canDrag || goal.isPrimary) return
+                data-goal-status-trigger="true"
+                onClick={(event) => {
                   event.preventDefault()
-                  if (dragOverLifeGoalId !== goal.id) {
-                    setDragOverLifeGoalId(goal.id)
-                  }
+                  event.stopPropagation()
+                  setGoalOverviewStatusMenuGoalId((current) => (current === goal.id ? null : goal.id))
                 }}
-                onDrop={(event) => {
-                  if (!canDrag || goal.isPrimary) return
-                  event.preventDefault()
-                  if (!draggedLifeGoalId || draggedLifeGoalId === goal.id) {
-                    setDraggedLifeGoalId(null)
-                    setDragOverLifeGoalId(null)
-                    return
-                  }
-                  const nextVisibleOrder = [...visibleLifeGoals]
-                  const fromIndex = nextVisibleOrder.findIndex((item) => item.id === draggedLifeGoalId)
-                  const toIndex = nextVisibleOrder.findIndex((item) => item.id === goal.id)
-                  if (fromIndex === -1 || toIndex === -1) return
-                  const [moved] = nextVisibleOrder.splice(fromIndex, 1)
-                  nextVisibleOrder.splice(toIndex, 0, moved)
-
-                  const reorderedVisibleIds = nextVisibleOrder.map((item) => item.id)
-                  let visibleCursor = 0
-                  const nextFullOrder = sortedLifeGoals.map((item) =>
-                    reorderedVisibleIds.includes(item.id)
-                      ? nextVisibleOrder[visibleCursor++]
-                      : item,
-                  )
-                  onReorderLifeGoals(nextFullOrder.map((item) => item.id))
-                  setDraggedLifeGoalId(null)
-                  setDragOverLifeGoalId(null)
+                onMouseDown={(event) => {
+                  event.stopPropagation()
                 }}
-                onClick={() => {
-                  onSelectLifeGoal(goal.id)
-                  setLifeGoalComposerOpen(false)
-                  setLifeGoalActionFeedback(null)
-                  onChangeGoalsView('life-detail')
-                }}
-                className={`cursor-middle-finger group relative isolate flex w-full cursor-pointer items-center justify-between gap-4 overflow-hidden rounded-[16px] border px-4 py-3 text-left transition duration-200 ease-out hover:scale-[1.005] hover:bg-[rgb(var(--theme-surface-elevated-rgb)/0.62)] hover:border-[rgb(var(--theme-border-strong-rgb)/0.84)] hover:shadow-[inset_0_1px_0_rgb(255_255_255_/_0.04),0_0_0_1px_rgb(var(--theme-border-strong-rgb)/0.08)] ${
-                  isSelected
-                    ? 'border-[rgb(var(--theme-border-strong-rgb)/0.9)] bg-[rgb(var(--theme-surface-elevated-rgb)/0.66)]'
-                    : isPrimary
-                    ? 'border-[rgb(var(--theme-border-strong-rgb))] bg-[rgb(var(--theme-surface-elevated-rgb))]'
-                    : isDirectional
-                      ? 'border-[rgb(var(--theme-border-subtle-rgb)/0.56)] bg-[rgb(var(--theme-surface-rgb)/0.72)]'
-                    : 'border-[rgb(var(--theme-border-subtle-rgb)/0.8)] bg-[rgb(var(--theme-surface-rgb)/0.94)]'
-                } ${canDrag ? 'cursor-grab active:cursor-grabbing' : ''} ${draggedLifeGoalId === goal.id ? 'opacity-60' : ''} ${dragOverLifeGoalId === goal.id && draggedLifeGoalId && draggedLifeGoalId !== goal.id ? 'border-[rgb(var(--theme-info-rgb)/0.62)]' : ''}`}
-                style={{
-                  ...(isSelected ? getLifeGoalRowHighlightStyle(categoryColor) : {}),
-                  pointerEvents: 'auto',
-                }}
+                className="flex max-w-full cursor-pointer items-center rounded-[10px] px-1.5 py-1 text-left transition hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/[0.12]"
               >
-                <span
-                  aria-hidden="true"
-                  className={`pointer-events-none absolute left-0 top-2.5 bottom-2.5 w-[2px] rounded-full bg-white/[0.09] transition-colors duration-200 ease-out ${
-                    isSelected ? 'bg-[rgb(var(--goal-rail-rgb)/0.5)]' : 'group-hover:bg-[rgb(var(--goal-rail-rgb)/0.36)]'
-                  }`}
-                  style={getLifeGoalAccentBarStyle(categoryColor)}
-                />
-
-                <div className="min-w-0 pl-2.5">
-                  <div className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-1.5">
-                    <p className={`truncate text-[15px] font-medium ${isDirectional ? 'text-white/82' : 'text-white'}`}>{formatGoalCardTitle(goal.title)}</p>
-                    {goal.category ? (
-                      <span
-                        className="inline-flex items-center gap-1.5 rounded-full border px-[7px] py-[2px] text-[10px] font-medium tracking-[0.04em] leading-none text-white/50"
-                        style={getLifeGoalCategoryChipStyle(categoryColor)}
-                      >
-                        <span className="h-1.5 w-1.5 rounded-full" style={getLifeGoalCategoryDotStyle(categoryColor)} />
-                        <span>{goal.category}</span>
-                      </span>
-                    ) : null}
-                    {relationshipChips.labels.map((item) => (
-                      <span
-                        key={`${goal.id}-relationship-row-${item.id}`}
-                        className={`inline-flex items-center gap-1 rounded-full border px-[7px] py-[2px] text-[9px] font-medium leading-none ${
-                          item.isDirectional
-                            ? 'border-white/[0.035] bg-white/[0.018] text-white/34'
-                            : 'border-white/[0.04] bg-white/[0.014] text-white/36'
+                <span className="flex max-w-full items-center gap-[5px] truncate whitespace-nowrap text-[12px] font-medium leading-[1.2] text-[rgba(255,255,255,0.62)]">
+                  <span aria-hidden="true" className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDotClassName}`} />
+                  <span className="truncate leading-[1.2]">{statusLabel}</span>
+                </span>
+              </button>
+              {isStatusMenuOpen ? (
+                <div
+                  ref={goalOverviewStatusMenuRef}
+                  className="absolute left-0 top-[calc(100%+6px)] z-[60] min-w-[148px] overflow-hidden rounded-[14px] border border-white/[0.08] bg-[rgb(var(--theme-surface-elevated-rgb))] p-1.5 shadow-[0_14px_28px_rgba(15,23,42,0.24)]"
+                  onMouseDown={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                  }}
+                  onClick={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                  }}
+                >
+                  <div className="space-y-0.5">
+                    {statusOptions.map((option) => (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onMouseDown={(event) => {
+                          event.preventDefault()
+                          event.stopPropagation()
+                        }}
+                        onClick={(event) => {
+                          event.preventDefault()
+                          event.stopPropagation()
+                          option.onSelect()
+                          setGoalOverviewStatusMenuGoalId(null)
+                        }}
+                        className={`flex w-full items-center gap-1.5 rounded-[10px] px-2.5 py-2 text-left text-[12px] leading-[1.2] transition ${
+                          option.active ? 'bg-white/[0.06] text-white/86' : 'text-white/68 hover:bg-white/[0.035] hover:text-white/84'
                         }`}
                       >
-                        <span className="text-white/24">{item.relationshipLabel}:</span>
-                        <span className="text-white/40">{item.label}</span>
-                      </span>
+                        <span aria-hidden="true" className={`h-1.5 w-1.5 shrink-0 rounded-full ${option.dotClassName}`} />
+                        <span className="truncate">{option.label}</span>
+                      </button>
                     ))}
-                    {relationshipChips.overflow > 0 ? (
-                      <span className="inline-flex items-center rounded-full border border-white/[0.04] bg-white/[0.014] px-[7px] py-[2px] text-[9px] font-medium uppercase tracking-[0.08em] leading-none text-white/32">
-                        +{relationshipChips.overflow}
-                      </span>
-                    ) : null}
-                    {goal.isPrimary ? (
-                      <span className="inline-flex items-center rounded-full border border-white/[0.05] bg-white/[0.012] px-2 py-[3px] text-[10px] font-medium uppercase tracking-[0.1em] leading-none text-white/42">
-                        Primary
-                      </span>
-                    ) : null}
                   </div>
                 </div>
-
-                <div className="relative h-6 w-[282px] shrink-0">
-                  <div className="absolute right-[146px] top-1/2 flex w-[132px] -translate-y-1/2 items-center justify-start">
-                    {dueText ? (
-                      <span className={`inline-block whitespace-nowrap text-left text-[12px] leading-[18px] tabular-nums ${compactDueToneClassName}`}>
-                        {dueText}
-                      </span>
-                    ) : null}
-                  </div>
-                  <div className="absolute right-0 top-1/2 flex w-[140px] -translate-y-1/2 justify-end">
-                    <span className={`${goalStatusChipClassName} h-6 shrink-0 px-2.5 py-0 text-[10px] ${statusMeta.badgeClassName}`}>
-                      {isLifeGoalScheduled(goal.status, goal.startDate) ? 'Scheduled' : statusMeta.label}
-                    </span>
-                  </div>
-                </div>
-              </button>
-            )
-          }
-
-        const renderOverviewGoalCard = (goal: LifeGoal) => {
-            const statusMeta = getLifeGoalStatusMeta(goal.status, goal.startDate)
-            const secondaryContext = getLifeGoalSecondaryContext(goal)
-            const progress = getLifeGoalProgress(goal)
-            const momentum = getLifeGoalMomentumState(goal, progress)
-            const progressTone = getLifeGoalProgressTone(goal, progress)
-            const urgencyMeta = getLifeGoalUrgencyMeta(goal)
-            const whyPreview = getLifeGoalAnchorText(goal.whyItMatters)
-            const isDirectional = (goal.goalType ?? 'outcome') === 'directional'
-            const relationshipChips = getOverviewRelationshipChips(goal)
-            const isPrimary = goal.id === featuredOverviewGoalId
-            const isSelected = goal.id === selectedLifeGoalId
-            const canDrag = lifeGoalOverviewMode === 'manual' && !goal.isPrimary
-            const progressSummary = `${progress.completedTasks}/${Math.max(progress.totalTasks, 1)} tasks`
-            const goalSubtaskProgress = getGoalSubtaskProgress(goal.tasks)
-            const categoryColor = goal.category ? getLifeGoalCategoryColor(goal.category, safeLifeGoalCategories) : 'neutral'
-            const flowState = getLifeGoalFlowState(goal, progress)
-            const goalDueMeta = isValidIsoDate(goal.targetDate) ? getRelativeDueMeta(goal.targetDate) : null
-            return (
-              <button
-                key={goal.id}
-                type="button"
-                draggable={canDrag}
-                onDragStart={() => {
-                  if (!canDrag) return
-                  setDraggedLifeGoalId(goal.id)
-                  setDragOverLifeGoalId(goal.id)
-                }}
-                onDragEnd={() => {
-                  if (!canDrag) return
-                  setDraggedLifeGoalId(null)
-                  setDragOverLifeGoalId(null)
-                }}
-                onDragOver={(event) => {
-                  if (!canDrag || goal.isPrimary) return
-                  event.preventDefault()
-                  if (dragOverLifeGoalId !== goal.id) {
-                    setDragOverLifeGoalId(goal.id)
-                  }
-                }}
-                onDrop={(event) => {
-                  if (!canDrag || goal.isPrimary) return
-                  event.preventDefault()
-                  if (!draggedLifeGoalId || draggedLifeGoalId === goal.id) {
-                    setDraggedLifeGoalId(null)
-                    setDragOverLifeGoalId(null)
-                    return
-                  }
-                  const nextVisibleOrder = [...visibleLifeGoals]
-                  const fromIndex = nextVisibleOrder.findIndex((item) => item.id === draggedLifeGoalId)
-                  const toIndex = nextVisibleOrder.findIndex((item) => item.id === goal.id)
-                  if (fromIndex === -1 || toIndex === -1) return
-                  const [moved] = nextVisibleOrder.splice(fromIndex, 1)
-                  nextVisibleOrder.splice(toIndex, 0, moved)
-
-                  const reorderedVisibleIds = nextVisibleOrder.map((item) => item.id)
-                  let visibleCursor = 0
-                  const nextFullOrder = sortedLifeGoals.map((item) =>
-                    reorderedVisibleIds.includes(item.id)
-                      ? nextVisibleOrder[visibleCursor++]
-                      : item,
-                  )
-                  onReorderLifeGoals(nextFullOrder.map((item) => item.id))
-                  setDraggedLifeGoalId(null)
-                  setDragOverLifeGoalId(null)
-                }}
-                onClick={() => {
-                  onSelectLifeGoal(goal.id)
-                  setLifeGoalComposerOpen(false)
-                  setLifeGoalActionFeedback(null)
-                  onChangeGoalsView('life-detail')
-                }}
-                className={`cursor-middle-finger group relative block w-full overflow-hidden rounded-[26px] border px-5 pt-4 pb-[15px] text-left transition-all duration-150 ease-out hover:-translate-y-0.5 active:scale-[0.995] ${
-                  isPrimary
-                    ? 'border-[rgb(var(--theme-border-strong-rgb))] bg-[rgb(var(--theme-surface-elevated-rgb))] shadow-[inset_0_1px_0_rgb(255_255_255_/_0.06),0_0_0_1px_rgb(var(--theme-border-strong-rgb)/0.16)] hover:bg-[rgb(var(--theme-surface-elevated-rgb))]'
-                    : isDirectional
-                      ? 'border-[rgb(var(--theme-border-subtle-rgb)/0.58)] bg-[rgb(var(--theme-surface-rgb)/0.78)] shadow-[inset_0_1px_0_rgb(255_255_255_/_0.03),0_0_0_1px_rgb(var(--theme-border-subtle-rgb)/0.1)] hover:border-[rgb(var(--theme-border-strong-rgb)/0.62)] hover:bg-[rgb(var(--theme-surface-elevated-rgb)/0.46)]'
-                    : 'border-[rgb(var(--theme-border-subtle-rgb))] bg-[rgb(var(--theme-surface-rgb))] shadow-[inset_0_1px_0_rgb(255_255_255_/_0.04),0_0_0_1px_rgb(var(--theme-border-subtle-rgb)/0.14)] hover:border-[rgb(var(--theme-border-strong-rgb)/0.88)] hover:bg-[rgb(var(--theme-surface-elevated-rgb)/0.62)]'
-                } ${canDrag ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'} ${draggedLifeGoalId === goal.id ? 'opacity-60' : ''} ${dragOverLifeGoalId === goal.id && draggedLifeGoalId && draggedLifeGoalId !== goal.id ? 'border-[rgb(var(--theme-info-rgb)/0.62)]' : ''}`}
-                style={{
-                  ...(isSelected ? getLifeGoalCardHighlightStyle(categoryColor) : {}),
-                  ...(!isDirectional ? (getLifeGoalProgressSurfaceStyle(categoryColor, progressTone, isPrimary) ?? {}) : {}),
-                }}
-              >
-                {isPrimary ? (
-                  <span
-                    aria-hidden="true"
-                    className="pointer-events-none absolute inset-0 transition-opacity duration-150 ease-out"
-                    style={getLifeGoalPrimaryGlowStyle(false, momentum?.tone ?? null)}
-                  />
-                ) : null}
-                {isPrimary ? (
-                  <span
-                    aria-hidden="true"
-                    className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-150 ease-out group-hover:opacity-100"
-                    style={getLifeGoalPrimaryGlowStyle(true, momentum?.tone ?? null)}
-                  />
-                ) : null}
-                {getLifeGoalCategorySurfaceWashStyle(categoryColor, isPrimary) ? (
-                  <span
-                    aria-hidden="true"
-                    className="pointer-events-none absolute inset-0 transition-opacity duration-150 ease-out"
-                    style={getLifeGoalCategorySurfaceWashStyle(categoryColor, isPrimary)}
-                  />
-                ) : null}
-                {getLifeGoalCategorySurfaceWashStyle(categoryColor, isPrimary, true) ? (
-                  <span
-                    aria-hidden="true"
-                    className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-150 ease-out group-hover:opacity-100"
-                    style={getLifeGoalCategorySurfaceWashStyle(categoryColor, isPrimary, true)}
-                  />
-                ) : null}
-                <span
-                  aria-hidden="true"
-                  className={`absolute left-0 top-4 bottom-4 w-[2px] rounded-full bg-white/[0.09] transition-colors duration-200 ease-out ${
-                    isSelected ? 'bg-[rgb(var(--goal-rail-rgb)/0.5)]' : 'group-hover:bg-[rgb(var(--goal-rail-rgb)/0.36)]'
-                  }`}
-                  style={getLifeGoalAccentBarStyle(categoryColor)}
-                />
-                <span
-                  aria-hidden="true"
-                  className="absolute right-[230px] top-4 bottom-[15px] hidden w-px bg-[rgb(var(--theme-border-subtle-rgb)/0.6)] md:block"
-                />
-
-                <div className="grid items-start gap-4 md:grid-cols-[minmax(0,1.55fr)_190px] md:gap-5">
-                  <div className="min-w-0 pl-2.5">
-                    <div className="flex flex-wrap items-center gap-x-1 gap-y-1.5">
-                      <h4 className="theme-text-primary text-[23px] font-[650] leading-[1.08] tracking-[-0.03em]">
-                        {formatGoalCardTitle(goal.title)}
-                      </h4>
-                      {goal.category ? (
-                        <span
-                          className="inline-flex items-center gap-1.5 rounded-full border px-2 py-[3px] text-[10px] font-medium tracking-[0.05em] text-white/50 leading-none"
-                          style={getLifeGoalCategoryChipStyle(categoryColor)}
-                        >
-                          <span className="h-1.5 w-1.5 rounded-full" style={getLifeGoalCategoryDotStyle(categoryColor)} />
-                          <span>{goal.category}</span>
-                        </span>
-                      ) : null}
-                      {relationshipChips.labels.map((item) => (
-                        <span
-                          key={`${goal.id}-relationship-card-${item.id}`}
-                          className={`inline-flex items-center gap-1 rounded-full border px-2 py-[3px] text-[9px] font-medium leading-none ${
-                            item.isDirectional
-                              ? 'border-white/[0.035] bg-white/[0.018] text-white/34'
-                              : 'border-white/[0.04] bg-white/[0.014] text-white/36'
-                          }`}
-                        >
-                          <span className="text-white/24">{item.relationshipLabel}:</span>
-                          <span className="text-white/40">{item.label}</span>
-                        </span>
-                      ))}
-                      {relationshipChips.overflow > 0 ? (
-                        <span className="inline-flex items-center rounded-full border border-white/[0.04] bg-white/[0.014] px-2 py-[3px] text-[9px] font-medium tracking-[0.08em] text-white/32 uppercase leading-none">
-                          +{relationshipChips.overflow}
-                        </span>
-                      ) : null}
-                      {goal.isPrimary ? (
-                        <span className="inline-flex items-center rounded-full border border-white/[0.06] bg-white/[0.014] px-2.5 py-1 text-[10px] font-medium tracking-[0.14em] text-white/48 uppercase leading-none">
-                          Primary Goal
-                        </span>
-                      ) : null}
-                    </div>
-                    {whyPreview ? <p className={`mt-1.5 max-w-[760px] ${isDirectional ? 'text-[13px] leading-6 text-white/58' : 'theme-body-secondary'}`}>{whyPreview}</p> : null}
-
-                    <div
-                      aria-hidden="true"
-                      className={`mt-2 h-px max-w-[760px] bg-[linear-gradient(90deg,rgb(var(--theme-border-subtle-rgb)/0.72)_0%,rgb(var(--theme-border-subtle-rgb)/0.22)_82%,transparent_100%)] ${
-                        isPrimary ? 'opacity-90' : 'opacity-70'
-                      }`}
-                    />
-
-                    <div className="mt-2.5">
-                      <div
-                        className="rounded-2xl px-3 py-2 transition-colors duration-150 ease-out group-hover:bg-[rgb(var(--theme-surface-soft-rgb)/0.44)]"
-                        style={{
-                          background:
-                            'linear-gradient(90deg, rgb(var(--theme-surface-soft-rgb) / 0.38) 0%, rgb(var(--theme-surface-soft-rgb) / 0.38) 30%, rgb(var(--theme-surface-soft-rgb) / 0.12) 40%, transparent 50%)',
-                        }}
-                      >
-                        <p className="flex items-start gap-2 text-[14px] leading-6">
-                          <span
-                            className="mt-[1px] shrink-0 text-[12px] leading-6"
-                            style={{ color: `rgb(var(${getLifeGoalCategoryColorTokenVariable(isPrimary ? 'neutral' : categoryColor)}) / 0.68)` }}
-                          >
-                            →
-                          </span>
-                          <span className="min-w-0">
-                          <span className="theme-text-faint mr-1 text-[12px]">{isDirectional ? 'Direction:' : 'Next:'}</span>
-                          <span
-                            className={`font-medium ${
-                              isPrimary
-                                  ? momentum?.tone === 'cold'
-                                    ? 'text-[rgb(var(--theme-text-primary-rgb)/0.92)]'
-                                    : 'theme-text-primary'
-                                  : momentum?.tone === 'active'
-                                    ? 'text-[rgb(var(--theme-text-primary-rgb)/0.98)]'
-                                    : momentum?.tone === 'cold'
-                                      ? 'text-[rgb(var(--theme-text-primary-rgb)/0.84)]'
-                                      : 'text-[rgb(var(--theme-text-primary-rgb)/0.94)]'
-                              }`}
-                            >
-                              {isDirectional ? whyPreview || 'Long-term direction' : progress.nextTask?.text ?? 'No next task currently planned.'}
-                            </span>
-                          </span>
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="min-w-0 md:pl-4">
-                    <div className="flex flex-wrap items-center justify-between gap-2 md:justify-end">
-                      <div className="flex flex-wrap items-center justify-end gap-2">
-                        <span className={`${goalStatusChipClassName} shrink-0 px-2.5 py-1 text-[10px] ${getLifeGoalStatusMeta(goal.status, goal.startDate).badgeClassName}`}>
-                          {statusMeta.label}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="mt-2 space-y-0.5 text-right">
-                      {!isDirectional && secondaryContext ? (
-                        <p className={`text-[12px] leading-5 ${goalDueMeta?.toneClassName ?? urgencyMeta?.toneClassName ?? 'theme-text-muted'}`}>
-                          {goalDueMeta ? `${goalDueMeta.label} · ${formatDate(goal.targetDate)}` : secondaryContext}
-                        </p>
-                      ) : null}
-                      {!isDirectional ? <p className="theme-text-faint text-[12px] leading-5">{progressSummary}</p> : null}
-                      {!isDirectional && goalSubtaskProgress.total > 0 ? (
-                        <p className="theme-text-faint text-[11px] leading-5">
-                          {goalSubtaskProgress.completed}/{goalSubtaskProgress.total} subtasks complete
-                        </p>
-                      ) : null}
-                      {!isDirectional && flowState ? <p className={`text-[11px] leading-5 ${flowState.toneClassName}`}>{flowState.label}</p> : null}
-                      {!isDirectional ? <div className="ml-auto mt-1 h-[2px] w-[52px] overflow-hidden rounded-full bg-[rgb(var(--theme-border-subtle-rgb)/0.24)]">
-                        <div
-                          className="h-full rounded-full"
-                          style={{
-                            width: `${goal.status === 'complete' ? 100 : progress.totalTasks > 0 ? Math.round((progress.completedTasks / progress.totalTasks) * 100) : 0}%`,
-                            backgroundColor: `rgb(var(${getLifeGoalCategoryColorTokenVariable(categoryColor)}) / ${
-                              goal.status === 'complete' ? '0.42' : '0.34'
-                            })`,
-                          }}
-                        />
-                      </div> : null}
-                    </div>
-                  </div>
-                </div>
-              </button>
-            )
-          }
-
-        const renderGoalItem = (goal: LifeGoal) =>
-          lifeGoalOverviewDensity === 'compact' ? renderOverviewGoalRow(goal) : renderOverviewGoalCard(goal)
-
-        const directionalGoals = visibleLifeGoals.filter((goal) => (goal.goalType ?? 'outcome') === 'directional')
-        const standardGoals = visibleLifeGoals.filter((goal) => (goal.goalType ?? 'outcome') !== 'directional')
-        const outcomeGoals = standardGoals.filter((goal) => (goal.goalType ?? 'outcome') === 'outcome')
-        const renderGoalGroupSection = (title: string, goals: LifeGoal[]) => {
-          if (goals.length === 0) return null
-          return (
-            <section className="space-y-3">
-              <div className="space-y-1.5">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-[11px] font-medium uppercase tracking-[0.16em] text-white/58">{title}</h3>
-                </div>
-                <div
-                  aria-hidden="true"
-                  className="h-px bg-[linear-gradient(90deg,transparent_0%,rgb(var(--theme-border-subtle-rgb)/0.16)_10%,rgb(var(--theme-border-subtle-rgb)/0.1)_56%,transparent_100%)]"
-                />
-              </div>
-              <div className={lifeGoalOverviewDensity === 'compact' ? 'space-y-2' : 'space-y-3'}>{goals.map((goal) => renderGoalItem(goal))}</div>
-            </section>
-          )
-        }
-
-        if (lifeGoalOverviewMode === 'manual') {
-          return (
-            <div className="space-y-4">
-              {renderGoalGroupSection('Life Directions', directionalGoals)}
-              {standardGoals.length > 0 ? (
-                <section className="space-y-3">
-                  <div className="space-y-1.5">
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-[11px] font-medium uppercase tracking-[0.16em] text-white/58">Goals</h3>
-                    </div>
-                    <div
-                      aria-hidden="true"
-                      className="h-px bg-[linear-gradient(90deg,transparent_0%,rgb(var(--theme-border-subtle-rgb)/0.16)_10%,rgb(var(--theme-border-subtle-rgb)/0.1)_56%,transparent_100%)]"
-                    />
-                  </div>
-                  <div className={lifeGoalOverviewDensity === 'compact' ? 'space-y-2' : 'space-y-3'}>
-                    {outcomeGoals.map((goal) => renderGoalItem(goal))}
-                  </div>
-                </section>
               ) : null}
             </div>
           )
-        }
+        },
+      },
+    }
 
-        const primaryGoal = standardGoals.find((goal) => goal.isPrimary) ?? null
-        const groupedGoalsByType = (goals: LifeGoal[]) => {
-          const orderedCategoryKeys: string[] = []
-          const groupedByCategory = new Map<string, LifeGoal[]>()
+    const visibleColumnDefs = orderedVisibleColumnKeys.map((column) => ({
+      key: column,
+      ...columnMeta[column],
+    }))
 
-          for (const goal of goals.filter((item) => !item.isPrimary)) {
-            const categoryKey = goal.category.trim() || 'uncategorized'
-            if (!groupedByCategory.has(categoryKey)) {
-              groupedByCategory.set(categoryKey, [])
-              orderedCategoryKeys.push(categoryKey)
-            }
-            groupedByCategory.get(categoryKey)!.push(goal)
-          }
+    const listGridTemplateColumns = ['minmax(320px,1.9fr)', ...visibleColumnDefs.map((column) => column.width)].join(' ')
+    const goalOverviewFadeTruncateStyle = {
+      WebkitMaskImage: 'linear-gradient(90deg, #000 0%, #000 calc(100% - 14px), transparent 100%)',
+      maskImage: 'linear-gradient(90deg, #000 0%, #000 calc(100% - 14px), transparent 100%)',
+    } as const
 
-          const orderedGroupedKeys = [
-            ...orderedCategoryKeys.filter((key) => key !== 'uncategorized'),
-            ...orderedCategoryKeys.filter((key) => key === 'uncategorized'),
-          ]
-
-          return { groupedByCategory, orderedGroupedKeys }
-        }
-
-        const groupedOutcome = groupedGoalsByType(outcomeGoals)
-        const renderCategorySections = (grouped: { groupedByCategory: Map<string, LifeGoal[]>; orderedGroupedKeys: string[] }) =>
-          grouped.orderedGroupedKeys.map((categoryKey) => {
-            const goals = grouped.groupedByCategory.get(categoryKey)
-            if (!goals || goals.length === 0) return null
-            const categoryName = categoryKey === 'uncategorized' ? 'Other' : categoryKey
-            const categoryColor = categoryKey === 'uncategorized' ? 'neutral' : getLifeGoalCategoryColor(categoryKey, lifeGoalCategories)
-            return (
-              <section key={categoryKey} className="space-y-3">
-                <div className="space-y-1.5">
-                  <div className="flex items-center gap-2">
-                    <span className="h-2 w-2 rounded-full" style={getLifeGoalCategoryDotStyle(categoryColor)} />
-                    <h3
-                      className="text-[11px] font-medium uppercase tracking-[0.16em]"
-                      style={{ color: `rgb(var(${getLifeGoalCategoryColorTokenVariable(categoryColor)}) / 0.74)` }}
-                    >
-                      {categoryName}
-                    </h3>
-                  </div>
-                  <div
-                    aria-hidden="true"
-                    className="h-px bg-[linear-gradient(90deg,transparent_0%,rgb(var(--theme-border-subtle-rgb)/0.16)_10%,rgb(var(--theme-border-subtle-rgb)/0.1)_56%,transparent_100%)]"
-                  />
-                </div>
-                <div className={lifeGoalOverviewDensity === 'compact' ? 'space-y-2' : 'space-y-3'}>{goals.map((goal) => renderGoalItem(goal))}</div>
-              </section>
-            )
-          })
-
-        return (
-          <div className="space-y-4">
-            {renderGoalGroupSection('Life Directions', directionalGoals)}
-            <section className="space-y-3">
-              <div className="space-y-1.5">
-                <div className="flex items-center gap-2">
-                  <h3 className="text-[11px] font-medium uppercase tracking-[0.16em] text-white/58">Goals</h3>
-                </div>
-                <div
-                  aria-hidden="true"
-                  className="h-px bg-[linear-gradient(90deg,transparent_0%,rgb(var(--theme-border-subtle-rgb)/0.16)_10%,rgb(var(--theme-border-subtle-rgb)/0.1)_56%,transparent_100%)]"
-                />
-              </div>
-              {primaryGoal ? <div className={lifeGoalOverviewDensity === 'compact' ? 'space-y-2' : 'space-y-3'}>{renderGoalItem(primaryGoal)}</div> : null}
-              {outcomeGoals.length > 0 ? <div className="space-y-3">{renderCategorySections(groupedOutcome)}</div> : null}
-            </section>
+    const renderGoalListHeaders = () =>
+      goalOverviewViewControls.view === 'list' ? (
+        <div className="grid items-center gap-x-3 px-4 pb-2 [&>*]:min-w-0" style={{ gridTemplateColumns: listGridTemplateColumns }}>
+          <div className="text-[12px] font-medium tracking-[-0.01em]" style={{ color: 'rgba(255,255,255,0.82)' }}>
+            Goal
           </div>
-        )
-      })() : sortedLifeGoals.length > 0 ? (
-        <div className="theme-surface-soft rounded-[24px] border px-5 py-5">
-          <p className="theme-body-primary">No goals in this category</p>
-          <p className="theme-body-secondary mt-2">Switch back to All or choose a different life area.</p>
+          {visibleColumnDefs.map((column) => (
+            <div
+              key={`goal-header-${column.key}`}
+              className="overflow-hidden truncate whitespace-nowrap text-[12px] font-medium tracking-[-0.01em]"
+              style={{ color: 'rgba(255,255,255,0.82)' }}
+            >
+              {column.key === 'priority' ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <span>{column.label}</span>
+                  <span aria-hidden="true" className="text-white/46">↑</span>
+                </span>
+              ) : (
+                column.label
+              )}
+            </div>
+          ))}
         </div>
-      ) : null}
-    </div>
-  )
+      ) : null
+
+    const renderListRow = (goal: LifeGoal) => {
+      const categoryColor = goal.category ? getLifeGoalCategoryColor(goal.category, safeLifeGoalCategories) : 'neutral'
+      const progress = getLifeGoalProgress(goal)
+      const isSelected = goal.id === selectedLifeGoalId
+      const milestoneCount = getOrderedGoalMilestones(goal).length
+      const isDirectionalGoal = (goal.goalType ?? 'outcome') === 'directional'
+      const completedTimelineLabel = getCompletedGoalTimelineLabel(goal)
+
+      return (
+        <button
+          key={goal.id}
+          type="button"
+          onClick={() => {
+            if (
+              suppressGoalOverviewRowClickRef.current ||
+              goalOverviewStatusMenuGoalId !== null ||
+              goalOverviewActiveDateField !== null ||
+              Date.now() < goalOverviewStatusDismissUntilRef.current ||
+              Date.now() < goalOverviewDateDismissUntilRef.current
+            ) {
+              suppressGoalOverviewRowClickRef.current = false
+              return
+            }
+            onSelectLifeGoal(goal.id)
+            setLifeGoalComposerOpen(false)
+            setLifeGoalActionFeedback(null)
+            onChangeGoalsView('life-detail')
+          }}
+          className={`group relative grid w-full items-center gap-x-3 border-b border-white/[0.04] px-4 py-2 text-left transition duration-150 last:border-b-0 [&>*]:min-w-0 ${
+            isSelected ? 'bg-white/[0.022]' : 'hover:bg-white/[0.01]'
+          }`}
+          style={{ gridTemplateColumns: listGridTemplateColumns }}
+        >
+          <div className="min-w-0">
+            <div className="flex min-w-0 items-start gap-2">
+              <p className="truncate text-[15px] font-medium tracking-[-0.012em] text-white/84">{formatGoalCardTitle(goal.title)}</p>
+              {milestoneCount > 0 ? (
+                <span className="shrink-0 flex flex-col items-start gap-1">
+                  <span className="rounded-full border border-white/[0.05] bg-white/[0.02] px-2 py-[3px] text-[10px] leading-none text-white/38">
+                    {milestoneCount} milestone{milestoneCount === 1 ? '' : 's'}
+                  </span>
+                  {isDirectionalGoal ? (
+                    <span className="rounded-full border border-white/[0.05] bg-white/[0.02] px-2 py-[3px] text-[10px] leading-none text-white/34">
+                      Directional
+                    </span>
+                  ) : null}
+                </span>
+              ) : null}
+              {milestoneCount === 0 && isDirectionalGoal ? (
+                <span className="shrink-0 rounded-full border border-white/[0.05] bg-white/[0.02] px-2 py-[3px] text-[10px] leading-none text-white/34">
+                  Directional
+                </span>
+              ) : null}
+              {goal.isPrimary ? (
+                <span className="shrink-0 rounded-full border border-white/[0.05] bg-white/[0.018] px-2 py-[3px] text-[10px] uppercase tracking-[0.08em] text-white/34">
+                  Primary
+                </span>
+              ) : null}
+            </div>
+            <p className="mt-px truncate text-[12px] text-[rgba(255,255,255,0.45)]">
+              {getLifeGoalAnchorText(goal.whyItMatters) || (progress.nextTask?.text ?? 'No next step planned yet.')}
+            </p>
+            {completedTimelineLabel ? (
+              <div className="mt-1 inline-flex max-w-full flex-col items-start">
+                <span aria-hidden="true" className="mb-1 h-px w-full max-w-[220px] bg-white/[0.06]" />
+                <p className="truncate text-[11px] text-white/34">{completedTimelineLabel}</p>
+              </div>
+            ) : null}
+          </div>
+          {visibleColumnDefs.map((column) => (
+            <div
+              key={`${goal.id}-${column.key}`}
+              className={`min-w-0 whitespace-nowrap ${column.key === 'status' ? 'relative overflow-visible flex items-center' : 'overflow-hidden'}`}
+            >
+              <div
+                className={`min-w-0 ${column.key === 'status' ? 'overflow-visible flex items-center' : 'overflow-hidden'}`}
+                style={column.key === 'belongsTo' ? goalOverviewFadeTruncateStyle : undefined}
+              >
+                {column.render(goal)}
+              </div>
+            </div>
+          ))}
+          <span
+            aria-hidden="true"
+            className={`pointer-events-none absolute left-0 top-2.5 bottom-2.5 w-[2px] rounded-full transition-colors ${
+              isSelected ? 'bg-[rgb(var(--goal-rail-rgb)/0.28)]' : 'bg-transparent group-hover:bg-[rgb(var(--goal-rail-rgb)/0.18)]'
+            }`}
+            style={getLifeGoalAccentBarStyle(categoryColor)}
+          />
+        </button>
+      )
+    }
+
+    const renderGroupedList = (groups: Array<{ label: string | null; goals: LifeGoal[] }>) => (
+      <div className="space-y-4">
+        {groups.map((group) => (
+          <section key={group.label ?? 'default'} className="space-y-2">
+            {group.label ? <p className="px-4 text-[12px] font-medium tracking-[-0.01em] text-mist/48">{group.label}</p> : null}
+            <div>{group.goals.map((goal) => renderListRow(goal))}</div>
+          </section>
+        ))}
+      </div>
+    )
+
+    const renderBoardCard = (goal: LifeGoal) => {
+      const categoryColor = goal.category ? getLifeGoalCategoryColor(goal.category, safeLifeGoalCategories) : 'neutral'
+      const milestoneCount = getOrderedGoalMilestones(goal).length
+      return (
+        <button
+          key={goal.id}
+          type="button"
+          onClick={() => {
+            onSelectLifeGoal(goal.id)
+            setLifeGoalComposerOpen(false)
+            setLifeGoalActionFeedback(null)
+            onChangeGoalsView('life-detail')
+          }}
+          className="group relative rounded-[18px] border border-white/[0.04] bg-white/[0.014] px-4 py-3 text-left transition hover:bg-white/[0.02]"
+        >
+          <span
+            aria-hidden="true"
+            className="absolute left-0 top-3 bottom-3 w-[2px] rounded-full bg-[rgb(var(--goal-rail-rgb)/0.24)]"
+            style={getLifeGoalAccentBarStyle(categoryColor)}
+          />
+          <div className="space-y-2 pl-2">
+            <div className="flex min-w-0 items-center gap-2">
+              <p className="truncate text-[14px] font-medium tracking-[-0.01em] text-white/88">{formatGoalCardTitle(goal.title)}</p>
+              {milestoneCount > 0 ? (
+                <span className="shrink-0 rounded-full border border-white/[0.05] bg-white/[0.018] px-2 py-[3px] text-[10px] text-white/36">
+                  {milestoneCount}
+                </span>
+              ) : null}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {goal.category ? (
+                <span
+                  className="inline-flex items-center gap-1.5 rounded-full border px-2 py-[3px] text-[10px] font-medium leading-none text-white/44"
+                  style={getLifeGoalCategoryChipStyle(categoryColor)}
+                >
+                  <span className="h-1.5 w-1.5 rounded-full" style={getLifeGoalCategoryDotStyle(categoryColor)} />
+                  <span>{goal.category}</span>
+                </span>
+              ) : null}
+              <span className={`${goalStatusChipClassName} h-[22px] px-2 py-0 text-[9px] opacity-85 ${getLifeGoalStatusMeta(goal.status, goal.startDate).badgeClassName}`}>
+                {getLifeGoalStatusMeta(goal.status, goal.startDate).label}
+              </span>
+            </div>
+            <p className="truncate text-[12px] text-white/48">{getLifeGoalAnchorText(goal.whyItMatters) || 'No context yet.'}</p>
+          </div>
+        </button>
+      )
+    }
+
+    const renderBoardView = () => {
+      const columns = [
+        { id: 'not-started', label: 'Not Started', goals: sortOverviewGoals(activeOverviewGoals.filter((goal) => goal.status === 'not-started' || goal.status === 'paused')) },
+        { id: 'active', label: 'Active', goals: sortOverviewGoals(activeOverviewGoals.filter((goal) => goal.status === 'in-motion')) },
+        ...(goalOverviewViewControls.showCompleted
+          ? [{ id: 'completed', label: 'Completed', goals: sortOverviewGoals(completedOverviewGoals) }]
+          : []),
+      ]
+
+      return (
+        <div className={`grid gap-4 ${columns.length === 3 ? 'lg:grid-cols-3' : 'lg:grid-cols-2'}`}>
+          {columns.map((column) => (
+            <section key={column.id} className="space-y-2.5">
+              <div className="flex items-center justify-between px-1">
+                <p className="text-[12px] font-medium tracking-[-0.01em] text-mist/46">{column.label}</p>
+                <span className="text-[11px] text-mist/36">{column.goals.length}</span>
+              </div>
+              <div className="space-y-2">
+                {column.goals.length > 0 ? column.goals.map((goal) => renderBoardCard(goal)) : <div className="px-1 py-3 text-[12px] text-mist/38">No goals</div>}
+              </div>
+            </section>
+          ))}
+        </div>
+      )
+    }
+
+    const renderTimelinePlaceholder = () => (
+      <div className="px-4 py-6 text-[13px] text-mist/52">
+        Timeline view is reserved here next, using the same goal collection and control state.
+      </div>
+    )
+
+    const renderCompletedSection = () => {
+      if (!goalOverviewViewControls.showCompleted || completedOverviewGoals.length === 0 || goalOverviewViewControls.view === 'board') return null
+
+      return (
+        <section className="border-t border-white/[0.05] pt-4">
+          <button
+            type="button"
+            onClick={() => setGoalOverviewCompletedOpen((current) => !current)}
+            className="flex w-full items-center justify-between px-4 pb-2 text-left"
+          >
+            <span className="text-[12px] font-medium tracking-[-0.01em] text-white/70">Completed</span>
+            <span className="text-[12px] text-mist/42">{goalOverviewCompletedOpen ? 'Hide' : completedOverviewGoals.length}</span>
+          </button>
+          {goalOverviewCompletedOpen ? renderGroupedList(completedGroupedGoals) : null}
+        </section>
+      )
+    }
+
+    const renderOverviewContent = () => {
+      if (goalOverviewViewControls.view === 'board') return renderBoardView()
+      if (goalOverviewViewControls.view === 'timeline') return renderTimelinePlaceholder()
+      return (
+        <div className="space-y-4">
+          <div className="border-b border-[rgba(255,255,255,0.08)] pb-2">{renderGoalListHeaders()}</div>
+          {renderGroupedList(activeGroupedGoals)}
+        </div>
+      )
+    }
+
+    const panelPrimaryLabelClassName = 'text-[12px] text-[rgba(255,255,255,0.85)]'
+    const panelSecondaryLabelClassName = 'text-[11px] text-[rgba(255,255,255,0.55)]'
+    const panelSelectClassName =
+      'h-9 w-[154px] appearance-none rounded-[14px] border border-white/[0.1] bg-white/[0.06] px-3 pr-9 text-[13px] text-[rgba(255,255,255,0.75)] outline-none transition hover:border-white/[0.12] hover:bg-white/[0.08]'
+
+    const renderControlsPanel = () => (
+      <AnimatePresence>
+        {goalOverviewControlsPanelOpen ? (
+          <motion.aside
+            ref={goalOverviewControlsPanelRef}
+            className="absolute right-0 top-[calc(100%+10px)] z-[80] w-[344px] max-w-[calc(100vw-32px)] overflow-hidden rounded-[22px] border border-white/[0.06] bg-[rgb(var(--theme-surface-elevated-rgb))] p-3 shadow-[0_18px_40px_rgba(15,23,42,0.22)]"
+            initial={{ opacity: 0, x: 12, y: -6 }}
+            animate={{ opacity: 1, x: 0, y: 0 }}
+            exit={{ opacity: 0, x: 12, y: -6 }}
+            transition={{ duration: 0.16, ease: 'easeOut' }}
+          >
+            <div className="space-y-3.5">
+              <section className="space-y-1.5">
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    ['list', 'List', 'list'],
+                    ['board', 'Board', 'board'],
+                    ['timeline', 'Timeline', 'timeline'],
+                  ].map(([value, label, icon]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => updateViewControls((current) => ({ ...current, view: value as GoalOverviewViewMode }))}
+                      className={`inline-flex items-center justify-center gap-1.5 rounded-[14px] border px-2.5 py-1.5 text-[12px] font-medium transition ${
+                        goalOverviewViewControls.view === value
+                          ? 'border-white/[0.1] bg-white/[0.06] text-white/88'
+                          : 'border-white/[0.05] bg-white/[0.018] text-white/46 hover:border-white/[0.08] hover:text-white/76'
+                      }`}
+                    >
+                      {icon === 'list' ? (
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                          <path d="M3 4H13M3 8H13M3 12H13" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                        </svg>
+                      ) : null}
+                      {icon === 'board' ? (
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                          <rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.2" />
+                          <rect x="9" y="2.5" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.2" />
+                          <rect x="2.5" y="9" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.2" />
+                          <rect x="9" y="9" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.2" />
+                        </svg>
+                      ) : null}
+                      {icon === 'timeline' ? (
+                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                          <path d="M4 3.5V12.5M8 5.5V10.5M12 2.5V13.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                          <circle cx="4" cy="8" r="1" fill="currentColor" />
+                          <circle cx="8" cy="3.5" r="1" fill="currentColor" />
+                          <circle cx="12" cy="11.5" r="1" fill="currentColor" />
+                        </svg>
+                      ) : null}
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </section>
+
+              <section className="grid gap-2.5">
+                <div className="flex items-center justify-between gap-3">
+                  <label className={panelPrimaryLabelClassName}>Group</label>
+                  <div className="relative">
+                    <select
+                      value={goalOverviewViewControls.groupBy}
+                      onChange={(event) => updateViewControls((current) => ({ ...current, groupBy: event.target.value as GoalOverviewGroupBy }))}
+                      className={panelSelectClassName}
+                    >
+                      <option value="none">None</option>
+                      <option value="status">Status</option>
+                      <option value="category">Category</option>
+                      <option value="life-direction">Life Direction</option>
+                    </select>
+                    <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-white/26">
+                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                        <path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-3">
+                  <label className={panelPrimaryLabelClassName}>Sort</label>
+                  <div className="relative">
+                    <select
+                      value={goalOverviewViewControls.sortBy}
+                      onChange={(event) => updateViewControls((current) => ({ ...current, sortBy: event.target.value as GoalOverviewSortBy }))}
+                      className={panelSelectClassName}
+                    >
+                      <option value="manual">Manual</option>
+                      <option value="due">Due date</option>
+                      <option value="priority">Priority</option>
+                      <option value="updated">Recently updated</option>
+                    </select>
+                    <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-white/26">
+                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                        <path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-3 rounded-[14px] border border-white/[0.05] bg-white/[0.018] px-3 py-2.5">
+                  <div>
+                    <p className={panelPrimaryLabelClassName}>Show completed</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => updateViewControls((current) => ({ ...current, showCompleted: !current.showCompleted }))}
+                    className={`inline-flex h-5 w-9 rounded-full border p-[2px] transition ${
+                      goalOverviewViewControls.showCompleted
+                        ? 'border-white/[0.12] bg-white/[0.08]'
+                        : 'border-white/[0.06] bg-transparent'
+                    }`}
+                  >
+                    <span
+                      className={`h-full w-4 rounded-full bg-white/70 transition ${
+                        goalOverviewViewControls.showCompleted ? 'translate-x-[14px]' : ''
+                      }`}
+                    />
+                  </button>
+                </div>
+              </section>
+
+              <section className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className={panelPrimaryLabelClassName}>Columns</p>
+                  <p className={panelSecondaryLabelClassName}>Visible in list view</p>
+                </div>
+                <div className="grid gap-1">
+                  {goalOverviewViewControls.columnOrder.filter((columnKey) => columnKey !== 'milestones').map((columnKey) => {
+                    const label = columnMeta[columnKey].label
+                    const isVisible = goalOverviewViewControls.columns[columnKey]
+                    return (
+                      <div
+                        key={columnKey}
+                        onDragOver={(event) => {
+                          if (!goalOverviewDraggedColumn || goalOverviewDraggedColumn === columnKey) return
+                          event.preventDefault()
+                        }}
+                        onDrop={(event) => {
+                          event.preventDefault()
+                          if (!goalOverviewDraggedColumn || goalOverviewDraggedColumn === columnKey) return
+                          reorderColumnBefore(goalOverviewDraggedColumn, columnKey)
+                          setGoalOverviewDraggedColumn(null)
+                        }}
+                        className={`flex w-full items-center justify-between rounded-[12px] px-2.5 py-2 transition ${
+                          isVisible ? 'hover:bg-white/[0.03]' : 'opacity-70'
+                        } ${goalOverviewDraggedColumn === columnKey ? 'bg-white/[0.03]' : ''}`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            draggable
+                            onDragStart={(event) => {
+                              event.stopPropagation()
+                              setGoalOverviewDraggedColumn(columnKey)
+                            }}
+                            onDragEnd={() => setGoalOverviewDraggedColumn(null)}
+                            className={`inline-flex h-5 w-5 cursor-grab items-center justify-center rounded-[8px] text-[13px] leading-none transition hover:bg-white/[0.03] hover:text-white/62 active:cursor-grabbing ${
+                              isVisible ? 'text-white/45' : 'text-white/28'
+                            }`}
+                            aria-label={`Reorder ${label} column`}
+                          >
+                            ⋮⋮
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              updateViewControls((current) => ({
+                                ...current,
+                                columns: {
+                                  ...current.columns,
+                                  [columnKey]: !current.columns[columnKey],
+                                },
+                              }))
+                            }
+                            className={`text-left text-[12px] transition ${panelSecondaryLabelClassName} hover:text-[rgba(255,255,255,0.7)]`}
+                          >
+                            {label}
+                          </button>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              updateViewControls((current) => ({
+                                ...current,
+                                columns: {
+                                  ...current.columns,
+                                  [columnKey]: !current.columns[columnKey],
+                                },
+                              }))
+                            }
+                            className={`inline-flex h-4 w-7 rounded-full border p-[2px] ${
+                              isVisible ? 'border-white/[0.12] bg-white/[0.08]' : 'border-white/[0.06] bg-transparent'
+                            }`}
+                          >
+                            <span className={`h-full w-3 rounded-full bg-white/70 transition ${isVisible ? 'translate-x-[11px]' : ''}`} />
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </section>
+
+              <div className="border-t border-white/[0.05] pt-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setGoalOverviewViewControls(DEFAULT_GOAL_OVERVIEW_VIEW_CONTROLS)
+                    setGoalOverviewCompletedOpen(false)
+                  }}
+                  className={`${panelPrimaryLabelClassName} transition hover:text-white/82`}
+                >
+                  Reset
+                </button>
+              </div>
+            </div>
+          </motion.aside>
+        ) : null}
+      </AnimatePresence>
+    )
+
+    return (
+      <div className="relative mx-auto max-w-[1280px] space-y-2">
+        <div className="absolute right-0 top-[-86px] z-20 flex items-center justify-end gap-2">
+          <div className="ml-auto flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={(event) => {
+                openLifeGoalComposer(event.currentTarget)
+                setLifeGoalDraft(createEmptyLifeGoalDraft())
+              }}
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/[0.045] bg-[rgb(var(--theme-surface-elevated-rgb)/0.44)] text-[18px] text-white/48 transition hover:border-white/[0.07] hover:bg-[rgb(var(--theme-surface-elevated-rgb)/0.56)] hover:text-white/74"
+              aria-label="Create goal"
+            >
+              +
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setGoalOverviewControlsPanelOpen((current) => !current)}
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/[0.045] bg-[rgb(var(--theme-surface-elevated-rgb)/0.44)] text-white/50 transition hover:border-white/[0.07] hover:bg-[rgb(var(--theme-surface-elevated-rgb)/0.56)] hover:text-white/76"
+              aria-label="Open view controls"
+            >
+              <svg width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M2.5 4.5H13.5M2.5 8H13.5M2.5 11.5H13.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+                <circle cx="5.5" cy="4.5" r="1.4" fill="currentColor" />
+                <circle cx="10.5" cy="8" r="1.4" fill="currentColor" />
+                <circle cx="7" cy="11.5" r="1.4" fill="currentColor" />
+              </svg>
+            </button>
+          </div>
+
+          {renderControlsPanel()}
+        </div>
+
+        {goalOverviewActiveDateField && goalOverviewDatePanelPosition && typeof document !== 'undefined'
+          ? createPortal(
+              <div
+                ref={goalOverviewDatePanelRef}
+                className="theme-popover fixed z-[80] overflow-hidden rounded-[22px] border p-2.5 shadow-[0_22px_46px_rgba(15,23,42,0.18)]"
+                style={{
+                  top: `${goalOverviewDatePanelPosition.top}px`,
+                  left: `${goalOverviewDatePanelPosition.left}px`,
+                  width: `${Math.max(296, Math.round(goalOverviewDatePanelPosition.width * 0.88))}px`,
+                }}
+                onMouseDown={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                }}
+                onClick={(event) => {
+                  event.preventDefault()
+                  event.stopPropagation()
+                }}
+              >
+                <p className="theme-text-faint mb-2 text-[11px] uppercase tracking-[0.14em]">
+                  {goalOverviewActiveDateField.field === 'startDate' ? 'Start Date' : 'Target Date'}
+                </p>
+                <div className="mb-2 grid grid-cols-6 gap-1.5 px-0.5">
+                  {[
+                    { label: 'Today', value: getTodayIsoDate() },
+                    { label: '1W', value: shiftIsoDate(getTodayIsoDate(), 7) },
+                    { label: '1M', value: shiftIsoDate(getTodayIsoDate(), 30) },
+                    { label: '3M', value: shiftIsoDate(getTodayIsoDate(), 90) },
+                    { label: '6M', value: shiftIsoDate(getTodayIsoDate(), 180) },
+                    { label: '1Y', value: shiftIsoDate(getTodayIsoDate(), 365) },
+                  ].map((preset) => (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      onClick={() => applyGoalOverviewDate(goalOverviewActiveDateField.goalId, goalOverviewActiveDateField.field, preset.value)}
+                      className="theme-text-muted rounded-full border border-[rgb(var(--theme-border-subtle-rgb)/0.65)] px-0 py-1 text-center text-[11px] transition hover:border-[rgb(var(--theme-border-strong-rgb)/0.7)] hover:text-[rgb(var(--theme-text-primary-rgb))] hover:bg-[rgb(var(--theme-surface-soft-rgb)/0.7)]"
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setLifeGoalDateViewMonth((current) => shiftCalendarMonth(current, -1))}
+                    className="theme-text-muted rounded-full border border-[rgb(var(--theme-border-subtle-rgb))] px-2 py-1 text-[11px] transition hover:border-[rgb(var(--theme-border-strong-rgb))] hover:text-[rgb(var(--theme-text-primary-rgb))]"
+                  >
+                    Prev
+                  </button>
+                  <p className="theme-text-primary text-sm font-medium">{formatCalendarMonthLabel(lifeGoalDateViewMonth)}</p>
+                  <button
+                    type="button"
+                    onClick={() => setLifeGoalDateViewMonth((current) => shiftCalendarMonth(current, 1))}
+                    className="theme-text-muted rounded-full border border-[rgb(var(--theme-border-subtle-rgb))] px-2 py-1 text-[11px] transition hover:border-[rgb(var(--theme-border-strong-rgb))] hover:text-[rgb(var(--theme-text-primary-rgb))]"
+                  >
+                    Next
+                  </button>
+                </div>
+
+                <div className="mt-2 grid grid-cols-7 gap-1">
+                  {LIFE_GOAL_WEEKDAY_LABELS.map((day) => (
+                    <div key={day} className="theme-text-faint px-1 py-0.5 text-center text-[10px] uppercase tracking-[0.12em]">
+                      {day}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="mt-1 grid grid-cols-7 gap-1">
+                  {getCalendarDays(lifeGoalDateViewMonth).map((day) => {
+                    const dayValue = formatCalendarDayValue(day)
+                    const inCurrentMonth = day.getUTCMonth() === lifeGoalDateViewMonth.getUTCMonth()
+                    const activeGoal = safeLifeGoals.find((item) => item.id === goalOverviewActiveDateField.goalId)
+                    const activeDateValue = activeGoal ? activeGoal[goalOverviewActiveDateField.field] : ''
+                    const isSelected = dayValue === activeDateValue
+                    const isToday = dayValue === getTodayIsoDate()
+
+                    return (
+                      <button
+                        key={dayValue}
+                        type="button"
+                        onClick={() => applyGoalOverviewDate(goalOverviewActiveDateField.goalId, goalOverviewActiveDateField.field, dayValue)}
+                        className={`rounded-[16px] border px-0 py-1.5 text-center text-[13px] transition ${
+                          isSelected
+                            ? 'border-[rgb(var(--theme-info-rgb)/0.28)] bg-[rgb(var(--theme-info-rgb)/0.12)] text-[rgb(var(--theme-text-primary-rgb))]'
+                            : isToday
+                              ? 'border-[rgb(var(--theme-border-strong-rgb))] bg-[rgb(var(--theme-surface-soft-rgb))] text-[rgb(var(--theme-text-primary-rgb))] hover:border-[rgb(var(--theme-border-strong-rgb))] hover:bg-[rgb(var(--theme-surface-elevated-rgb))]'
+                              : inCurrentMonth
+                                ? 'border-[rgb(var(--theme-border-subtle-rgb)/0.75)] bg-transparent text-[rgb(var(--theme-text-secondary-rgb))] hover:border-[rgb(var(--theme-border-strong-rgb))] hover:bg-[rgb(var(--theme-surface-soft-rgb))] hover:text-[rgb(var(--theme-text-primary-rgb))]'
+                                : 'border-transparent bg-transparent text-[rgb(var(--theme-text-faint-rgb))] hover:border-[rgb(var(--theme-border-subtle-rgb)/0.55)] hover:bg-[rgb(var(--theme-surface-soft-rgb)/0.6)]'
+                        }`}
+                      >
+                        {day.getUTCDate()}
+                      </button>
+                    )
+                  })}
+                </div>
+
+                <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-[rgb(var(--theme-border-subtle-rgb)/0.7)] pt-2.5">
+                  <div />
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => applyGoalOverviewDate(goalOverviewActiveDateField.goalId, goalOverviewActiveDateField.field, '')}
+                      className="theme-text-muted rounded-full px-2 py-1 text-xs transition hover:text-[rgb(var(--theme-text-primary-rgb))]"
+                    >
+                      Clear
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setGoalOverviewActiveDateField(null)
+                        setGoalOverviewDatePanelPosition(null)
+                      }}
+                      className="theme-text-muted rounded-full px-2 py-1 text-xs transition hover:text-[rgb(var(--theme-text-primary-rgb))]"
+                    >
+                      Done
+                    </button>
+                  </div>
+                </div>
+              </div>,
+              document.body,
+            )
+          : null}
+
+        {allOverviewGoals.length === 0 && !lifeGoalComposerOpen ? (
+          <div className="rounded-[24px] border border-white/[0.05] bg-[rgb(var(--theme-surface-elevated-rgb)/0.46)] px-4 py-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
+            <p className="text-[15px] text-white/80">No goals yet</p>
+            <p className="mt-1.5 text-[13px] text-white/48">Create one meaningful direction to start using the workspace.</p>
+          </div>
+        ) : null}
+
+        {hasPrimaryContent ? (
+          <div className="rounded-[24px] border border-white/[0.05] bg-[rgb(var(--theme-surface-elevated-rgb)/0.54)] px-0 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
+            {renderOverviewContent()}
+            {renderCompletedSection()}
+          </div>
+        ) : allOverviewGoals.length > 0 ? (
+          <div className="rounded-[24px] border border-white/[0.05] bg-[rgb(var(--theme-surface-elevated-rgb)/0.46)] px-4 py-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
+            <p className="text-[15px] text-white/80">No active goals visible</p>
+            <p className="mt-1.5 text-[13px] text-white/48">Turn on completed goals in View Controls to show archived progress here.</p>
+          </div>
+        ) : null}
+      </div>
+    )
 }
 
   const renderLifeGoalDetailPage = () => {
@@ -5627,7 +6198,7 @@ const renderLifeGoalOverviewPage = () => {
         return (
           <div key={`${keyPrefix}-${groupIndex}-${group.label ?? 'default'}`} className={groupIndex > 0 ? (shouldShowGroupHeader ? 'pt-4' : 'pt-1') : ''}>
             {shouldShowGroupHeader ? (
-              <div className="flex items-center justify-between gap-3 pb-2 pl-[36px]">
+              <div className="flex items-center justify-between gap-3 pb-2" style={roadmapContentInsetStyle}>
                 <p className="text-[10px] uppercase tracking-[0.18em] text-mist/42">{group.label ?? 'untagged'}</p>
                 <p className="text-[10px] tracking-[0.08em] text-mist/30">
                   {group.tasks.filter((task) => task.completed).length}/{group.tasks.length}
@@ -5713,25 +6284,17 @@ const renderLifeGoalOverviewPage = () => {
               setDraggedTaskId(null)
               setDragOverTaskId(null)
             }}
-            className={`group relative grid w-full grid-cols-[24px_minmax(0,1fr)] items-start gap-x-3 gap-y-1 rounded-none border border-[rgb(var(--theme-accent-rgb)/0.1)] bg-white/[0.012] py-[14px] text-left transition duration-200 ease-out hover:bg-white/[0.02] hover:border-[rgb(var(--theme-accent-rgb)/0.14)] ${
+            className={`group relative grid w-full items-start gap-x-3 gap-y-1 rounded-none border border-[rgb(var(--theme-accent-rgb)/0.1)] bg-white/[0.012] py-[14px] text-left transition duration-200 ease-out hover:bg-white/[0.02] hover:border-[rgb(var(--theme-accent-rgb)/0.14)] ${
               dragOverTaskId === task.id && draggedTaskId && draggedTaskId !== task.id ? 'bg-white/[0.03]' : ''
             } ${visibleGoalStartCueTaskId === task.id ? 'goal-start-highlight' : ''} ${
               roadmapArrivalCueActive ? 'goal-current-arrival' : ''
             } ${taskMomentumTransition?.nextTaskId === task.id ? 'goal-next-task-activate' : ''} ${
               taskMomentumTransition?.completedTaskId === task.id ? 'goal-task-complete-flash' : ''
             }`}
-            style={{ ...visualState.rowStyle, opacity: visualState.opacity }}
+            style={{ ...visualState.rowStyle, opacity: visualState.opacity, gridTemplateColumns: roadmapNodeGridTemplate }}
           >
             <span aria-hidden="true" className="relative z-[3] mt-[2px] flex h-[18px] w-[18px] items-center justify-center justify-self-center">
-              <span
-                aria-hidden="true"
-                className="pointer-events-none absolute left-1/2 top-1/2 z-[-1] -translate-x-1/2 -translate-y-1/2"
-                style={{
-                  width: `${roadmapLineWidth + 1}px`,
-                  height: `${roadmapCurrentNodeDiameter}px`,
-                  background: 'rgb(var(--theme-surface-elevated-rgb) / 0.98)',
-                }}
-              />
+              {renderRoadmapNodeCutout(roadmapCurrentNodeDiameter)}
               <span className="roadmap-current-node-pulse absolute h-[20px] w-[20px] rounded-full bg-[rgb(var(--theme-accent-rgb)/0.18)] blur-[6px]" />
               <span
                 className={`relative flex items-center justify-center rounded-full border transition-transform duration-200 ease-out group-hover:scale-110 ${
@@ -5841,7 +6404,7 @@ const renderLifeGoalOverviewPage = () => {
             setDraggedTaskId(null)
             setDragOverTaskId(null)
           }}
-          className={`group relative grid w-full grid-cols-[24px_minmax(0,1fr)] items-start gap-x-3 rounded-[14px] text-left transition-all duration-200 ease-out hover:bg-white/[0.015] ${
+          className={`group relative grid w-full items-start gap-x-3 rounded-[14px] text-left transition-all duration-200 ease-out hover:bg-white/[0.015] ${
             isCompressed ? 'gap-y-0 py-[1px]' : 'gap-y-1 py-[10px]'
           } ${
             dragOverTaskId === task.id && draggedTaskId && draggedTaskId !== task.id ? 'bg-white/[0.028]' : ''
@@ -5850,6 +6413,7 @@ const renderLifeGoalOverviewPage = () => {
           } ${taskMomentumTransition?.completedTaskId === task.id ? 'goal-task-complete-flash' : ''}`}
           style={{
             ...visualState.rowStyle,
+            gridTemplateColumns: roadmapNodeGridTemplate,
             opacity:
               visualState.opacity *
               (roadmapArrivalCueActive ? 0.78 : 1) *
@@ -5857,15 +6421,7 @@ const renderLifeGoalOverviewPage = () => {
           }}
         >
           <span aria-hidden="true" className="relative z-[3] mt-[2px] flex h-4 w-4 items-center justify-center justify-self-center">
-            <span
-              aria-hidden="true"
-              className="pointer-events-none absolute left-1/2 top-1/2 z-[-1] -translate-x-1/2 -translate-y-1/2"
-              style={{
-                width: `${roadmapLineWidth + 1}px`,
-                height: `${roadmapSmallNodeDiameter}px`,
-                background: 'rgb(var(--theme-surface-elevated-rgb) / 0.98)',
-              }}
-            />
+            {renderRoadmapNodeCutout(roadmapSmallNodeDiameter)}
             <span className={`h-2 w-2 rounded-full border border-white/[0.26] bg-transparent transition-transform duration-200 ease-out group-hover:scale-110 ${getPriorityScore(task) === 3 ? 'shadow-[0_0_0_1px_rgb(var(--theme-accent-rgb)/0.08)]' : ''}`} />
           </span>
           <div className={`min-w-0 border-b border-white/[0.02] pr-8 transition-all duration-200 ease-out ${isCompressed ? 'pb-0' : 'pb-[10px]'}`}>
@@ -5943,11 +6499,46 @@ const renderLifeGoalOverviewPage = () => {
         </div>
       </div>
     )
-    const roadmapLineOpacity = 0.36
+    const roadmapGeometry = {
+      timelineX: 12,
+      nodeColumnWidth: 24,
+      contentInset: 36,
+      lineWidth: 1,
+      lineOpacity: 0.36,
+      smallNodeDiameter: 8,
+      currentNodeDiameter: 14,
+      connectorReach: 24,
+      currentMilestoneTickReach: 24,
+    } as const
+    const roadmapLineOpacity = roadmapGeometry.lineOpacity
     const roadmapLineColor = `rgb(var(--theme-accent-rgb) / ${roadmapLineOpacity})`
-    const roadmapLineWidth = 1
-    const roadmapSmallNodeDiameter = 8
-    const roadmapCurrentNodeDiameter = 14
+    const roadmapLineWidth = roadmapGeometry.lineWidth
+    const roadmapSmallNodeDiameter = roadmapGeometry.smallNodeDiameter
+    const roadmapCurrentNodeDiameter = roadmapGeometry.currentNodeDiameter
+    const roadmapNodeGridTemplate = `${roadmapGeometry.nodeColumnWidth}px minmax(0, 1fr)`
+    const roadmapContentInsetStyle = { paddingLeft: `${roadmapGeometry.contentInset}px` }
+    const roadmapRailLeftStyle = { left: `${roadmapGeometry.timelineX}px` }
+    const roadmapConnectorLeft = roadmapGeometry.timelineX - roadmapGeometry.contentInset
+    const roadmapConnectorWidth = roadmapGeometry.contentInset - roadmapGeometry.timelineX
+    const roadmapConnectorCurveOffset = Math.max(8, Math.round(roadmapConnectorWidth * 0.46))
+    const roadmapMilestoneConnectorPath = (() => {
+      const x = roadmapLineWidth / 2
+      const centerY = 50
+      const curveStartY = centerY - roadmapConnectorCurveOffset
+      const curveEndY = centerY + roadmapConnectorCurveOffset
+      return `M ${x} 0 L ${x} ${curveStartY} Q ${x} ${centerY} ${roadmapConnectorWidth} ${centerY} Q ${x} ${centerY} ${x} ${curveEndY} L ${x} 100`
+    })()
+    const renderRoadmapNodeCutout = (diameter: number, surfaceRgb = 'var(--theme-surface-elevated-rgb)') => (
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute left-1/2 top-1/2 z-[-1] -translate-x-1/2 -translate-y-1/2"
+        style={{
+          width: `${roadmapLineWidth + 1}px`,
+          height: `${diameter}px`,
+          background: `rgb(${surfaceRgb} / 0.98)`,
+        }}
+      />
+    )
     const roadmapMilestoneStructuredContent =
       roadmapTasksGroupedByMilestone.length > 0 ? (
         <div className="pb-4">
@@ -5965,32 +6556,38 @@ const renderLifeGoalOverviewPage = () => {
 
             return (
               <div key={`roadmap-milestone-group-${milestone.id}`} className={groupIndex > 0 ? 'pt-5' : ''}>
-                <div className="relative pl-[36px]">
+                <div className="relative" style={roadmapContentInsetStyle}>
                   {isCurrentGroup ? (
                     <p className="pb-1 text-[10px] font-medium uppercase tracking-[0.18em] text-[rgb(var(--theme-accent-rgb)/0.88)] [text-shadow:0_0_8px_rgb(var(--theme-accent-rgb)/0.24)]">
                       You are here
                     </p>
                   ) : null}
                 </div>
-                <div className="relative pb-3 pl-[36px]">
+                <div className="relative pb-3" style={roadmapContentInsetStyle}>
                   <div className="relative flex flex-wrap items-center gap-2">
                     {isUpcomingGroup ? (
                       <>
                         <span
                           aria-hidden="true"
-                          className="pointer-events-none absolute bottom-0 left-[-24px] top-0 z-[2] w-[2px]"
+                          className="pointer-events-none absolute bottom-0 top-0 z-[2]"
                           style={{
+                            left: `${roadmapConnectorLeft}px`,
+                            width: `${roadmapLineWidth + 1}px`,
                             background: 'rgb(var(--theme-surface-rgb) / 1)',
                           }}
                         />
                         <svg
                           aria-hidden="true"
-                          className="pointer-events-none absolute left-[-24px] inset-y-0 z-[3] h-full w-[24px]"
-                          viewBox="0 0 24 100"
+                          className="pointer-events-none absolute inset-y-0 z-[3] h-full"
+                          style={{
+                            left: `${roadmapConnectorLeft}px`,
+                            width: `${roadmapConnectorWidth}px`,
+                          }}
+                          viewBox={`0 0 ${roadmapConnectorWidth} 100`}
                           preserveAspectRatio="none"
                         >
                           <path
-                            d="M 0.5 0 L 0.5 39 C 0.5 44.5 5.25 50 10.5 50 L 24 50 C 10.5 50 5.25 55.5 0.5 61 L 0.5 100"
+                            d={roadmapMilestoneConnectorPath}
                             fill="none"
                             stroke={roadmapLineColor}
                             strokeWidth={roadmapLineWidth}
@@ -6005,8 +6602,10 @@ const renderLifeGoalOverviewPage = () => {
                     {isCurrentGroup ? (
                       <span
                         aria-hidden="true"
-                        className="pointer-events-none absolute left-[-33px] top-1/2 h-px w-[18px] -translate-y-1/2"
+                        className="pointer-events-none absolute top-1/2 h-px -translate-y-1/2"
                         style={{
+                          left: `${roadmapConnectorLeft}px`,
+                          width: `${roadmapGeometry.currentMilestoneTickReach}px`,
                           background: roadmapLineColor,
                           height: `${roadmapLineWidth}px`,
                         }}
@@ -6654,7 +7253,7 @@ const renderLifeGoalOverviewPage = () => {
             </button>
           </div>
         ) : (
-          <div className="pl-[36px] pt-1">
+          <div className="pt-1" style={roadmapContentInsetStyle}>
             <p className="text-sm text-white/68">No milestones yet</p>
             <button
               type="button"
@@ -7057,8 +7656,9 @@ const renderLifeGoalOverviewPage = () => {
           <div className="relative mt-5">
             <span
               aria-hidden="true"
-              className="pointer-events-none absolute bottom-0 left-[12px] top-0 z-[1] w-px"
+              className="pointer-events-none absolute bottom-0 top-0 z-[1] w-px"
               style={{
+                ...roadmapRailLeftStyle,
                 backgroundColor:
                   roadmapSections.current
                     ? roadmapLineColor
@@ -7073,7 +7673,8 @@ const renderLifeGoalOverviewPage = () => {
                   <button
                     type="button"
                     onClick={() => setRoadmapCompletedOpen((current) => !current)}
-                    className="flex w-full items-center justify-between gap-3 pb-3 pl-[36px] text-left text-[11px] uppercase tracking-[0.18em] text-mist/52 transition hover:text-white/66"
+                    className="flex w-full items-center justify-between gap-3 pb-3 text-left text-[11px] uppercase tracking-[0.18em] text-mist/52 transition hover:text-white/66"
+                    style={roadmapContentInsetStyle}
                   >
                     <span>Completed ({roadmapSections.completed.length})</span>
                     <span className="text-white/34">{roadmapCompletedOpen ? '−' : '+'}</span>
@@ -7141,14 +7742,14 @@ const renderLifeGoalOverviewPage = () => {
 
               {roadmapSections.current ? (
                 <section>
-                  <p className="pb-3 pl-[36px] text-[11px] uppercase tracking-[0.18em] text-mist/56">Current</p>
+                  <p className="pb-3 text-[11px] uppercase tracking-[0.18em] text-mist/56" style={roadmapContentInsetStyle}>Current</p>
                   {renderRoadmapTaskGroups([roadmapSections.current], 'current', undefined, (task) => {
                     const dueMeta = task.dueDate ? getRelativeDueMeta(task.dueDate) : null
                     const isSelected = selectedRoadmapTaskId === task.id
                     const visualState = getRoadmapTaskVisualState(task, 'current', roadmapHighPriorityFocus)
                     return (
                       <div key={task.id}>
-                        <p className="pb-2 pl-[36px] text-[10px] font-medium uppercase tracking-[0.18em] text-[rgb(var(--theme-accent-rgb)/0.74)]">
+                        <p className="pb-2 text-[10px] font-medium uppercase tracking-[0.18em] text-[rgb(var(--theme-accent-rgb)/0.74)]" style={roadmapContentInsetStyle}>
                           You are here
                         </p>
                         <button
@@ -7176,12 +7777,12 @@ const renderLifeGoalOverviewPage = () => {
                             setDraggedTaskId(null)
                             setDragOverTaskId(null)
                           }}
-                          className={`relative grid w-full grid-cols-[24px_minmax(0,1fr)] items-start gap-x-3 gap-y-1 border-b border-white/[0.04] py-[18px] text-left transition hover:border-white/[0.07] ${
+                          className={`relative grid w-full items-start gap-x-3 gap-y-1 border-b border-white/[0.04] py-[18px] text-left transition hover:border-white/[0.07] ${
                             isSelected ? 'bg-white/[0.018]' : 'bg-white/[0.012]'
                           } ${
                             dragOverTaskId === task.id && draggedTaskId && draggedTaskId !== task.id ? 'bg-white/[0.03]' : ''
                           }`}
-                          style={{ ...visualState.rowStyle, opacity: visualState.opacity }}
+                          style={{ ...visualState.rowStyle, opacity: visualState.opacity, gridTemplateColumns: roadmapNodeGridTemplate }}
                         >
                           <span aria-hidden="true" className={`pt-0.5 text-[18px] leading-none ${visualState.markerClassName}`}>
                             ◎
@@ -7216,7 +7817,7 @@ const renderLifeGoalOverviewPage = () => {
 
               {roadmapSections.upcoming.length > 0 ? (
                 <section>
-                  <p className="pb-3 pl-[36px] text-[11px] uppercase tracking-[0.18em] text-mist/56">Upcoming</p>
+                  <p className="pb-3 text-[11px] uppercase tracking-[0.18em] text-mist/56" style={roadmapContentInsetStyle}>Upcoming</p>
                   {renderRoadmapTaskGroups(sortedUpcomingTasks, 'upcoming', { groupedByTag: roadmapOrganizationMode === 'tag' }, (task) => {
                     const dueMeta = task.dueDate ? getRelativeDueMeta(task.dueDate) : null
                     const isSelected = selectedRoadmapTaskId === task.id
@@ -7249,14 +7850,14 @@ const renderLifeGoalOverviewPage = () => {
                           setDraggedTaskId(null)
                           setDragOverTaskId(null)
                         }}
-                        className={`relative grid w-full grid-cols-[24px_minmax(0,1fr)] items-start gap-x-3 border-b border-white/[0.035] text-left transition-all duration-200 ease-out last:border-b-0 hover:border-white/[0.07] ${
+                        className={`relative grid w-full items-start gap-x-3 border-b border-white/[0.035] text-left transition-all duration-200 ease-out last:border-b-0 hover:border-white/[0.07] ${
                           isCompressed ? 'gap-y-0 py-1.5' : 'gap-y-1 py-3'
                         } ${
                           isSelected ? 'bg-white/[0.012]' : ''
                         } ${
                           dragOverTaskId === task.id && draggedTaskId && draggedTaskId !== task.id ? 'bg-white/[0.03]' : ''
                         }`}
-                        style={{ ...visualState.rowStyle, opacity: visualState.opacity }}
+                        style={{ ...visualState.rowStyle, opacity: visualState.opacity, gridTemplateColumns: roadmapNodeGridTemplate }}
                       >
                         <span aria-hidden="true" className={`pt-0.5 text-[16px] leading-none ${visualState.markerClassName}`}>
                           ○
@@ -7289,8 +7890,8 @@ const renderLifeGoalOverviewPage = () => {
               ) : null}
 
               <section>
-                <p className="pb-3 pl-[36px] text-[11px] uppercase tracking-[0.18em] text-mist/56">Goal</p>
-                <div className="grid grid-cols-[24px_minmax(0,1fr)] items-start gap-x-3 border-b border-white/[0.035] py-3">
+                <p className="pb-3 text-[11px] uppercase tracking-[0.18em] text-mist/56" style={roadmapContentInsetStyle}>Goal</p>
+                <div className="grid items-start gap-x-3 border-b border-white/[0.035] py-3" style={{ gridTemplateColumns: roadmapNodeGridTemplate }}>
                   <span aria-hidden="true" className="pt-0.5 text-[16px] leading-none text-white/84">
                     ◉
                   </span>
@@ -7526,6 +8127,8 @@ const renderLifeGoalOverviewPage = () => {
                 lastCompletedText: selectedLifeGoalProgress.lastCompletedTask?.text ?? null,
                 roadmapLineColor,
                 roadmapLineWidth,
+                roadmapTimelineX: roadmapGeometry.timelineX,
+                roadmapContentInset: roadmapGeometry.contentInset,
                 milestoneSummaryText:
                   goalMilestones.length > 0
                     ? `${completedMilestoneCount}/${goalMilestones.length} milestones complete`
@@ -7550,7 +8153,7 @@ const renderLifeGoalOverviewPage = () => {
                           type="button"
                           onClick={(event) => openTaskPeek(task.id, event.currentTarget)}
                           onKeyDown={(event) => handleTaskRowKeyDown(event, task.id)}
-                          className={`group grid w-full grid-cols-[24px_minmax(0,1fr)] items-start gap-x-3 rounded-[12px] text-left transition-all duration-200 ease-out hover:bg-white/[0.014] ${
+                          className={`group grid w-full items-start gap-x-3 rounded-[12px] text-left transition-all duration-200 ease-out hover:bg-white/[0.014] ${
                             isCompressed ? 'gap-y-0 py-[1px]' : 'gap-y-1 py-[10px]'
                           } ${
                             visibleGoalStartCueTaskId === task.id ? 'goal-start-highlight' : ''
@@ -7558,6 +8161,7 @@ const renderLifeGoalOverviewPage = () => {
                             taskMomentumTransition?.completedTaskId === task.id ? 'goal-task-complete-flash' : ''
                           }`}
                           style={{
+                            gridTemplateColumns: roadmapNodeGridTemplate,
                             opacity:
                               visualState.opacity *
                               (roadmapArrivalCueActive ? 0.78 : 1) *
@@ -7565,15 +8169,7 @@ const renderLifeGoalOverviewPage = () => {
                           }}
                         >
                           <span aria-hidden="true" className="relative z-[3] mt-[2px] flex h-4 w-4 items-center justify-center justify-self-center">
-                            <span
-                              aria-hidden="true"
-                              className="pointer-events-none absolute left-1/2 top-1/2 z-[-1] -translate-x-1/2 -translate-y-1/2"
-                              style={{
-                                width: `${roadmapLineWidth + 1}px`,
-                                height: `${roadmapSmallNodeDiameter}px`,
-                                background: 'rgb(var(--theme-surface-elevated-rgb) / 0.98)',
-                              }}
-                            />
+                            {renderRoadmapNodeCutout(roadmapSmallNodeDiameter)}
                             <span className="h-2 w-2 rounded-full bg-[rgb(var(--theme-accent-rgb)/0.5)] transition-transform duration-200 ease-out group-hover:scale-110" />
                           </span>
                           <div className={`min-w-0 border-b border-white/[0.02] pr-8 transition-all duration-200 ease-out ${isCompressed ? 'pb-0' : 'pb-[10px]'}`}>
@@ -7624,7 +8220,7 @@ const renderLifeGoalOverviewPage = () => {
                       const visualState = getRoadmapTaskVisualState(task, 'current', roadmapHighPriorityFocus)
                       return (
                         <div key={task.id}>
-                          <p className="pb-2 pl-[36px] text-[10px] font-medium uppercase tracking-[0.18em] text-[rgb(var(--theme-accent-rgb)/0.96)] [text-shadow:0_0_10px_rgb(var(--theme-accent-rgb)/0.42),0_0_18px_rgb(var(--theme-accent-rgb)/0.18)]">
+                          <p className="pb-2 text-[10px] font-medium uppercase tracking-[0.18em] text-[rgb(var(--theme-accent-rgb)/0.96)] [text-shadow:0_0_10px_rgb(var(--theme-accent-rgb)/0.42),0_0_18px_rgb(var(--theme-accent-rgb)/0.18)]" style={roadmapContentInsetStyle}>
                             You are here
                           </p>
                           <button
@@ -7651,7 +8247,7 @@ const renderLifeGoalOverviewPage = () => {
                               setDraggedTaskId(null)
                               setDragOverTaskId(null)
                             }}
-                            className={`group relative grid w-full grid-cols-[24px_minmax(0,1fr)] items-start gap-x-3 gap-y-1 rounded-none border border-[rgb(var(--theme-accent-rgb)/0.14)] bg-white/[0.014] py-[18px] text-left transition duration-200 ease-out hover:bg-white/[0.022] hover:border-[rgb(var(--theme-accent-rgb)/0.18)] ${
+                            className={`group relative grid w-full items-start gap-x-3 gap-y-1 rounded-none border border-[rgb(var(--theme-accent-rgb)/0.14)] bg-white/[0.014] py-[18px] text-left transition duration-200 ease-out hover:bg-white/[0.022] hover:border-[rgb(var(--theme-accent-rgb)/0.18)] ${
                               dragOverTaskId === task.id && draggedTaskId && draggedTaskId !== task.id
                                 ? 'bg-white/[0.03]'
                                 : ''
@@ -7660,18 +8256,10 @@ const renderLifeGoalOverviewPage = () => {
                             } ${taskMomentumTransition?.nextTaskId === task.id ? 'goal-next-task-activate' : ''} ${
                               taskMomentumTransition?.completedTaskId === task.id ? 'goal-task-complete-flash' : ''
                             }`}
-                            style={{ ...visualState.rowStyle, opacity: visualState.opacity }}
+                            style={{ ...visualState.rowStyle, opacity: visualState.opacity, gridTemplateColumns: roadmapNodeGridTemplate }}
                           >
                             <span aria-hidden="true" className="relative z-[3] mt-[2px] flex h-[18px] w-[18px] items-center justify-center justify-self-center">
-                              <span
-                                aria-hidden="true"
-                                className="pointer-events-none absolute left-1/2 top-1/2 z-[-1] -translate-x-1/2 -translate-y-1/2"
-                                style={{
-                                  width: `${roadmapLineWidth + 1}px`,
-                                  height: `${roadmapCurrentNodeDiameter}px`,
-                                  background: 'rgb(var(--theme-surface-elevated-rgb) / 0.98)',
-                                }}
-                              />
+                              {renderRoadmapNodeCutout(roadmapCurrentNodeDiameter)}
                               <span className="roadmap-current-node-pulse absolute h-[20px] w-[20px] rounded-full bg-[rgb(var(--theme-accent-rgb)/0.22)] blur-[6px]" />
                               <span
                                 className={`relative flex items-center justify-center rounded-full border transition-transform duration-200 ease-out group-hover:scale-110 ${
@@ -7759,7 +8347,7 @@ const renderLifeGoalOverviewPage = () => {
                 ) : null,
                 upcomingContent: roadmapMilestoneStructuredContent ? null : roadmapSections.upcoming.length > 0 ? (
                   <div>
-                    <p className="pb-2 pl-[36px] text-[11px] uppercase tracking-[0.16em] text-mist/56">Next · {roadmapSections.upcoming.length}</p>
+                    <p className="pb-2 text-[11px] uppercase tracking-[0.16em] text-mist/56" style={roadmapContentInsetStyle}>Next · {roadmapSections.upcoming.length}</p>
                     {renderRoadmapTaskGroups(sortedUpcomingTasks, 'panel-upcoming', { groupedByTag: roadmapOrganizationMode === 'tag' }, (task) => {
                       const dueMeta = task.dueDate ? getRelativeDueMeta(task.dueDate) : null
                       const visualState = getRoadmapTaskVisualState(task, 'upcoming', roadmapHighPriorityFocus)
@@ -7790,7 +8378,7 @@ const renderLifeGoalOverviewPage = () => {
                             setDraggedTaskId(null)
                             setDragOverTaskId(null)
                           }}
-                          className={`group relative grid w-full grid-cols-[24px_minmax(0,1fr)] items-start gap-x-3 rounded-[14px] text-left transition-all duration-200 ease-out hover:bg-white/[0.015] ${
+                          className={`group relative grid w-full items-start gap-x-3 rounded-[14px] text-left transition-all duration-200 ease-out hover:bg-white/[0.015] ${
                             isCompressed ? 'gap-y-0 py-[1px]' : 'gap-y-1 py-[10px]'
                           } ${
                             dragOverTaskId === task.id && draggedTaskId && draggedTaskId !== task.id ? 'bg-white/[0.028]' : ''
@@ -7799,6 +8387,7 @@ const renderLifeGoalOverviewPage = () => {
                           } ${taskMomentumTransition?.completedTaskId === task.id ? 'goal-task-complete-flash' : ''}`}
                           style={{
                             ...visualState.rowStyle,
+                            gridTemplateColumns: roadmapNodeGridTemplate,
                             opacity:
                               visualState.opacity *
                               (roadmapArrivalCueActive ? 0.78 : 1) *
@@ -7806,15 +8395,7 @@ const renderLifeGoalOverviewPage = () => {
                           }}
                         >
                           <span aria-hidden="true" className="relative z-[3] justify-self-center mt-[2px] flex h-4 w-4 items-center justify-center">
-                            <span
-                              aria-hidden="true"
-                              className="pointer-events-none absolute left-1/2 top-1/2 z-[-1] -translate-x-1/2 -translate-y-1/2"
-                              style={{
-                                width: `${roadmapLineWidth + 1}px`,
-                                height: `${roadmapSmallNodeDiameter}px`,
-                                background: 'rgb(var(--theme-surface-elevated-rgb) / 0.98)',
-                              }}
-                            />
+                            {renderRoadmapNodeCutout(roadmapSmallNodeDiameter)}
                             <span className={`h-2 w-2 rounded-full border border-white/[0.26] bg-transparent transition-transform duration-200 ease-out group-hover:scale-110 ${getPriorityScore(task) === 3 ? 'shadow-[0_0_0_1px_rgb(var(--theme-accent-rgb)/0.08)]' : ''}`} />
                           </span>
                           <div className={`min-w-0 border-b border-white/[0.02] pr-8 transition-all duration-200 ease-out ${isCompressed ? 'pb-0' : 'pb-[10px]'}`}>
@@ -7919,6 +8500,14 @@ const renderLifeGoalOverviewPage = () => {
             goalStartDate={selectedLifeGoal.startDate}
             goalCreatedAt={selectedLifeGoal.createdAt}
             goalTargetDate={selectedLifeGoal.targetDate}
+            showExpectedProgressDefault={selectedLifeGoal.showExpectedProgressLine !== false}
+            onShowExpectedProgressChange={(value) =>
+              onUpdateLifeGoal(selectedLifeGoal.id, (goal) => ({
+                ...goal,
+                showExpectedProgressLine: value,
+                updatedAt: new Date().toISOString(),
+              }))
+            }
           /> : null}
 
         </div>

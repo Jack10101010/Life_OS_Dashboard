@@ -462,6 +462,14 @@ function normalizeLifeGoal(goal: Partial<LifeGoal>, index: number): LifeGoal {
       ? goal.relatedGoalIds.filter((relatedGoalId): relatedGoalId is string => typeof relatedGoalId === 'string' && relatedGoalId.length > 0)
       : [],
     milestonesEnabled,
+    showProgressStrip:
+      typeof (goal as Partial<LifeGoal> & { showProgressStrip?: unknown }).showProgressStrip === 'boolean'
+        ? Boolean((goal as Partial<LifeGoal> & { showProgressStrip?: boolean }).showProgressStrip)
+        : true,
+    showExpectedProgressLine:
+      typeof (goal as Partial<LifeGoal> & { showExpectedProgressLine?: unknown }).showExpectedProgressLine === 'boolean'
+        ? Boolean((goal as Partial<LifeGoal> & { showExpectedProgressLine?: boolean }).showExpectedProgressLine)
+        : true,
     whyItMatters: typeof goal.whyItMatters === 'string' ? goal.whyItMatters.trim() : '',
     notes:
       typeof (goal as Partial<LifeGoal> & { notes?: unknown }).notes === 'string'
@@ -477,6 +485,16 @@ function normalizeLifeGoal(goal: Partial<LifeGoal>, index: number): LifeGoal {
             .filter((image): image is string => typeof image === 'string' && image.length > 0)
             .slice(0, 6)
         : [],
+    visionMode:
+      (goal as Partial<LifeGoal> & { visionMode?: unknown }).visionMode === 'images' ||
+      (goal as Partial<LifeGoal> & { visionMode?: unknown }).visionMode === 'statement' ||
+      (goal as Partial<LifeGoal> & { visionMode?: unknown }).visionMode === 'images-statement'
+        ? ((goal as Partial<LifeGoal> & { visionMode?: 'images' | 'statement' | 'images-statement' }).visionMode ?? 'images')
+        : undefined,
+    visionCollapsed:
+      typeof (goal as Partial<LifeGoal> & { visionCollapsed?: unknown }).visionCollapsed === 'boolean'
+        ? Boolean((goal as Partial<LifeGoal> & { visionCollapsed?: boolean }).visionCollapsed)
+        : undefined,
     minimumVersion: typeof goal.minimumVersion === 'string' ? goal.minimumVersion.trim() : '',
     ifThenPlan: typeof goal.ifThenPlan === 'string' ? goal.ifThenPlan.trim() : '',
     startDate: typeof goal.startDate === 'string' && goal.startDate ? goal.startDate : defaultStartDate,
