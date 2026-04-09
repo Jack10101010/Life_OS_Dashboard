@@ -22,13 +22,15 @@ export function getFloatingPanelPosition(
     minWidth = 0,
     preferredWidth,
     estimatedHeight,
-  }: { minWidth?: number; preferredWidth?: number; estimatedHeight: number },
+    respectAnchorWidth = true,
+  }: { minWidth?: number; preferredWidth?: number; estimatedHeight: number; respectAnchorWidth?: boolean },
 ): FloatingPanelPosition {
   const rect = anchor.getBoundingClientRect()
   const viewportPadding = 16
   const gap = 8
+  const anchorWidthFloor = respectAnchorWidth ? rect.width : 0
   const width = Math.min(
-    Math.max(preferredWidth ?? rect.width, minWidth, rect.width),
+    Math.max(preferredWidth ?? rect.width, minWidth, anchorWidthFloor),
     window.innerWidth - viewportPadding * 2,
   )
   const left = Math.min(

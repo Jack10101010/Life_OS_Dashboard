@@ -73,6 +73,7 @@ export function TopBar({
         <div className={`flex flex-col ${isGoalsPage ? 'gap-2' : 'gap-4'} lg:flex-row lg:items-center lg:justify-between`}>
           <div className="min-w-0">
             <h2
+              id={isGoalsPage ? 'goals-page-title' : undefined}
               className={
                 isGoalsPage
                   ? 'text-[28px] font-semibold tracking-[-0.03em] theme-text-primary'
@@ -92,7 +93,7 @@ export function TopBar({
               </p>
             ) : null}
           </div>
-          <div className={`flex items-center gap-2 lg:self-center ${showTodayCard ? '' : 'hidden'}`}>
+          <div className={`flex items-center gap-2 lg:self-center ${showTodayCard || isGoalsPage ? '' : 'hidden'}`}>
             {page === 'dashboard' ? (
               <button
                 type="button"
@@ -123,6 +124,7 @@ export function TopBar({
                 </p>
               </button>
             ) : null}
+            {isGoalsPage ? <div id="goals-header-controls-slot" className="flex h-9 min-w-[86px] shrink-0 items-center justify-end gap-2" /> : null}
           </div>
         </div>
       </PageContainer>

@@ -456,6 +456,11 @@ function normalizeLifeGoal(goal: Partial<LifeGoal>, index: number): LifeGoal {
   return {
     id: typeof goal.id === 'string' && goal.id ? goal.id : `life-goal-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
     title: typeof goal.title === 'string' ? goal.title.trim() : '',
+    icon:
+      typeof (goal as Partial<LifeGoal> & { icon?: unknown }).icon === 'string' &&
+      (goal as Partial<LifeGoal> & { icon?: string }).icon?.trim()
+        ? (goal as Partial<LifeGoal> & { icon?: string }).icon!.trim()
+        : null,
     category: typeof goal.category === 'string' ? goal.category.trim() : '',
     goalType,
     relatedGoalIds: Array.isArray(goal.relatedGoalIds)

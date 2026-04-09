@@ -7,7 +7,7 @@ export function LifeGoalFocusCard({
   categoryChip,
   primaryChip,
   statusChip,
-  whyText,
+  whyContent,
   nextTaskText,
   actionFeedback,
   primaryActionLabel,
@@ -17,11 +17,11 @@ export function LifeGoalFocusCard({
   onFocusToday,
   showExecutionSection = true,
 }: {
-  title: string
+  title: ReactNode
   categoryChip: ReactNode
   primaryChip: ReactNode
   statusChip: ReactNode
-  whyText: string | null
+  whyContent: ReactNode
   nextTaskText: string
   actionFeedback: string | null
   primaryActionLabel?: string
@@ -46,10 +46,10 @@ export function LifeGoalFocusCard({
       </div>
 
       <div className="mt-2.5 space-y-3">
-        {whyText ? (
+        {whyContent ? (
           <div className="space-y-0.5">
             <p className="text-[11px] text-mist/48">Why</p>
-            <p className="text-[12px] font-medium leading-5 text-white/58">{whyText}</p>
+            <div className="text-[12px] font-medium leading-5 text-white/58">{whyContent}</div>
           </div>
         ) : null}
         {showExecutionSection ? (

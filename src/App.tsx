@@ -749,15 +749,11 @@ export default function App() {
                   )
                 }
                 setLifeGoals((current) => {
-                  const primaryGoal = current.find((item) => item.isPrimary) ?? null
-                  const nonPrimaryGoals = current.filter((item) => !item.isPrimary)
-
-                  const nextNonPrimaryGoals = [
+                  const nextGoals = [
                     { ...goal, order: 0 },
-                    ...nonPrimaryGoals.map((item) => ({ ...item, order: item.order + 1 })),
+                    ...current.map((item) => ({ ...item, order: item.order + 1 })),
                   ]
-
-                  return primaryGoal ? [primaryGoal, ...nextNonPrimaryGoals] : nextNonPrimaryGoals
+                  return nextGoals
                 })
               }
             }
@@ -799,17 +795,9 @@ export default function App() {
                 const orderMap = new Map(goalIds.map((id, index) => [id, index]))
                 return current.map((goal) => ({
                   ...goal,
-                  order: goal.isPrimary ? -1 : orderMap.get(goal.id) ?? goal.order,
+                  order: orderMap.get(goal.id) ?? goal.order,
                 }))
               })
-            }
-            onSetPrimaryLifeGoal={(goalId) =>
-              setLifeGoals((current) =>
-                current.map((goal) => ({
-                  ...goal,
-                  isPrimary: goalId !== null && goal.id === goalId,
-                })),
-              )
             }
             onArchiveLifeGoal={(goalId) =>
               setLifeGoals((current) =>
@@ -818,7 +806,6 @@ export default function App() {
                     ? {
                         ...goal,
                         archivedAt: new Date().toISOString(),
-                        isPrimary: false,
                         updatedAt: new Date().toISOString(),
                       }
                     : goal,
