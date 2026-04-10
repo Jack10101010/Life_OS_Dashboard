@@ -55,7 +55,7 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
     selectedGoalCategory,
     selectedGoalCategoryColor,
     selectedGoalRuntimeTasks,
-    outcomeGoalRuntimeTaskMap,
+    goalRuntimeTaskMap,
     year,
     selectedRoadmapPanelActions,
     selectedRoadmapPanelUiState,
@@ -166,8 +166,8 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
   const directionalHeaderEditPanelRef = React.useRef<HTMLDivElement | null>(null)
   const directionalHeaderEditButtonRef = React.useRef<HTMLButtonElement | null>(null)
   const getRuntimeTasksForGoal = React.useCallback(
-    (goal) => ((goal.goalType ?? 'outcome') === 'outcome' ? outcomeGoalRuntimeTaskMap?.get(goal.id) ?? [] : goal.tasks),
-    [outcomeGoalRuntimeTaskMap],
+    (goal) => goalRuntimeTaskMap?.get(goal.id) ?? [],
+    [goalRuntimeTaskMap],
   )
 
   React.useEffect(() => {
@@ -1463,9 +1463,6 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
   const directionalIdentityBand = React.useMemo(() => {
     const today = new Date()
     const activeDates = new Set<string>()
-    for (const task of selectedLifeGoal.tasks) {
-      if (task.completed && task.completedAt) activeDates.add(task.completedAt.slice(0, 10))
-    }
     for (const task of linkedDirectionalTasks) {
       if (task.completed && task.completedAt) activeDates.add(task.completedAt.slice(0, 10))
     }
@@ -1571,7 +1568,6 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
     renderParentGoalChips,
     selectedGoalCategory,
     selectedGoalCategoryColor,
-    selectedLifeGoal.tasks,
     showDetailCategory,
     getRuntimeTasksForGoal,
     visibleRelatedGoals,
@@ -1625,16 +1621,13 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
         <div className="divide-y divide-white/[0.04] rounded-[18px] border border-white/[0.05] bg-white/[0.018]">
           {directionalTaskRows.length > 0 ? directionalTaskRows.map((task) => {
             const dueMeta = task.dueDate ? formatTaskDueDate(task.dueDate) : null
-            // Tasks sourced from linkedDirectionalTasks (global Task type) have linkedDirectionId.
-            // Tasks sourced from selectedLifeGoal.tasks (LifeGoalTask) do not — open via peek.
-            const isEmbeddedGoalTask = !('linkedDirectionId' in task)
             return (
               <button
                 key={`direction-task-row-${task.id}`}
                 type="button"
-                onClick={(event) => isEmbeddedGoalTask ? openTaskPeek(task.id, event.currentTarget) : onOpenGlobalTasks()}
+                onClick={(event) => openTaskPeek(task.id, event.currentTarget)}
                 className="flex w-full items-center gap-3 px-4 py-3 text-left transition hover:bg-white/[0.018]"
-                title={isEmbeddedGoalTask ? 'Open task' : 'Open in global tasks'}
+                title="Open task"
               >
                 <span aria-hidden="true" className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-white/[0.16] bg-transparent" />
                 <p className="min-w-0 flex-1 truncate text-[14px] text-white/82">{task.text}</p>
@@ -1656,7 +1649,6 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
     directionalMomentumState?.tone,
     directionalTaskRows,
     hiddenDirectionalTasksCount,
-    onOpenGlobalTasks,
     openNewTaskPeek,
     openTaskPeek,
     selectedLifeGoalProgress.nextTask,
@@ -2613,8 +2605,8 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
       <div className="flex items-center justify-between gap-3">
         <div>
           <p className="text-[11px] uppercase tracking-[0.16em] text-mist/50">Activity</p>
-          <p className="mt-1 text-sm text-mist">Linked global tasks supporting this direction.</p>
-          <p className="mt-1 text-[12px] text-mist/52">Linked tasks are managed from the Dashboard task list.</p>
+          <p className="mt-1 text-sm text-mist">Tasks currently supporting this direction.</p>
+          <p className="mt-1 text-[12px] text-mist/52">Open any step to review or edit it.</p>
         </div>
       </div>
 
@@ -2628,9 +2620,9 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
                   <button
                     key={`direction-task-${task.id}`}
                     type="button"
-                    onClick={onOpenGlobalTasks}
+                    onClick={(event) => openTaskPeek(task.id, event.currentTarget)}
                     className="flex w-full items-start justify-between gap-3 rounded-[18px] border border-white/[0.05] bg-white/[0.018] px-4 py-3 text-left transition hover:border-white/[0.08] hover:bg-white/[0.026]"
-                    title="Open in global tasks"
+                    title="Open task"
                   >
                     <div className="min-w-0 flex-1">
                       <p className={`text-sm leading-6 ${task.completed ? 'text-white/52 line-through' : 'text-white/78'}`}>
@@ -2662,8 +2654,8 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
         ) : (
           <div className="rounded-[18px] border border-white/[0.05] bg-white/[0.018] px-4 py-4">
             <p className="text-sm text-white/68">No linked tasks yet</p>
-            <p className="mt-1 text-sm text-mist">Linked tasks will appear here when they support this direction.</p>
-            <p className="mt-1 text-[12px] text-mist/52">Create and edit linked tasks from the Dashboard.</p>
+            <p className="mt-1 text-sm text-mist">Tasks will appear here when they support this direction.</p>
+            <p className="mt-1 text-[12px] text-mist/52">Add a task to give this direction something concrete to move.</p>
           </div>
         )}
       </div>
@@ -2671,7 +2663,7 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
   ) : null, [
     hiddenDirectionalTasksCount,
     isDirectionalGoal,
-    onOpenGlobalTasks,
+    openTaskPeek,
     visibleDirectionalTasks,
   ])
   const tasksTabContent = React.useMemo(() => lifeGoalDetailTab === 'tasks' ? (

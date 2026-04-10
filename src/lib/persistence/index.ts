@@ -72,10 +72,13 @@ export function normalizeImportedPersistedAppState(value: unknown, currentYear: 
   if (!isValidImportedPersistedAppStateShape(value)) {
     throw new Error('Invalid backup format')
   }
-  return normalizePersistedAppState(value, currentYear)
+  logStartup('normalizeStart', { source: 'import-restore' })
+  const normalizedState = runTaskRelatedStatePipeline(value, currentYear)
+  logStartup('normalizeSuccess', { source: 'import-restore' })
+  return normalizedState
 }
 
-function runStartupStatePipeline(parsed: Partial<PersistedAppState>, currentYear: number): PersistedAppState {
+function runTaskRelatedStatePipeline(parsed: Partial<PersistedAppState>, currentYear: number): PersistedAppState {
   const withCanonicalDays =
     parsed.dataByYear && typeof parsed.dataByYear === 'object'
       ? {
@@ -117,7 +120,7 @@ export async function loadPersistedAppState(currentYear: number): Promise<Persis
     if (indexedDbState && typeof indexedDbState === 'object') {
       logStartup('indexedDbReadSuccess', { found: true })
       logStartup('normalizeStart', { source: 'indexeddb' })
-      const normalizedState = runStartupStatePipeline(indexedDbState, currentYear)
+      const normalizedState = runTaskRelatedStatePipeline(indexedDbState, currentYear)
       logStartup('normalizeSuccess', { source: 'indexeddb' })
       return {
         state: normalizedState,
@@ -136,7 +139,7 @@ export async function loadPersistedAppState(currentYear: number): Promise<Persis
         force: true,
       })
       logStartup('normalizeStart', { source: 'localstorage' })
-      const normalizedState = runStartupStatePipeline(localStorageState, currentYear)
+      const normalizedState = runTaskRelatedStatePipeline(localStorageState, currentYear)
       logStartup('normalizeSuccess', { source: 'localstorage' })
       await writePersistedAppStateToIndexedDb(normalizedState)
       logStartup('indexedDbWriteSuccess', { source: 'localstorage-migration' })
@@ -162,7 +165,7 @@ export async function loadPersistedAppState(currentYear: number): Promise<Persis
     if (localStorageState && typeof localStorageState === 'object') {
       logStartup('localStorageFallbackSuccess', { found: true, mode: 'readonly-localstorage' })
       logStartup('normalizeStart', { source: 'localstorage-readonly' })
-      const normalizedState = runStartupStatePipeline(localStorageState, currentYear)
+      const normalizedState = runTaskRelatedStatePipeline(localStorageState, currentYear)
       logStartup('normalizeSuccess', { source: 'localstorage-readonly' })
       return {
         state: normalizedState,

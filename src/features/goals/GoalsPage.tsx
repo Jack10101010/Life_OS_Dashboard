@@ -566,6 +566,10 @@ function normalizeOutcomeGoalTaskRecord(task: Task): LifeGoalTask {
   return normalizeTaskRecordToLifeGoalTask(task as OutcomeGoalTaskRecord)
 }
 
+function isDirectionalTaskRecordForGoal(task: Task, goalId: string) {
+  return task.linkedDirectionId === goalId || (task.linkedDirectionId == null && task.linkedGoalId === goalId)
+}
+
 function isLifeGoalTaskDraftEmpty(task: LifeGoalTask) {
   const normalizedPhase = normalizeLifeGoalPhaseValue(task.phase)
   return (
@@ -886,7 +890,7 @@ function createLifeGoalUpdateFromDraft(goal: LifeGoal, draft: LifeGoalDraft, rel
     targetDate: draft.targetDate,
     status: draft.status,
     milestones: draft.goalType === 'outcome' ? normalizeLifeGoalDraftMilestones(draft.milestones) : [],
-    tasks: draft.goalType === 'outcome' ? goal.tasks : tasks,
+    tasks: goal.tasks,
   }
 }
 
@@ -1244,18 +1248,16 @@ export function GoalsPage({
   const safeLifeGoals = lifeGoals ?? []
   const safeLifeGoalCategories = lifeGoalCategories ?? []
   const safeTasks = tasks ?? []
-  const outcomeGoalRuntimeTaskMap = useMemo(
+  const goalRuntimeTaskMap = useMemo(
     () =>
       new Map(
-        safeLifeGoals
-          .filter((goal) => (goal.goalType ?? 'outcome') === 'outcome')
-          .map((goal) => [goal.id, getLifeGoalRuntimeTasks(goal, safeTasks)]),
+        safeLifeGoals.map((goal) => [goal.id, getLifeGoalRuntimeTasks(goal, safeTasks)]),
       ),
     [safeLifeGoals, safeTasks],
   )
   const getRuntimeTasksForGoal = useCallback(
-    (goal: LifeGoal) => ((goal.goalType ?? 'outcome') === 'outcome' ? (outcomeGoalRuntimeTaskMap.get(goal.id) ?? []) : goal.tasks),
-    [outcomeGoalRuntimeTaskMap],
+    (goal: LifeGoal) => goalRuntimeTaskMap.get(goal.id) ?? [],
+    [goalRuntimeTaskMap],
   )
   const [selectedGoal, setSelectedGoal] = useState<GoalDetailItem | null>(null)
   const [lifeGoalDraft, setLifeGoalDraft] = useState<LifeGoalDraft>(() => createEmptyLifeGoalDraft())
@@ -1635,8 +1637,15 @@ export function GoalsPage({
     () =>
       !selectedLifeGoal || selectedLifeGoal.goalType !== 'outcome'
         ? []
-        : outcomeGoalRuntimeTaskMap.get(selectedLifeGoal.id) ?? [],
-    [outcomeGoalRuntimeTaskMap, selectedLifeGoal],
+        : goalRuntimeTaskMap.get(selectedLifeGoal.id) ?? [],
+    [goalRuntimeTaskMap, selectedLifeGoal],
+  )
+  const selectedDirectionalGoalTasks = useMemo(
+    () =>
+      !selectedLifeGoal || selectedLifeGoal.goalType !== 'directional'
+        ? []
+        : goalRuntimeTaskMap.get(selectedLifeGoal.id) ?? [],
+    [goalRuntimeTaskMap, selectedLifeGoal],
   )
   const safeDraftRelatedGoalIds = lifeGoalDraft.relatedGoalIds ?? []
   const safeSelectedLifeGoalLinkedHabitIds = selectedLifeGoal?.linkedHabitIds ?? []
@@ -1691,6 +1700,51 @@ export function GoalsPage({
             important: existing?.important ?? false,
             linkedGoalId: goalId,
             linkedDirectionId: existing?.linkedDirectionId ?? null,
+            completed: task.completed,
+            completedAt: task.completed ? task.completedAt ?? existing?.completedAt ?? timestamp : null,
+            description: task.description,
+            notes: task.notes,
+            priority: task.priority,
+            tags: normalizeTaskTags(task.tags),
+            subtasks: task.subtasks.map((subtask) => ({
+              id: subtask.id,
+              text: subtask.text,
+              completed: subtask.completed,
+            })),
+            milestoneId: task.milestoneId ?? null,
+            phase: normalizeLifeGoalPhaseValue(task.phase),
+            createdAt: existing?.createdAt ?? task.completedAt ?? new Date(0).toISOString(),
+            updatedAt: timestamp,
+          } as Task
+        })
+        return [...otherTasks, ...nextRecords]
+      })
+    },
+    [onUpdateTasks],
+  )
+
+  const replaceDirectionalGoalTaskStore = useCallback(
+    (goalId: string, nextTasks: LifeGoalTask[]) => {
+      onUpdateTasks((current) => {
+        const currentGoalRecords = current
+          .filter((task) => isDirectionalTaskRecordForGoal(task, goalId))
+          .slice()
+          .sort((left, right) => left.order - right.order) as OutcomeGoalTaskRecord[]
+        const currentRecordById = new Map(currentGoalRecords.map((task) => [task.id, task]))
+        const otherTasks = current.filter((task) => !isDirectionalTaskRecordForGoal(task, goalId))
+        const timestamp = new Date().toISOString()
+        const nextRecords = nextTasks.map((task, index) => {
+          const existing = currentRecordById.get(task.id)
+          return {
+            ...(existing ?? {}),
+            id: task.id,
+            text: task.text,
+            order: index,
+            dueDate: task.dueDate ?? null,
+            starred: existing?.starred ?? false,
+            important: existing?.important ?? false,
+            linkedGoalId: null,
+            linkedDirectionId: goalId,
             completed: task.completed,
             completedAt: task.completed ? task.completedAt ?? existing?.completedAt ?? timestamp : null,
             description: task.description,
@@ -1836,23 +1890,116 @@ export function GoalsPage({
     },
     [updateOutcomeGoalTask],
   )
+
+  const updateDirectionalGoalTask = useCallback(
+    (taskId: string, updater: (task: LifeGoalTask) => LifeGoalTask) => {
+      const selectedGoalId = selectedLifeGoal?.goalType === 'directional' ? selectedLifeGoal.id : null
+      const sourceRecord = safeTasks.find((task) => task.id === taskId) ?? null
+      const goalId =
+        selectedGoalId ??
+        sourceRecord?.linkedDirectionId ??
+        (sourceRecord?.linkedGoalId && sortedLifeGoals.some((goal) => goal.id === sourceRecord.linkedGoalId && (goal.goalType ?? 'outcome') === 'directional')
+          ? sourceRecord.linkedGoalId
+          : null)
+      if (!goalId) return
+      const currentTasks =
+        selectedLifeGoal?.id === goalId && selectedLifeGoal.goalType === 'directional'
+          ? selectedDirectionalGoalTasks
+          : safeTasks
+              .filter((task) => isDirectionalTaskRecordForGoal(task, goalId))
+              .slice()
+              .sort((left, right) => left.order - right.order)
+              .map((task) => normalizeOutcomeGoalTaskRecord(task))
+      const nextTasks = currentTasks.map((task) => (task.id === taskId ? updater(task) : task))
+      replaceDirectionalGoalTaskStore(goalId, nextTasks)
+    },
+    [replaceDirectionalGoalTaskStore, safeTasks, selectedDirectionalGoalTasks, selectedLifeGoal, sortedLifeGoals],
+  )
+
+  const createDirectionalGoalTask = useCallback(
+    (goalId: string, seed?: Partial<LifeGoalTask>) => {
+      const currentTasks =
+        selectedLifeGoal?.id === goalId && selectedLifeGoal.goalType === 'directional'
+          ? selectedDirectionalGoalTasks
+          : safeTasks
+              .filter((task) => isDirectionalTaskRecordForGoal(task, goalId))
+              .slice()
+              .sort((left, right) => left.order - right.order)
+              .map((task) => normalizeOutcomeGoalTaskRecord(task))
+      const baseTask = createEmptyLifeGoalTask()
+      const nextTask: LifeGoalTask = {
+        ...baseTask,
+        ...seed,
+        id: seed?.id ?? baseTask.id,
+        text: seed?.text ?? '',
+        milestoneId: seed?.milestoneId ?? null,
+        phase: normalizeLifeGoalPhaseValue(seed?.phase),
+        description: seed?.description ?? '',
+        notes: seed?.notes ?? '',
+        dueDate: seed?.dueDate ?? null,
+        priority: seed?.priority ?? 'none',
+        tags: normalizeTaskTags(seed?.tags ?? []),
+        subtasks: seed?.subtasks ?? [],
+        completed: seed?.completed ?? false,
+        completedAt: seed?.completed ? seed.completedAt ?? new Date().toISOString() : null,
+      }
+      replaceDirectionalGoalTaskStore(goalId, [...currentTasks, nextTask])
+      return nextTask
+    },
+    [replaceDirectionalGoalTaskStore, safeTasks, selectedDirectionalGoalTasks, selectedLifeGoal],
+  )
+
+  const deleteDirectionalGoalTask = useCallback(
+    (taskId: string) => {
+      const selectedGoalId = selectedLifeGoal?.goalType === 'directional' ? selectedLifeGoal.id : null
+      const sourceRecord = safeTasks.find((task) => task.id === taskId) ?? null
+      const goalId =
+        selectedGoalId ??
+        sourceRecord?.linkedDirectionId ??
+        (sourceRecord?.linkedGoalId && sortedLifeGoals.some((goal) => goal.id === sourceRecord.linkedGoalId && (goal.goalType ?? 'outcome') === 'directional')
+          ? sourceRecord.linkedGoalId
+          : null)
+      if (!goalId) return
+      const currentTasks =
+        selectedLifeGoal?.id === goalId && selectedLifeGoal.goalType === 'directional'
+          ? selectedDirectionalGoalTasks
+          : safeTasks
+              .filter((task) => isDirectionalTaskRecordForGoal(task, goalId))
+              .slice()
+              .sort((left, right) => left.order - right.order)
+              .map((task) => normalizeOutcomeGoalTaskRecord(task))
+      replaceDirectionalGoalTaskStore(goalId, currentTasks.filter((task) => task.id !== taskId))
+    },
+    [replaceDirectionalGoalTaskStore, safeTasks, selectedDirectionalGoalTasks, selectedLifeGoal, sortedLifeGoals],
+  )
+
+  const restoreDirectionalGoalTask = useCallback(
+    (taskId: string) => {
+      updateDirectionalGoalTask(taskId, (task) => ({
+        ...task,
+        completed: false,
+        completedAt: null,
+      }))
+    },
+    [updateDirectionalGoalTask],
+  )
   const selectedGoalTaskSource = useMemo(
     () =>
       !selectedLifeGoal
         ? []
         : selectedLifeGoal.goalType === 'outcome'
           ? selectedOutcomeGoalTasks
-          : selectedLifeGoal.tasks,
-    [selectedLifeGoal, selectedOutcomeGoalTasks],
+          : selectedDirectionalGoalTasks,
+    [selectedDirectionalGoalTasks, selectedLifeGoal, selectedOutcomeGoalTasks],
   )
   useEffect(() => {
     const isLocalDevHost =
       typeof window !== 'undefined' &&
       (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
     if (!isLocalDevHost) return
-    if (!selectedLifeGoal || selectedLifeGoal.goalType !== 'outcome') return
+    if (!selectedLifeGoal) return
     if (selectedGoalTaskSource === selectedLifeGoal.tasks) {
-      console.warn('Outcome-goal runtime source unexpectedly fell back to embedded goal.tasks', {
+      console.warn(`${selectedLifeGoal.goalType === 'directional' ? 'Directional' : 'Outcome'}-goal runtime source unexpectedly fell back to embedded goal.tasks`, {
         goalId: selectedLifeGoal.id,
         goalTitle: selectedLifeGoal.title,
       })
@@ -2052,19 +2199,10 @@ export function GoalsPage({
   }, [safeLifeGoals, selectedLifeGoal])
   const selectedGoalLinkedDirectionalTasks = useMemo(
     () =>
-      selectedLifeGoal
-        ? safeTasks
-            .filter((task) => task.linkedDirectionId === selectedLifeGoal.id)
-            .filter((task, index, taskItems) => taskItems.findIndex((candidate) => candidate.id === task.id) === index)
-            .slice()
-            .sort((left, right) => {
-              if (left.completed !== right.completed) return left.completed ? 1 : -1
-              if (left.important !== right.important) return left.important ? -1 : 1
-              if (left.dueDate !== right.dueDate) return left.dueDate.localeCompare(right.dueDate)
-              return left.text.localeCompare(right.text)
-            })
+      selectedLifeGoal?.goalType === 'directional'
+        ? selectedDirectionalGoalTasks
         : [],
-    [safeTasks, selectedLifeGoal],
+    [selectedDirectionalGoalTasks, selectedLifeGoal],
   )
   const selectedGoalSupportingHabits = useMemo(
     () =>
@@ -2097,12 +2235,7 @@ export function GoalsPage({
     const visibleParentGoals = selectedGoalParentGoals.slice(0, 2)
     const hiddenParentGoalsCount = Math.max(0, selectedGoalParentGoals.length - visibleParentGoals.length)
     const recentCutoff = Date.now() - 14 * 24 * 60 * 60 * 1000
-    // Merge goal-embedded tasks and global direction-linked tasks, deduplicating by id.
-    // Goal-embedded tasks (LifeGoalTask) are created via "+ Add task" on the directional page
-    // but have no linkedDirectionId, so without this union they would never appear in the list.
-    const uniqueTasks = Array.from(
-      new Map([...(selectedLifeGoal?.tasks ?? []), ...linkedDirectionalTasks].map((task) => [task.id, task])).values(),
-    )
+    const uniqueTasks = linkedDirectionalTasks
     const recentDirectionalActionCount = uniqueTasks.filter((task) => task.completedAt && Date.parse(task.completedAt) >= recentCutoff).length
     const incompleteDirectionalTasks = uniqueTasks
       .filter((task) => !task.completed)
@@ -2130,7 +2263,7 @@ export function GoalsPage({
       visibleSupportingHabits,
       hiddenSupportingHabitsCount,
     }
-  }, [selectedGoalLinkedDirectionalTasks, selectedGoalParentGoals, selectedGoalRelatedGoals, selectedGoalSupportingHabits, selectedLifeGoal?.tasks])
+  }, [selectedGoalLinkedDirectionalTasks, selectedGoalParentGoals, selectedGoalRelatedGoals, selectedGoalSupportingHabits])
   const selectedGoalRoadmapDerived = useMemo(() => {
     const currentMilestone = selectedCurrentMilestone
     const roadmapSections = selectedRoadmapSections
@@ -2897,6 +3030,8 @@ export function GoalsPage({
       }))
       if (selectedLifeGoal.goalType === 'outcome') {
         replaceOutcomeGoalTaskStore(editingLifeGoalId, draftTasks)
+      } else {
+        replaceDirectionalGoalTaskStore(editingLifeGoalId, draftTasks)
       }
     }
 
@@ -2910,6 +3045,7 @@ export function GoalsPage({
     lifeGoalDraft.title,
     lifeGoalDraft.whyItMatters,
     onUpdateLifeGoal,
+    replaceDirectionalGoalTaskStore,
     replaceOutcomeGoalTaskStore,
     selectedLifeGoal,
     selectedLifeGoalEditSnapshot,
@@ -2934,6 +3070,8 @@ export function GoalsPage({
     onCreateLifeGoal(nextGoal)
     if (nextGoal.goalType === 'outcome') {
       replaceOutcomeGoalTaskStore(nextGoal.id, createTasks)
+    } else {
+      replaceDirectionalGoalTaskStore(nextGoal.id, createTasks)
     }
     onSelectLifeGoal(nextGoal.id)
     onChangeGoalsView('life-detail')
@@ -3047,24 +3185,25 @@ export function GoalsPage({
       return
     }
 
-    onUpdateLifeGoal(goalId, (goal) => {
-      const fromIndex = goal.tasks.findIndex((task) => task.id === taskId)
-      if (fromIndex === -1) return goal
-      const targetTask = goal.tasks[fromIndex]
-      if (targetTask.completed) return goal
-      const firstIncompleteIndex = goal.tasks.findIndex((task) => !task.completed)
-      if (firstIncompleteIndex === -1 || fromIndex === firstIncompleteIndex) return goal
+    const currentTasks =
+      selectedLifeGoal?.id === goalId && selectedLifeGoal.goalType === 'directional'
+        ? selectedDirectionalGoalTasks
+        : safeTasks
+            .filter((task) => isDirectionalTaskRecordForGoal(task, goalId))
+            .slice()
+            .sort((left, right) => left.order - right.order)
+            .map((task) => normalizeOutcomeGoalTaskRecord(task))
+    const fromIndex = currentTasks.findIndex((task) => task.id === taskId)
+    if (fromIndex === -1) return
+    const targetTask = currentTasks[fromIndex]
+    if (targetTask.completed) return
+    const firstIncompleteIndex = currentTasks.findIndex((task) => !task.completed)
+    if (firstIncompleteIndex === -1 || fromIndex === firstIncompleteIndex) return
 
-      const nextTasks = [...goal.tasks]
-      const [movedTask] = nextTasks.splice(fromIndex, 1)
-      nextTasks.splice(firstIncompleteIndex, 0, movedTask)
-
-      return {
-        ...goal,
-        tasks: nextTasks,
-        updatedAt: new Date().toISOString(),
-      }
-    })
+    const nextTasks = currentTasks.slice()
+    const [movedTask] = nextTasks.splice(fromIndex, 1)
+    nextTasks.splice(firstIncompleteIndex, 0, movedTask)
+    replaceDirectionalGoalTaskStore(goalId, nextTasks)
     setSelectedRoadmapTaskId(taskId)
   }
 
@@ -3102,42 +3241,49 @@ export function GoalsPage({
       return
     }
 
-    onUpdateLifeGoal(goalId, (goal) => {
-      const upcomingTasks = goal.tasks.filter((task) => !task.completed)
-      const visibleUpcomingIds = upcomingTasks.map((task) => task.id)
-      const fromIndex = visibleUpcomingIds.indexOf(draggedTaskId)
-      const toIndex = visibleUpcomingIds.indexOf(targetTaskId)
-      if (fromIndex === -1 || toIndex === -1) return goal
+    const currentTasks =
+      selectedLifeGoal?.id === goalId && selectedLifeGoal.goalType === 'directional'
+        ? selectedDirectionalGoalTasks
+        : safeTasks
+            .filter((task) => isDirectionalTaskRecordForGoal(task, goalId))
+            .slice()
+            .sort((left, right) => left.order - right.order)
+            .map((task) => normalizeOutcomeGoalTaskRecord(task))
+    const upcomingTasks = currentTasks.filter((task) => !task.completed)
+    const visibleUpcomingIds = upcomingTasks.map((task) => task.id)
+    const fromIndex = visibleUpcomingIds.indexOf(draggedTaskId)
+    const toIndex = visibleUpcomingIds.indexOf(targetTaskId)
+    if (fromIndex === -1 || toIndex === -1) return
 
-      const reorderedUpcoming = [...upcomingTasks]
-      const [movedTask] = reorderedUpcoming.splice(fromIndex, 1)
-      reorderedUpcoming.splice(toIndex, 0, movedTask)
-      let upcomingCursor = 0
-      const nextTasks = goal.tasks.map((task) => {
-        if (task.completed) return task
-        const nextTask = reorderedUpcoming[upcomingCursor]
-        upcomingCursor += 1
-        return nextTask
-      })
-      return {
-        ...goal,
-        tasks: nextTasks,
-        updatedAt: new Date().toISOString(),
-      }
+    const reorderedUpcoming = [...upcomingTasks]
+    const [movedTask] = reorderedUpcoming.splice(fromIndex, 1)
+    reorderedUpcoming.splice(toIndex, 0, movedTask)
+    let upcomingCursor = 0
+    const nextTasks = currentTasks.map((task) => {
+      if (task.completed) return task
+      const nextTask = reorderedUpcoming[upcomingCursor]
+      upcomingCursor += 1
+      return nextTask
     })
+    replaceDirectionalGoalTaskStore(goalId, nextTasks)
     setSelectedRoadmapTaskId(draggedTaskId)
   }
 
   const toggleTaskCompletion = (goalId: string, taskId: string, sourceElement?: HTMLElement | null) => {
     const sourceGoal = sortedLifeGoals.find((goal) => goal.id === goalId)
-    const isOutcomeGoal = (sourceGoal?.goalType ?? 'outcome') === 'outcome'
+    const sourceGoalType = sourceGoal?.goalType ?? 'outcome'
+    const isTopLevelGoal = sourceGoalType === 'outcome' || sourceGoalType === 'directional'
 
-    if (sourceGoal && isOutcomeGoal) {
+    if (sourceGoal && isTopLevelGoal) {
       const sourceTasks =
-        selectedLifeGoal?.id === goalId && selectedLifeGoal.goalType === 'outcome'
-          ? selectedOutcomeGoalTasks
+        selectedLifeGoal?.id === goalId
+          ? selectedLifeGoal.goalType === 'outcome'
+            ? selectedOutcomeGoalTasks
+            : selectedDirectionalGoalTasks
           : safeTasks
-              .filter((task) => task.linkedGoalId === goalId)
+              .filter((task) =>
+                sourceGoalType === 'outcome' ? task.linkedGoalId === goalId : isDirectionalTaskRecordForGoal(task, goalId),
+              )
               .slice()
               .sort((left, right) => left.order - right.order)
               .map((task) => normalizeOutcomeGoalTaskRecord(task))
@@ -3163,8 +3309,11 @@ export function GoalsPage({
       } else if (selectedRoadmapTaskId === taskId) {
         setSelectedRoadmapTaskId(taskId)
       }
-
-      replaceOutcomeGoalTaskStore(goalId, updatedTasks)
+      if (sourceGoalType === 'outcome') {
+        replaceOutcomeGoalTaskStore(goalId, updatedTasks)
+      } else {
+        replaceDirectionalGoalTaskStore(goalId, updatedTasks)
+      }
 
       if (!currentTask.completed) {
         setTaskMomentumTransition({ completedTaskId: taskId, nextTaskId })
@@ -3187,71 +3336,6 @@ export function GoalsPage({
         clearCompletionUndo()
       }
       return
-    }
-
-    onUpdateLifeGoal(goalId, (goal) => {
-      const currentTask = goal.tasks.find((task) => task.id === taskId)
-      if (!currentTask) return goal
-
-      let completedTaskWasOpen = false
-      const updatedTasks = goal.tasks.map((task) => {
-        if (task.id !== taskId) return task
-        const nextCompleted = !task.completed
-        completedTaskWasOpen = nextCompleted
-        return {
-          ...task,
-          completed: nextCompleted,
-          completedAt: nextCompleted ? new Date().toISOString() : null,
-        }
-      })
-      const nextTaskId = updatedTasks.find((task) => !task.completed)?.id ?? null
-      if (completedTaskWasOpen) {
-        setSelectedRoadmapTaskId(nextTaskId)
-        if (selectedTaskPeekId === taskId) {
-          setSelectedTaskPeekId(nextTaskId)
-          setTaskPeekSubtaskDraft('')
-        }
-      } else if (selectedRoadmapTaskId === taskId) {
-        setSelectedRoadmapTaskId(taskId)
-      }
-
-      return {
-        ...goal,
-        tasks: updatedTasks,
-        updatedAt: new Date().toISOString(),
-      }
-    })
-
-    const sourceTask = sourceGoal?.tasks.find((task) => task.id === taskId)
-    if (sourceGoal && sourceTask && !sourceTask.completed) {
-      const updatedTasks = sourceGoal.tasks.map((task) =>
-        task.id === taskId
-          ? {
-              ...task,
-              completed: true,
-              completedAt: task.completedAt ?? new Date().toISOString(),
-            }
-          : task,
-      )
-      const nextTaskId = updatedTasks.find((task) => !task.completed)?.id ?? null
-      setTaskMomentumTransition({ completedTaskId: taskId, nextTaskId })
-      showLifeGoalActionFeedback('Step complete', 1350)
-      if (taskMomentumTransitionTimeoutRef.current) {
-        window.clearTimeout(taskMomentumTransitionTimeoutRef.current)
-      }
-      taskMomentumTransitionTimeoutRef.current = window.setTimeout(() => {
-        setTaskMomentumTransition((current) => (current?.completedTaskId === taskId ? null : current))
-        taskMomentumTransitionTimeoutRef.current = null
-      }, 1150)
-      showCompletionPulse(sourceElement)
-      showCompletionUndo({
-        kind: 'task',
-        goalId,
-        taskId,
-        message: 'Task completed',
-      })
-    } else if (completionUndo?.kind === 'task' && completionUndo.goalId === goalId && completionUndo.taskId === taskId) {
-      clearCompletionUndo()
     }
   }
 
@@ -3291,12 +3375,8 @@ export function GoalsPage({
       updateOutcomeGoalTask(taskId, updater)
       return
     }
-    onUpdateLifeGoal(goalId, (goal) => ({
-      ...goal,
-      tasks: goal.tasks.map((task) => (task.id === taskId ? updater(task) : task)),
-      updatedAt: new Date().toISOString(),
-    }))
-  }, [onUpdateLifeGoal, sortedLifeGoals, updateOutcomeGoalTask])
+    updateDirectionalGoalTask(taskId, updater)
+  }, [sortedLifeGoals, updateDirectionalGoalTask, updateOutcomeGoalTask])
 
   const openTaskPeek = useCallback((taskId: string, trigger?: HTMLElement | null) => {
     taskPeekTriggerRef.current = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null)
@@ -3327,11 +3407,7 @@ export function GoalsPage({
     if (selectedLifeGoal.goalType === 'outcome') {
       createOutcomeGoalTask(selectedLifeGoal.id, nextTask)
     } else {
-      onUpdateLifeGoal(selectedLifeGoal.id, (goal) => ({
-        ...goal,
-        tasks: [...goal.tasks, nextTask],
-        updatedAt: new Date().toISOString(),
-      }))
+      createDirectionalGoalTask(selectedLifeGoal.id, nextTask)
     }
     setCreatingTaskPeekId(nextTask.id)
     setTaskPeekLockedMilestoneContext(
@@ -3345,7 +3421,7 @@ export function GoalsPage({
     setTaskPeekSubtaskEntryOpen(false)
     setTaskPeekCompletedSubtasksOpen(false)
     setTaskPeekNotesOpen(false)
-  }, [createOutcomeGoalTask, onUpdateLifeGoal, selectedLifeGoal])
+  }, [createDirectionalGoalTask, createOutcomeGoalTask, selectedLifeGoal])
 
   const openMilestonePeek = (milestoneId: string) => {
     if (!selectedLifeGoal) return
@@ -3368,11 +3444,7 @@ export function GoalsPage({
       if (selectedLifeGoal.goalType === 'outcome') {
         deleteOutcomeGoalTask(selectedTaskPeek.id)
       } else {
-        onUpdateLifeGoal(selectedLifeGoal.id, (goal) => ({
-          ...goal,
-          tasks: goal.tasks.filter((task) => task.id !== selectedTaskPeek.id),
-          updatedAt: new Date().toISOString(),
-        }))
+        deleteDirectionalGoalTask(selectedTaskPeek.id)
       }
       if (selectedRoadmapTaskId === selectedTaskPeek.id) {
         setSelectedRoadmapTaskId(null)
@@ -3382,7 +3454,7 @@ export function GoalsPage({
     setTaskPeekLockedMilestoneContext(null)
     setSelectedTaskPeekId(null)
     setTaskPeekSubtaskDraft('')
-  }, [creatingTaskPeekId, deleteOutcomeGoalTask, onUpdateLifeGoal, selectedLifeGoal, selectedRoadmapTaskId, selectedTaskPeek])
+  }, [creatingTaskPeekId, deleteDirectionalGoalTask, deleteOutcomeGoalTask, selectedLifeGoal, selectedRoadmapTaskId, selectedTaskPeek])
 
   const updateSelectedTaskPeek = useCallback((updater: (task: LifeGoalTask) => LifeGoalTask) => {
     if (!selectedLifeGoal || !selectedTaskPeekId) return
@@ -3429,7 +3501,15 @@ export function GoalsPage({
                   .sort((left, right) => left.order - right.order)
                   .map((task) => normalizeOutcomeGoalTaskRecord(task))
           )
-        : goal.tasks
+        : (
+            selectedLifeGoal?.id === goalId && selectedLifeGoal.goalType === 'directional'
+              ? selectedDirectionalGoalTasks
+              : safeTasks
+                  .filter((task) => isDirectionalTaskRecordForGoal(task, goalId))
+                  .slice()
+                  .sort((left, right) => left.order - right.order)
+                  .map((task) => normalizeOutcomeGoalTaskRecord(task))
+          )
 
     const currentTaskIndex = goalTasks.findIndex((task) => task.id === taskId)
     if (currentTaskIndex === -1) return
@@ -3459,7 +3539,7 @@ export function GoalsPage({
     }
 
     closeTaskPeek()
-  }, [closeTaskPeek, safeTasks, selectedLifeGoal, selectedOutcomeGoalTasks, sortedLifeGoals, toggleTaskCompletion])
+  }, [closeTaskPeek, safeTasks, selectedDirectionalGoalTasks, selectedLifeGoal, selectedOutcomeGoalTasks, sortedLifeGoals, toggleTaskCompletion])
 
   const completeTaskFromPeek = useCallback((mode: 'close' | 'next', sourceElement?: HTMLElement | null) => {
     if (!selectedLifeGoal || !selectedTaskPeekId) return
@@ -3544,7 +3624,7 @@ export function GoalsPage({
 
   const deleteSelectedTaskPeek = useCallback(() => {
     if (!selectedLifeGoal || !selectedTaskPeekId) return
-    const currentTasks = selectedLifeGoal.goalType === 'outcome' ? selectedOutcomeGoalTasks : selectedLifeGoal.tasks
+    const currentTasks = selectedLifeGoal.goalType === 'outcome' ? selectedOutcomeGoalTasks : selectedDirectionalGoalTasks
     const fallbackTaskId =
       currentTasks.find((task) => task.id !== selectedTaskPeekId && !task.completed)?.id ??
       currentTasks.find((task) => task.id !== selectedTaskPeekId)?.id ??
@@ -3553,11 +3633,7 @@ export function GoalsPage({
     if (selectedLifeGoal.goalType === 'outcome') {
       deleteOutcomeGoalTask(selectedTaskPeekId)
     } else {
-      onUpdateLifeGoal(selectedLifeGoal.id, (goal) => ({
-        ...goal,
-        tasks: goal.tasks.filter((task) => task.id !== selectedTaskPeekId),
-        updatedAt: new Date().toISOString(),
-      }))
+      deleteDirectionalGoalTask(selectedTaskPeekId)
     }
 
     setTaskPeekDeleteConfirmation(null)
@@ -3569,7 +3645,7 @@ export function GoalsPage({
     if (!fallbackTaskId) {
       closeTaskPeek()
     }
-  }, [closeTaskPeek, creatingTaskPeekId, deleteOutcomeGoalTask, onUpdateLifeGoal, selectedLifeGoal, selectedOutcomeGoalTasks, selectedTaskPeekId])
+  }, [closeTaskPeek, creatingTaskPeekId, deleteDirectionalGoalTask, deleteOutcomeGoalTask, selectedDirectionalGoalTasks, selectedLifeGoal, selectedOutcomeGoalTasks, selectedTaskPeekId])
 
   const deleteSelectedTaskPeekSubtask = useCallback((subtaskId: string) => {
     updateSelectedTaskPeek((task) => ({
@@ -3617,7 +3693,7 @@ export function GoalsPage({
     if ((goal?.goalType ?? 'outcome') === 'outcome') {
       restoreOutcomeGoalTask(taskId)
     } else {
-      toggleTaskCompletion(goalId, taskId)
+      restoreDirectionalGoalTask(taskId)
     }
     setSelectedRoadmapTaskId(taskId)
   }
@@ -3630,7 +3706,7 @@ export function GoalsPage({
       if ((goal?.goalType ?? 'outcome') === 'outcome') {
         restoreOutcomeGoalTask(completionUndo.taskId)
       } else {
-        toggleTaskCompletion(completionUndo.goalId, completionUndo.taskId)
+        restoreDirectionalGoalTask(completionUndo.taskId)
       }
       setSelectedRoadmapTaskId(completionUndo.taskId)
       clearCompletionUndo()
@@ -3827,18 +3903,7 @@ export function GoalsPage({
       },
       onSetAsNext: () => {
         if (!selectedLifeGoal || !selectedTaskPeek) return
-        if (selectedLifeGoal.goalType === 'outcome') {
-          setTaskAsNext(selectedLifeGoal.id, selectedTaskPeek.id)
-          return
-        }
-        onUpdateLifeGoal(selectedLifeGoal.id, (goal) => ({
-          ...goal,
-          tasks: goal.tasks.map((task) => ({
-            ...task,
-            important: task.id === selectedTaskPeek.id,
-          })),
-          updatedAt: new Date().toISOString(),
-        }))
+        setTaskAsNext(selectedLifeGoal.id, selectedTaskPeek.id)
       },
       onRestoreTask: (source: HTMLElement) => {
         if (!selectedLifeGoal || !selectedTaskPeek) return
@@ -3858,7 +3923,6 @@ export function GoalsPage({
       confirmTaskPeekDelete,
       dragOverSubtaskId,
       draggedSubtaskId,
-      onUpdateLifeGoal,
       openTaskPeekDatePicker,
       removeTagFromSelectedTaskPeek,
       reorderSelectedTaskPeekSubtasks,
@@ -5767,7 +5831,7 @@ const renderLifeGoalOverviewPage = () => {
       selectedGoalCategory={selectedGoalCategory}
       selectedGoalCategoryColor={selectedGoalCategoryColor}
       selectedGoalRuntimeTasks={selectedGoalTaskSource}
-      outcomeGoalRuntimeTaskMap={outcomeGoalRuntimeTaskMap}
+      goalRuntimeTaskMap={goalRuntimeTaskMap}
       year={year}
       selectedRoadmapPanelActions={selectedRoadmapPanelActions}
       selectedRoadmapPanelUiState={selectedRoadmapPanelUiState}

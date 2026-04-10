@@ -256,12 +256,12 @@ export function normalizeTaskRecordToLifeGoalTask(task: Task): LifeGoalTask {
 }
 
 export function getLifeGoalRuntimeTasks(goal: LifeGoal, tasks: Task[]): LifeGoalTask[] {
-  if ((goal.goalType ?? 'outcome') !== 'outcome') {
-    return goal.tasks
-  }
-
   return tasks
-    .filter((task) => task.linkedGoalId === goal.id)
+    .filter((task) =>
+      (goal.goalType ?? 'outcome') === 'directional'
+        ? task.linkedDirectionId === goal.id || (task.linkedDirectionId == null && task.linkedGoalId === goal.id)
+        : task.linkedGoalId === goal.id,
+    )
     .slice()
     .sort((left, right) => left.order - right.order)
     .map((task) => normalizeTaskRecordToLifeGoalTask(task))
