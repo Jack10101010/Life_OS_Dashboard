@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Sidebar } from './components/layout/Sidebar'
 import { TopBar } from './components/layout/TopBar'
@@ -10,7 +10,22 @@ import { HabitTrackerSettingsModal } from './components/tracker/HabitTrackerSett
 import { DevNotesCard } from './components/ui/DevNotesCard'
 import { ErrorBoundary } from './components/ui/ErrorBoundary'
 import { WeekDrawer } from './components/tracker/WeekDrawer'
-import { exportPersistedAppState, importPersistedAppState, loadPersistedAppState, savePersistedAppState } from './lib/persistence'
+import {
+  createPersistedAppStateBackupSnapshot,
+  createPersistedAppStateSnapshot,
+  deletePersistedAppStateSnapshot,
+  exportPersistedAppState,
+  getDefaultPersistedAppState,
+  getPersistedAppStateBackupFilename,
+  getPersistedAppStateSnapshot,
+  importPersistedAppState,
+  listPersistedAppStateSnapshots,
+  loadPersistedAppState,
+  normalizeImportedPersistedAppState,
+  savePersistedAppState,
+  type PersistedAppState,
+  type PersistedAppStateSnapshotSummary,
+} from './lib/persistence'
 import { useAppShellState } from './hooks/useAppShellState'
 import { useHabitTrackerState } from './hooks/useHabitTrackerState'
 import { useSettingsState } from './hooks/useSettingsState'
@@ -26,7 +41,7 @@ import { YourDaysPage } from './features/your-days/YourDaysPage'
 import { LifeGoal, LifeGoalCategoryColor, LifeGoalCategoryDefinition, PageId } from './types'
 
 const DEV_NOTES_ENABLED_PAGES: PageId[] = ['tasks', 'notes', 'analytics', 'trade-log', 'settings']
-type GoalsView = 'life-overview' | 'life-detail' | 'habit-goals'
+type GoalsView = 'life-overview' | 'directional-overview' | 'life-detail' | 'habit-goals'
 type AppHistoryState = {
   __appNavigation: true
   page: PageId
@@ -103,12 +118,13 @@ function getInitialGoalUrlState(defaultSelectedLifeGoalId: string | null): {
 
 export default function App() {
   const currentYear = new Date().getUTCFullYear()
-  const persisted = useMemo(() => loadPersistedAppState(currentYear), [])
+  const persisted = useMemo(() => getDefaultPersistedAppState(currentYear), [currentYear])
   const initialGoalUrlState = useMemo(
     () => getInitialGoalUrlState(persisted.lifeGoals[0]?.id ?? null),
     [persisted],
   )
   const [hasHydratedFromStorage, setHasHydratedFromStorage] = useState(false)
+  const [storageMode, setStorageMode] = useState<'indexeddb' | 'readonly-localstorage'>('indexeddb')
   const appShell = useAppShellState(
     initialGoalUrlState.pageOverride
       ? {
@@ -123,10 +139,18 @@ export default function App() {
   const [tasks, setTasks] = useState(persisted.tasks)
   const [lifeGoals, setLifeGoals] = useState<LifeGoal[]>(persisted.lifeGoals)
   const [lifeGoalCategories, setLifeGoalCategories] = useState<LifeGoalCategoryDefinition[]>(persisted.lifeGoalCategories)
+  const [snapshots, setSnapshots] = useState<PersistedAppStateSnapshotSummary[]>([])
+  const [snapshotsLoading, setSnapshotsLoading] = useState(true)
   const [selectedLifeGoalId, setSelectedLifeGoalId] = useState<string | null>(initialGoalUrlState.selectedLifeGoalIdOverride)
   const [goalsView, setGoalsView] = useState<GoalsView>(initialGoalUrlState.goalsViewOverride ?? 'life-overview')
   const isApplyingHistoryRef = useRef(false)
   const hasInitializedHistoryRef = useRef(false)
+  const hasCreatedStartupSnapshotRef = useRef(false)
+  const startupHydrationStatusRef = useRef<'idle' | 'running' | 'done'>('idle')
+  const persistedSnapshotRef = useRef<PersistedAppState>(persisted)
+  const latestAutoSnapshotFingerprintRef = useRef<string | null>(null)
+  const pendingSnapshotFingerprintRef = useRef<string | null>(null)
+  const hasCompletedStartupHydrationRef = useRef(false)
 
   const { settings, setSettings, hydrate: hydrateSettings } = settingsState
   const {
@@ -237,49 +261,7 @@ export default function App() {
     hydrate: hydrateHabitTrackers,
   } = habitTrackerState
 
-  useEffect(() => {
-    setHasHydratedFromStorage(true)
-  }, [])
-
-  useEffect(() => {
-    if (!hasHydratedFromStorage) return
-    savePersistedAppState({
-      dataByYear,
-      habits,
-      badHabits,
-      badHabitLogs,
-      tags,
-      tasks,
-      lifeGoals,
-      lifeGoalCategories,
-      settings,
-      page,
-      viewMode,
-      colorMode,
-      heatmapLayout,
-      filters,
-      selectedWeekId,
-      selectedDayId,
-      openDrawer,
-      habitTrackers,
-      editingTracker,
-      habitEntryDraft,
-      moodCollapsed,
-      collapsedTrackers,
-      sidebarCollapsed,
-      sidebarOrder,
-      sidebarLabels,
-      pageDevNotes,
-      habitTrackerPeriodView,
-      habitTrackerFocusDate,
-      habitTrackerCalendarRangeByTracker,
-      moodHeatmapFocusDate,
-      moodHeatmapCalendarRange,
-      moodHighlightCurrentWeek,
-      moodShowAlcoholMarkers,
-      moodShowHabitMarkers,
-    })
-  }, [
+  const persistedSnapshot = useMemo<PersistedAppState>(() => ({
     dataByYear,
     habits,
     badHabits,
@@ -314,8 +296,166 @@ export default function App() {
     moodHighlightCurrentWeek,
     moodShowAlcoholMarkers,
     moodShowHabitMarkers,
-    hasHydratedFromStorage,
+  }), [
+    dataByYear,
+    habits,
+    badHabits,
+    badHabitLogs,
+    tags,
+    tasks,
+    lifeGoals,
+    lifeGoalCategories,
+    settings,
+    page,
+    viewMode,
+    colorMode,
+    heatmapLayout,
+    filters,
+    selectedWeekId,
+    selectedDayId,
+    openDrawer,
+    habitTrackers,
+    editingTracker,
+    habitEntryDraft,
+    moodCollapsed,
+    collapsedTrackers,
+    sidebarCollapsed,
+    sidebarOrder,
+    sidebarLabels,
+    pageDevNotes,
+    habitTrackerPeriodView,
+    habitTrackerFocusDate,
+    habitTrackerCalendarRangeByTracker,
+    moodHeatmapFocusDate,
+    moodHeatmapCalendarRange,
+    moodHighlightCurrentWeek,
+    moodShowAlcoholMarkers,
+    moodShowHabitMarkers,
   ])
+
+  const persistedSnapshotFingerprint = useMemo(() => JSON.stringify(persistedSnapshot), [persistedSnapshot])
+
+  const applyPersistedState = useCallback((next: PersistedAppState) => {
+    hydrateSettings(next.settings)
+    hydrateTracker(next)
+    hydrateHabitTrackers(next)
+    setTasks(next.tasks)
+    setLifeGoals(next.lifeGoals)
+    setLifeGoalCategories(next.lifeGoalCategories)
+  }, [hydrateHabitTrackers, hydrateSettings, hydrateTracker])
+
+  useEffect(() => {
+    persistedSnapshotRef.current = persistedSnapshot
+    pendingSnapshotFingerprintRef.current = persistedSnapshotFingerprint
+  }, [persistedSnapshot, persistedSnapshotFingerprint])
+
+  useEffect(() => {
+    if (startupHydrationStatusRef.current === 'running' || startupHydrationStatusRef.current === 'done') return
+    startupHydrationStatusRef.current = 'running'
+
+    let cancelled = false
+    let hydrationCompleted = false
+
+    console.info('[app-startup] appHydrationEffectStart', { currentYear })
+
+    const finishHydration = (reason: string) => {
+      if (cancelled || hydrationCompleted) return
+      hydrationCompleted = true
+      startupHydrationStatusRef.current = 'done'
+      hasCompletedStartupHydrationRef.current = true
+      console.info('[app-startup] hydrationComplete', { reason })
+      setHasHydratedFromStorage(true)
+    }
+
+    const hydrationTimeoutId = window.setTimeout(() => {
+      if (hydrationCompleted || cancelled) return
+      console.error('[app-startup] hydrationTimeout', { timeoutMs: 5000 })
+      setStorageMode('readonly-localstorage')
+      const fallbackState = getDefaultPersistedAppState(currentYear)
+      try {
+        applyPersistedState(fallbackState)
+        hydrateAppShell(fallbackState)
+        setSelectedLifeGoalId(fallbackState.lifeGoals[0]?.id ?? null)
+        setGoalsView('life-overview')
+        console.info('[app-startup] timeoutFallbackApplied', { source: 'default-state' })
+      } catch (error) {
+        console.error('[app-startup] timeoutFallbackFailed', error)
+      } finally {
+        finishHydration('timeout-default-fallback')
+      }
+    }, 5000)
+
+    const hydrateFromPersistence = async () => {
+      try {
+        const loaded = await loadPersistedAppState(currentYear)
+        if (cancelled) return
+
+        setStorageMode(loaded.storageMode)
+
+        const nextGoalUrlState = getInitialGoalUrlState(loaded.state.lifeGoals[0]?.id ?? null)
+        const nextShellState = nextGoalUrlState.pageOverride
+          ? {
+              ...loaded.state,
+              page: nextGoalUrlState.pageOverride,
+            }
+          : loaded.state
+
+        console.info('[app-startup] applyPersistedStateStart', { storageMode: loaded.storageMode })
+        applyPersistedState(loaded.state)
+        hydrateAppShell(nextShellState)
+        setSelectedLifeGoalId(nextGoalUrlState.selectedLifeGoalIdOverride)
+        setGoalsView(nextGoalUrlState.goalsViewOverride ?? 'life-overview')
+        console.info('[app-startup] applyPersistedStateSuccess', { storageMode: loaded.storageMode })
+      } finally {
+        finishHydration('startup-load')
+      }
+    }
+
+    hydrateFromPersistence().catch((error) => {
+      console.error('[app-startup] hydrateFromPersistenceFailed', error)
+      try {
+        setStorageMode('readonly-localstorage')
+        const fallbackState = getDefaultPersistedAppState(currentYear)
+        applyPersistedState(fallbackState)
+        hydrateAppShell(fallbackState)
+        setSelectedLifeGoalId(fallbackState.lifeGoals[0]?.id ?? null)
+        setGoalsView('life-overview')
+        console.info('[app-startup] errorFallbackApplied', { source: 'default-state' })
+      } catch (fallbackError) {
+        console.error('[app-startup] errorFallbackFailed', fallbackError)
+      } finally {
+        finishHydration('error-default-fallback')
+      }
+    })
+
+    return () => {
+      cancelled = true
+      if (!hydrationCompleted && startupHydrationStatusRef.current === 'running') {
+        startupHydrationStatusRef.current = 'idle'
+      }
+      window.clearTimeout(hydrationTimeoutId)
+    }
+  }, [applyPersistedState, currentYear, hydrateAppShell])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || hasHydratedFromStorage) return
+    console.info('[app-startup] loadingGate', {
+      hasHydratedFromStorage,
+      hasCompletedStartupHydration: hasCompletedStartupHydrationRef.current,
+      startupHydrationStatus: startupHydrationStatusRef.current,
+      storageMode,
+    })
+  }, [hasHydratedFromStorage, storageMode])
+
+  useEffect(() => {
+    if (!hasHydratedFromStorage || storageMode !== 'indexeddb' || typeof window === 'undefined') return
+
+    const timeoutId = window.setTimeout(() => {
+      void savePersistedAppState(persistedSnapshot)
+    }, 250)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [hasHydratedFromStorage, persistedSnapshot, storageMode])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -387,69 +527,140 @@ export default function App() {
     window.history.pushState(nextState, '', nextPath)
   }, [goalsView, page, selectedLifeGoalId])
 
-  const buildPersistedSnapshot = () => ({
-    dataByYear,
-    habits,
-    badHabits,
-    badHabitLogs,
-    tags,
-    tasks,
-    lifeGoals,
-    lifeGoalCategories,
-    settings,
-    page,
-    viewMode,
-    colorMode,
-    heatmapLayout,
-    filters,
-    selectedWeekId,
-    selectedDayId,
-    openDrawer,
-    habitTrackers,
-    editingTracker,
-    habitEntryDraft,
-    moodCollapsed,
-    collapsedTrackers,
-    sidebarCollapsed,
-    sidebarOrder,
-    sidebarLabels,
-    pageDevNotes,
-    habitTrackerPeriodView,
-    habitTrackerFocusDate,
-    habitTrackerCalendarRangeByTracker,
-    moodHeatmapFocusDate,
-    moodHeatmapCalendarRange,
-    moodHighlightCurrentWeek,
-    moodShowAlcoholMarkers,
-    moodShowHabitMarkers,
-  })
+  const refreshSnapshots = useCallback(async () => {
+    setSnapshotsLoading(true)
+    try {
+      const nextSnapshots = await listPersistedAppStateSnapshots()
+      setSnapshots(nextSnapshots)
+    } finally {
+      setSnapshotsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!hasHydratedFromStorage) return
+
+    let cancelled = false
+
+    const initializeSnapshots = async () => {
+      if (!hasCreatedStartupSnapshotRef.current) {
+        const createdSnapshot = await createPersistedAppStateSnapshot({
+          payload: persistedSnapshotRef.current,
+          snapshotType: 'auto',
+        })
+        if (createdSnapshot) {
+          latestAutoSnapshotFingerprintRef.current = pendingSnapshotFingerprintRef.current
+        }
+        hasCreatedStartupSnapshotRef.current = true
+      }
+
+      const nextSnapshots = await listPersistedAppStateSnapshots()
+      if (!cancelled) {
+        setSnapshots(nextSnapshots)
+        setSnapshotsLoading(false)
+      }
+    }
+
+    initializeSnapshots().catch(() => {
+      if (!cancelled) {
+        setSnapshotsLoading(false)
+      }
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [hasHydratedFromStorage])
+
+  useEffect(() => {
+    if (!hasHydratedFromStorage || typeof window === 'undefined') return
+
+    const intervalId = window.setInterval(() => {
+      const pendingFingerprint = pendingSnapshotFingerprintRef.current
+      if (!pendingFingerprint || pendingFingerprint === latestAutoSnapshotFingerprintRef.current) return
+
+      void createPersistedAppStateSnapshot({
+        payload: persistedSnapshotRef.current,
+        snapshotType: 'auto',
+      }).then((createdSnapshot) => {
+        if (!createdSnapshot) return
+        latestAutoSnapshotFingerprintRef.current = pendingFingerprint
+        void refreshSnapshots()
+      })
+    }, 5 * 60 * 1000)
+
+    return () => window.clearInterval(intervalId)
+  }, [hasHydratedFromStorage, refreshSnapshots])
 
   const handleExportState = () => {
-    const blob = new Blob([exportPersistedAppState(buildPersistedSnapshot())], { type: 'application/json' })
+    const backupSnapshot = createPersistedAppStateBackupSnapshot(persistedSnapshot)
+    const blob = new Blob([exportPersistedAppState(backupSnapshot)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = `life-dashboard-backup-${new Date().toISOString().slice(0, 10)}.json`
+    link.download = getPersistedAppStateBackupFilename()
     link.click()
     URL.revokeObjectURL(url)
   }
 
   const handleImportState = async (file: File) => {
     try {
+      await createPersistedAppStateSnapshot({
+        payload: persistedSnapshotRef.current,
+        snapshotType: 'pre_import',
+        force: true,
+      })
       const raw = await file.text()
       const imported = importPersistedAppState(raw, currentYear)
-      hydrateAppShell(imported)
-      hydrateSettings(imported.settings)
-      hydrateTracker(imported)
-      hydrateHabitTrackers(imported)
-      setTasks(imported.tasks)
-      setLifeGoals(imported.lifeGoals)
-      setLifeGoalCategories(imported.lifeGoalCategories)
+      applyPersistedState(imported)
+      await refreshSnapshots()
       window.alert('Backup restored successfully.')
     } catch {
       window.alert('That backup file could not be imported.')
     }
   }
+
+  const handleCreateBackupNow = useCallback(async () => {
+    await createPersistedAppStateSnapshot({
+      payload: persistedSnapshotRef.current,
+      snapshotType: 'manual',
+    })
+    await refreshSnapshots()
+  }, [refreshSnapshots])
+
+  const handleRestoreSnapshot = useCallback(async (snapshotId: string) => {
+    if (!window.confirm('Restore this snapshot and replace the current app state?')) return
+
+    try {
+      await createPersistedAppStateSnapshot({
+        payload: persistedSnapshotRef.current,
+        snapshotType: 'pre_restore',
+        force: true,
+      })
+      const snapshot = await getPersistedAppStateSnapshot(snapshotId)
+      if (!snapshot) {
+        window.alert('That snapshot could not be loaded.')
+        return
+      }
+      const restored = normalizeImportedPersistedAppState(snapshot.payload, currentYear)
+      applyPersistedState(restored)
+      await refreshSnapshots()
+      window.alert('Snapshot restored successfully.')
+    } catch {
+      window.alert('That snapshot could not be restored.')
+    }
+  }, [applyPersistedState, currentYear, refreshSnapshots])
+
+  const handleDeleteSnapshot = useCallback(async (snapshotId: string) => {
+    if (!window.confirm('Delete this snapshot?')) return
+
+    const deleted = await deletePersistedAppStateSnapshot(snapshotId)
+    if (!deleted) {
+      window.alert('That snapshot could not be deleted.')
+      return
+    }
+    await refreshSnapshots()
+  }, [refreshSnapshots])
 
   const renderPage = () => {
     if (page === 'dashboard') {
@@ -470,6 +681,7 @@ export default function App() {
               {
                 id: `task-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
                 text: text.trim(),
+                order: current.length,
                 dueDate: new Date().toISOString().slice(0, 10),
                 starred: false,
                 important: false,
@@ -719,6 +931,11 @@ export default function App() {
           onArchiveBadHabit={archiveBadHabit}
           onExportState={handleExportState}
           onImportState={handleImportState}
+          snapshots={snapshots}
+          snapshotsLoading={snapshotsLoading}
+          onCreateBackupNow={handleCreateBackupNow}
+          onRestoreSnapshot={handleRestoreSnapshot}
+          onDeleteSnapshot={handleDeleteSnapshot}
         />
       )
     }
@@ -829,6 +1046,7 @@ export default function App() {
                 },
               }))
             }}
+            onUpdateTasks={(updater) => setTasks((current) => updater(current))}
             onOpenGlobalTasks={() => setPage('dashboard')}
             onOpenHabitTracker={(trackerId) => {
               const tracker = habitTrackers.find((item) => item.id === trackerId)
@@ -873,6 +1091,18 @@ export default function App() {
     return <PlaceholderPage {...placeholder} />
   }
 
+  if (!hasHydratedFromStorage) {
+    return (
+      <div className="app-grid theme-text-primary min-h-screen bg-ink" style={{ minHeight: '100vh' }}>
+        <div className="flex min-h-screen w-full items-center justify-center px-6">
+          <div className="theme-surface-soft rounded-2xl border px-5 py-3 text-sm theme-text-muted">
+            Loading your dashboard…
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="app-grid theme-text-primary min-h-screen bg-ink" style={{ minHeight: '100vh' }}>
       <div className="flex min-h-screen w-full flex-col lg:flex-row lg:items-start">
@@ -882,6 +1112,7 @@ export default function App() {
           pageOrder={sidebarOrder}
           pageLabels={sidebarLabels}
           goalsView={goalsView}
+          selectedGoalType={lifeGoals.find((goal) => goal.id === selectedLifeGoalId)?.goalType ?? null}
           onNavigate={(nextPage) => {
             setPage(nextPage)
             setOpenDrawer(null)

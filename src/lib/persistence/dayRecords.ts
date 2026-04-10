@@ -18,6 +18,15 @@ import {
 } from '../dashboardExecution'
 
 export const DAY_RECORD_VERSION = 1
+const ENABLE_DAY_RECORD_DEBUG =
+  typeof window !== 'undefined' &&
+  (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') &&
+  window.localStorage.getItem('day-record-debug') === '1'
+
+function logDayRecordDebug(level: 'info' | 'warn', message: string, payload: Record<string, unknown>) {
+  if (!ENABLE_DAY_RECORD_DEBUG) return
+  console[level](message, payload)
+}
 
 type DayRecordSections = {
   sleep: {
@@ -86,7 +95,7 @@ function persistMigratedCanonicalDayRecord(record: CanonicalDayRecord) {
 
   const canonicalKey = getCanonicalDayStorageKey(record.date)
   window.localStorage.setItem(canonicalKey, JSON.stringify(record))
-  console.info('[day-record-debug] migrationPersisted', {
+  logDayRecordDebug('info', '[day-record-debug] migrationPersisted', {
     date: record.date,
     key: canonicalKey,
     updatedAt: record.updatedAt,
@@ -200,17 +209,17 @@ export function readCanonicalDayRecord(date: string, fallbackDay?: DayEntry): Ca
   const canonicalKey = getCanonicalDayStorageKey(date)
   const legacyKey = getLegacyScratchpadStorageKey(date)
 
-  console.info('[day-record-debug] hydrationStart', { date, canonicalKey, legacyKey })
+  logDayRecordDebug('info', '[day-record-debug] hydrationStart', { date, canonicalKey, legacyKey })
 
   const canonicalRaw = window.localStorage.getItem(canonicalKey)
-  console.info('[day-record-debug] canonicalLookup', {
+  logDayRecordDebug('info', '[day-record-debug] canonicalLookup', {
     date,
     key: canonicalKey,
     found: Boolean(canonicalRaw),
   })
   const canonicalRecord = canonicalRaw ? normalizeStoredDayRecord(safeParse(canonicalRaw), date, fallbackDay) : null
   if (canonicalRecord) {
-    console.info('[day-record-debug] hydrationComplete', {
+    logDayRecordDebug('info', '[day-record-debug] hydrationComplete', {
       date,
       source: 'canonical',
       updatedAt: canonicalRecord.updatedAt,
@@ -220,7 +229,7 @@ export function readCanonicalDayRecord(date: string, fallbackDay?: DayEntry): Ca
   }
 
   const legacyScratchpadRaw = window.localStorage.getItem(legacyKey)
-  console.info('[day-record-debug] legacyLookup', {
+  logDayRecordDebug('info', '[day-record-debug] legacyLookup', {
     date,
     key: legacyKey,
     found: Boolean(legacyScratchpadRaw),
@@ -228,13 +237,13 @@ export function readCanonicalDayRecord(date: string, fallbackDay?: DayEntry): Ca
   const legacyRecord = legacyScratchpadRaw ? normalizeStoredDayRecord(safeParse(legacyScratchpadRaw), date, fallbackDay) : null
   if (legacyRecord && isMeaningfulContent(legacyRecord)) {
     persistMigratedCanonicalDayRecord(legacyRecord)
-    console.info('[day-record-debug] migrationOccurred', {
+    logDayRecordDebug('info', '[day-record-debug] migrationOccurred', {
       date,
       from: legacyKey,
       to: canonicalKey,
       updatedAt: legacyRecord.updatedAt,
     })
-    console.info('[day-record-debug] hydrationComplete', {
+    logDayRecordDebug('info', '[day-record-debug] hydrationComplete', {
       date,
       source: 'legacy-scratchpad',
       updatedAt: legacyRecord.updatedAt,
@@ -243,7 +252,7 @@ export function readCanonicalDayRecord(date: string, fallbackDay?: DayEntry): Ca
     return legacyRecord
   }
 
-  console.info('[day-record-debug] hydrationComplete', { date, source: 'none', meaningful: false })
+  logDayRecordDebug('info', '[day-record-debug] hydrationComplete', { date, source: 'none', meaningful: false })
   return null
 }
 
@@ -273,7 +282,7 @@ export function saveCanonicalDayRecord(day: DayEntry) {
   const currentHasContent = currentRecord ? isMeaningfulContent(currentRecord) : false
 
   if (!nextHasContent && currentHasContent) {
-    console.warn('[day-record-debug] saveSkipped', {
+    logDayRecordDebug('warn', '[day-record-debug] saveSkipped', {
       reason: 'Prevented placeholder or empty day state from overwriting meaningful stored day data.',
       date: day.date,
       storageKey,
@@ -288,7 +297,7 @@ export function saveCanonicalDayRecord(day: DayEntry) {
       else window.localStorage.removeItem(getCanonicalDayBackupStorageKey(day.date, slot))
     }
     window.localStorage.setItem(getCanonicalDayBackupStorageKey(day.date, 1), currentRaw)
-    console.info('[day-record-debug] backupCreated', {
+    logDayRecordDebug('info', '[day-record-debug] backupCreated', {
       date: day.date,
       storageKey: getCanonicalDayBackupStorageKey(day.date, 1),
       updatedAt: currentRecord.updatedAt,

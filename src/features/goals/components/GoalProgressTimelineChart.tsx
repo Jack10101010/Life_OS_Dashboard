@@ -251,16 +251,8 @@ export function GoalProgressTimelineChart({
     .map((task) => task.completedAt?.slice(0, 10) ?? null)
     .filter((date): date is string => Boolean(date) && isValidIsoDate(date))
     .sort((left, right) => right.localeCompare(left))[0] ?? null
-  const expectedEndDate =
-    hasTargetDate
-      ? lastCompletedDate && lastCompletedDate < (goalTargetDate as string)
-        ? lastCompletedDate
-        : (goalTargetDate as string)
-      : null
-  const chartEndDate =
-    expectedEndDate && expectedEndDate > todayIsoDate
-      ? expectedEndDate
-      : todayIsoDate
+  const expectedEndDate = hasTargetDate ? (goalTargetDate as string) : null
+  const chartEndDate = todayIsoDate
   const startDate = goalAnchorDate > timeframeStartDate ? goalAnchorDate : timeframeStartDate
   const effectiveTimeframeDays = Math.max(1, getDayDiff(startDate, chartEndDate) + 1)
 
@@ -410,6 +402,29 @@ export function GoalProgressTimelineChart({
             strokeWidth="0.6"
           />
 
+          {todayIndex > 0 && todayIndex < effectiveTimeframeDays - 1 ? (
+            <>
+              <line
+                x1={xForDayIndex(todayIndex)}
+                y1={margin.top}
+                x2={xForDayIndex(todayIndex)}
+                y2={margin.top + plotHeight}
+                stroke="rgb(var(--theme-border-subtle-rgb) / 0.38)"
+                strokeWidth="0.22"
+                strokeDasharray="0.7 0.55"
+              />
+              <text
+                x={xForDayIndex(todayIndex)}
+                y={margin.top + plotHeight + 3.5}
+                textAnchor="middle"
+                fill={axisTextFill}
+                fontSize={axisFontSize}
+              >
+                Today
+              </text>
+            </>
+          ) : null}
+
           <path
             d={linePath}
             fill="none"
@@ -453,29 +468,29 @@ export function GoalProgressTimelineChart({
                   onMouseEnter={() => setHoveredPointDate(point.date)}
                   onMouseLeave={() => setHoveredPointDate((current) => (current === point.date ? null : current))}
                 />
-                {point.countForDay > 1 ? (
-                  <text
-                    x={x + 0.75}
-                    y={y - 0.45}
-                    textAnchor="start"
-                    fill={axisTextFill}
-                    fontSize={axisFontSize}
-                  >
-                    +{point.countForDay - 1}
-                  </text>
-                ) : null}
+                <text
+                  x={x + 0.75}
+                  y={y - 0.45}
+                  textAnchor="start"
+                  fill={axisTextFill}
+                  fontSize={axisFontSize}
+                >
+                  +{point.countForDay}
+                </text>
               </g>
             )
           })}
 
-          <circle
-            cx={margin.left + plotWidth}
-            cy={margin.top}
-            r="0.95"
-            fill="rgb(var(--theme-accent-rgb) / 0.22)"
-            stroke="rgb(var(--theme-accent-rgb) / 0.34)"
-            strokeWidth="0.24"
-          />
+          {hasTargetDate && chartEndDate === expectedEndDate ? (
+            <circle
+              cx={margin.left + plotWidth}
+              cy={margin.top}
+              r="0.95"
+              fill="rgb(var(--theme-accent-rgb) / 0.22)"
+              stroke="rgb(var(--theme-accent-rgb) / 0.34)"
+              strokeWidth="0.24"
+            />
+          ) : null}
 
           {tickIndices.map((index, labelIndex) => {
             const x = xForDayIndex(index)

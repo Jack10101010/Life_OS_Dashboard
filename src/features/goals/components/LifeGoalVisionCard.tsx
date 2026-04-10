@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { ReactNode, RefObject } from 'react'
+import { memo, ReactNode, RefObject } from 'react'
 
 type LifeGoalVisionCardProps = {
   isCollapsed: boolean
@@ -25,7 +25,7 @@ type LifeGoalVisionCardProps = {
   visionStatement: string
 }
 
-export function LifeGoalVisionCard({
+export const LifeGoalVisionCard = memo(function LifeGoalVisionCard({
   isCollapsed,
   isEditing,
   isEditorOpen,
@@ -208,4 +208,4 @@ export function LifeGoalVisionCard({
       </AnimatePresence>
     </div>
   )
-}
+})

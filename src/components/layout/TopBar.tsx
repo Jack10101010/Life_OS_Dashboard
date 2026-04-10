@@ -2,7 +2,7 @@ import { ReactNode, useState } from 'react'
 import { PageContainer } from './LayoutPrimitives'
 import { PageId } from '../../types'
 
-type GoalsView = 'life-overview' | 'life-detail' | 'habit-goals'
+type GoalsView = 'life-overview' | 'directional-overview' | 'life-detail' | 'habit-goals'
 
 const labels: Record<PageId, string> = {
   dashboard: 'Dashboard',

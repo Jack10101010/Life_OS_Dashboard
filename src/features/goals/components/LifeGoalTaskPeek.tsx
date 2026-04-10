@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { RefObject, useEffect, useRef, useState } from 'react'
+import { memo, RefObject, useEffect, useRef, useState } from 'react'
 import { Button } from '../../../components/ui/Button'
 import { FloatingPanelPosition, ModalSurface, OverlayBackdrop, OverlayRoot, PopoverSurface, DialogSurface } from '../../../components/layout/OverlayPrimitives'
 import { LifeGoalTask, LifeGoalTaskPriority } from '../../../types'
@@ -92,7 +92,7 @@ type LifeGoalTaskPeekProps = {
   }
 }
 
-export function LifeGoalTaskPeek({
+export const LifeGoalTaskPeek = memo(function LifeGoalTaskPeek({
   data,
   uiState,
   refs,
@@ -744,4 +744,4 @@ export function LifeGoalTaskPeek({
       </OverlayRoot>
     </>
   )
-}
+})

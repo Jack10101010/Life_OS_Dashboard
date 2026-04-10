@@ -8,6 +8,7 @@ export function Sidebar({
   pageOrder,
   pageLabels,
   goalsView,
+  selectedGoalType,
   onNavigate,
   onSetGoalsView,
   onToggleCollapsed,
@@ -20,9 +21,10 @@ export function Sidebar({
   collapsed: boolean
   pageOrder: PageId[]
   pageLabels: Record<PageId, string>
-  goalsView: 'life-overview' | 'life-detail' | 'habit-goals'
+  goalsView: 'life-overview' | 'directional-overview' | 'life-detail' | 'habit-goals'
+  selectedGoalType?: 'outcome' | 'directional' | null
   onNavigate: (page: PageId) => void
-  onSetGoalsView: (view: 'life-overview' | 'life-detail' | 'habit-goals') => void
+  onSetGoalsView: (view: 'life-overview' | 'directional-overview' | 'life-detail' | 'habit-goals') => void
   onToggleCollapsed: () => void
   onReorderPages: (nextOrder: PageId[]) => void
   onRenamePage: (page: PageId, label: string) => void
@@ -154,7 +156,20 @@ export function Sidebar({
                     <div className="min-h-0">
                       <div className="space-y-0.5 pb-1 pl-6 pr-0.5">
                         {[
-                          { id: 'life-overview', label: 'Life Goals', selected: goalsView !== 'habit-goals' },
+                          {
+                            id: 'life-overview',
+                            label: 'Outcome Goals',
+                            selected:
+                              goalsView === 'life-overview' ||
+                              (goalsView === 'life-detail' && (selectedGoalType ?? 'outcome') === 'outcome'),
+                          },
+                          {
+                            id: 'directional-overview',
+                            label: 'Directional Goals',
+                            selected:
+                              goalsView === 'directional-overview' ||
+                              (goalsView === 'life-detail' && selectedGoalType === 'directional'),
+                          },
                           { id: 'habit-goals', label: 'Habit Goals', selected: goalsView === 'habit-goals' },
                         ].map((goalSection) => {
                           const selected = currentPage === 'goals' && goalSection.selected
@@ -163,7 +178,7 @@ export function Sidebar({
                               key={goalSection.id}
                               type="button"
                               onClick={() => {
-                                onSetGoalsView(goalSection.id as 'life-overview' | 'habit-goals')
+                                onSetGoalsView(goalSection.id as 'life-overview' | 'directional-overview' | 'habit-goals')
                                 onNavigate('goals')
                               }}
                               className="theme-nav-item flex w-full min-w-0 items-center gap-2 rounded-xl border border-transparent px-2 py-1.5 text-left text-xs transition"

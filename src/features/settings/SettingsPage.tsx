@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { BadHabitDefinition, Habit, SettingsState } from '../../types'
 import { Button } from '../../components/ui/Button'
 import { ResponsiveGrid, SectionCard } from '../../components/layout/LayoutPrimitives'
+import type { PersistedAppStateSnapshotSummary } from '../../lib/persistence'
 
 const BAD_HABIT_COLORS = ['#FF4D4F', '#D97706', '#C2414B', '#B35A65', '#A16207', '#7C3AED']
 
@@ -15,6 +16,11 @@ export function SettingsPage({
   onArchiveBadHabit,
   onExportState,
   onImportState,
+  snapshots,
+  snapshotsLoading,
+  onCreateBackupNow,
+  onRestoreSnapshot,
+  onDeleteSnapshot,
 }: {
   settings: SettingsState
   habits: Habit[]
@@ -25,6 +31,11 @@ export function SettingsPage({
   onArchiveBadHabit: (badHabitId: string) => void
   onExportState: () => void
   onImportState: (file: File) => void
+  snapshots: PersistedAppStateSnapshotSummary[]
+  snapshotsLoading: boolean
+  onCreateBackupNow: () => void
+  onRestoreSnapshot: (snapshotId: string) => void
+  onDeleteSnapshot: (snapshotId: string) => void
 }) {
   const [managingBadHabits, setManagingBadHabits] = useState(false)
   const [newBadHabitName, setNewBadHabitName] = useState('')
@@ -179,9 +190,10 @@ export function SettingsPage({
         </div>
       </SectionCard>
       <SectionCard className="space-y-4">
-        <h3 className="text-xl font-semibold theme-text-primary">Export</h3>
-        <p className="text-sm theme-text-muted">Download a full local backup of your saved dashboard state, or import one later to restore everything.</p>
+        <h3 className="text-xl font-semibold theme-text-primary">Backups</h3>
+        <p className="text-sm theme-text-muted">Create a full local snapshot, export the current state, import a backup, or restore an earlier snapshot.</p>
         <div className="flex flex-wrap gap-3">
+          <Button variant="soft" onClick={onCreateBackupNow}>Create backup now</Button>
           <Button variant="soft" onClick={onExportState}>Export backup</Button>
           <label className="theme-button-secondary inline-flex cursor-pointer items-center rounded-2xl border px-4 py-2 text-sm font-semibold transition">
             Import backup
@@ -196,6 +208,42 @@ export function SettingsPage({
               }}
             />
           </label>
+        </div>
+        <div className="theme-surface-soft rounded-2xl border px-4 py-3">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-semibold theme-text-primary">Snapshot history</p>
+              <p className="mt-1 text-xs theme-text-muted">Automatic snapshots are stored separately from the live app state.</p>
+            </div>
+            <span className="text-xs uppercase tracking-[0.14em] theme-text-muted">
+              {snapshotsLoading ? 'Loading' : `${snapshots.length} saved`}
+            </span>
+          </div>
+          <div className="mt-4 space-y-3">
+            {snapshots.length === 0 ? (
+              <p className="text-sm theme-text-muted">No snapshots saved yet.</p>
+            ) : (
+              snapshots.map((snapshot) => (
+                <div key={snapshot.id} className="theme-surface rounded-2xl border px-4 py-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold theme-text-primary">
+                        {new Date(snapshot.createdAt).toLocaleString()}
+                      </p>
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.14em] theme-text-muted">
+                        <span>{snapshot.snapshotType.replace(/_/g, ' ')}</span>
+                        <span>Schema {snapshot.schemaVersion}</span>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant="soft" onClick={() => onRestoreSnapshot(snapshot.id)}>Restore</Button>
+                      <Button onClick={() => onDeleteSnapshot(snapshot.id)}>Delete</Button>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
         </div>
       </SectionCard>
     </ResponsiveGrid>

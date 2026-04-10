@@ -6,6 +6,7 @@ import Underline from '@tiptap/extension-underline'
 import { EditorContent, useEditor, useEditorState } from '@tiptap/react'
 
 type LifeGoalNotesEditorProps = {
+  goalId: string
   value: string
   onChange: (value: string) => void
 }
@@ -79,8 +80,45 @@ const NotesListShortcuts = Extension.create({
   },
 })
 
-export function LifeGoalNotesEditor({ value, onChange }: LifeGoalNotesEditorProps) {
+const NOTES_COMMIT_DEBOUNCE_MS = 260
+
+export function LifeGoalNotesEditor({ goalId, value, onChange }: LifeGoalNotesEditorProps) {
   const savedSelectionRef = useRef<{ from: number; to: number } | null>(null)
+  const lastCommittedValueRef = useRef(normalizeNotesHtml(value))
+  const latestOnChangeRef = useRef(onChange)
+  const previousGoalIdRef = useRef(goalId)
+  const previousGoalOnChangeRef = useRef(onChange)
+  const commitTimeoutRef = useRef<number | null>(null)
+
+  const clearPendingCommit = () => {
+    if (commitTimeoutRef.current) {
+      window.clearTimeout(commitTimeoutRef.current)
+      commitTimeoutRef.current = null
+    }
+  }
+
+  const getEditorValue = (currentEditor = editor) =>
+    currentEditor ? normalizeNotesHtml(currentEditor.getHTML()) : lastCommittedValueRef.current
+
+  const commitValue = (nextValue = getEditorValue(), commit = latestOnChangeRef.current) => {
+    const normalized = normalizeNotesHtml(nextValue)
+    clearPendingCommit()
+    if (normalized === lastCommittedValueRef.current) return
+    lastCommittedValueRef.current = normalized
+    commit(normalized)
+  }
+
+  const scheduleCommit = () => {
+    clearPendingCommit()
+    commitTimeoutRef.current = window.setTimeout(() => {
+      commitValue()
+    }, NOTES_COMMIT_DEBOUNCE_MS)
+  }
+
+  useEffect(() => {
+    latestOnChangeRef.current = onChange
+  }, [onChange])
+
   const editor = useEditor({
     immediatelyRender: false,
     content: normalizeNotesHtml(value),
@@ -101,7 +139,7 @@ export function LifeGoalNotesEditor({ value, onChange }: LifeGoalNotesEditorProp
       },
     },
     onUpdate: ({ editor: nextEditor }) => {
-      onChange(normalizeNotesHtml(nextEditor.getHTML()))
+      scheduleCommit()
     },
     onSelectionUpdate: ({ editor: nextEditor }) => {
       const { from, to } = nextEditor.state.selection
@@ -121,14 +159,47 @@ export function LifeGoalNotesEditor({ value, onChange }: LifeGoalNotesEditorProp
   })
 
   useEffect(() => {
-    if (!editor) return
+    if (previousGoalIdRef.current !== goalId) {
+      const previousDraft = getEditorValue(editor)
+      if (previousDraft !== lastCommittedValueRef.current) {
+        commitValue(previousDraft, previousGoalOnChangeRef.current)
+      } else {
+        clearPendingCommit()
+      }
+      previousGoalIdRef.current = goalId
+      previousGoalOnChangeRef.current = onChange
+      const nextContent = normalizeNotesHtml(value)
+      lastCommittedValueRef.current = nextContent
+      if (editor) {
+        const currentContent = normalizeNotesHtml(editor.getHTML())
+        if (currentContent !== nextContent) {
+          editor.commands.setContent(nextContent || '<p></p>', { emitUpdate: false })
+        }
+      }
+      return
+    }
 
+    previousGoalOnChangeRef.current = onChange
     const nextContent = normalizeNotesHtml(value)
+    if (nextContent === lastCommittedValueRef.current) return
+    lastCommittedValueRef.current = nextContent
+    if (!editor) return
     const currentContent = normalizeNotesHtml(editor.getHTML())
     if (currentContent === nextContent) return
-
     editor.commands.setContent(nextContent || '<p></p>', { emitUpdate: false })
-  }, [editor, value])
+  }, [editor, goalId, onChange, value])
+
+  useEffect(
+    () => () => {
+      const latestValue = getEditorValue(editor)
+      if (latestValue !== lastCommittedValueRef.current) {
+        commitValue(latestValue)
+      } else {
+        clearPendingCommit()
+      }
+    },
+    [],
+  )
 
   const runCommand = (command: NotesCommand['action']) => {
     if (!editor) return
@@ -208,7 +279,14 @@ export function LifeGoalNotesEditor({ value, onChange }: LifeGoalNotesEditorProp
         </div>
       </div>
 
-      <div className="relative flex-1 min-h-0 px-4 pb-2 pt-1.5">
+      <div
+        className="relative flex-1 min-h-0 px-4 pb-2 pt-1.5"
+        onBlurCapture={(event) => {
+          const nextFocused = event.relatedTarget
+          if (nextFocused instanceof Node && event.currentTarget.contains(nextFocused)) return
+          commitValue()
+        }}
+      >
         <EditorContent editor={editor} className="flex h-full min-h-0 w-full flex-col" />
       </div>
     </div>

@@ -76,13 +76,13 @@ export function useTrackerState(initialState: PersistedAppState, currentYear: nu
       return badHabits
         .filter((habit) => habit.showStreakInUI && !habit.isArchived)
         .map((habit) => {
+          const habitCreatedAtIso = habit.createdAt.slice(0, 10)
           const occurredToday = (badHabitDateMap.get(todayIso) ?? []).some((item) => item.id === habit.id)
-          const cleanLoggedDays = new Set(
+          const cleanCalendarDays = new Set(
             dataset.days
               .filter(
                 (day) =>
-                  day.date >= habit.createdAt &&
-                  day.isLogged &&
+                  day.date >= habitCreatedAtIso &&
                   !(badHabitDateMap.get(day.date) ?? []).some((item) => item.id === habit.id),
               )
               .map((day) => day.date),
@@ -92,13 +92,13 @@ export function useTrackerState(initialState: PersistedAppState, currentYear: nu
             filters.year === currentYear
               ? occurredToday
                 ? 0
-                : getConsecutiveDateStreakEndingAt(cleanLoggedDays, yesterdayIso)
-              : getConsecutiveDateStreak(cleanLoggedDays, filters.year)
+                : getConsecutiveDateStreakEndingAt(cleanCalendarDays, yesterdayIso)
+              : getConsecutiveDateStreak(cleanCalendarDays, filters.year)
 
           return {
             habit,
             streak,
-            startsToday: streak === 0 && habit.createdAt === todayIso && !occurredToday,
+            startsToday: streak === 0 && habitCreatedAtIso === todayIso && !occurredToday,
             brokenToday: occurredToday,
           }
         })

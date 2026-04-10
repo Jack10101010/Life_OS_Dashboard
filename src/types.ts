@@ -243,6 +243,7 @@ export interface Goal {
 export interface Task {
   id: string
   text: string
+  order: number
   dueDate: string
   starred: boolean
   important: boolean

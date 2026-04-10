@@ -1,4 +1,4 @@
-import { CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion, useMotionValue, useReducedMotion, useSpring } from 'framer-motion'
 import EmojiPicker, { EmojiStyle, Theme as EmojiPickerTheme, SuggestionMode, type EmojiClickData } from 'emoji-picker-react'
@@ -65,6 +65,50 @@ import { LifeGoalNotesEditor } from './components/LifeGoalNotesEditor'
 import { LifeGoalRoadmapPanel } from './components/LifeGoalRoadmapPanel'
 import { LifeGoalTaskPeek } from './components/LifeGoalTaskPeek'
 import { LifeGoalVisionCard } from './components/LifeGoalVisionCard'
+import { LifeGoalDetailPage } from './components/LifeGoalDetailPage'
+import { LifeGoalOverviewPanel } from './LifeGoalOverviewPanel'
+import { GoalDatePicker } from './GoalDatePicker'
+import {
+  canGoalTypeLinkToGoalType,
+  formatCalendarDayValue,
+  formatCalendarMonthLabel,
+  formatDate,
+  formatDateContextual,
+  formatDateShortYear,
+  formatGoalCardTitle,
+  formatTaskCompletedDate,
+  formatTaskDueDate,
+  getCalendarDays,
+  getCalendarMonthDate,
+  getLifeGoalAccentBarStyle,
+  getLifeGoalAnchorText,
+  getLifeGoalCategoryChipStyle,
+  getLifeGoalCategoryChipTextStyle,
+  getLifeGoalCategoryColor,
+  getLifeGoalCategoryDotStyle,
+  getLifeGoalCategoryOptions,
+  getLifeGoalEditSnapshot,
+  getLifeGoalProgress,
+  getLifeGoalStatusMeta,
+  getLifeSignalBucket,
+  getMilestoneTaskProgress,
+  getSubtaskProgressDots,
+  getSubtaskProgressSummary,
+  getTaskPriorityOptions,
+  getTodayIsoDate,
+  isLifeGoalScheduled,
+  isValidIsoDate,
+  normalizeCategoryValue,
+  shiftCalendarMonth,
+  shiftIsoDate,
+  sortLifeGoals,
+  sortLifeGoalsByDue,
+  sortLifeGoalsByName,
+  sortLifeGoalsByRecentlyAdded,
+  sortLifeGoalsByStatus,
+  startOfCalendarMonth,
+  toTitleCase,
+} from './goalUtils'
 
 type GoalDetailItem =
   | {
@@ -80,7 +124,7 @@ type GoalDetailItem =
       completionDates: string[]
     }
 
-type GoalsView = 'life-overview' | 'life-detail' | 'habit-goals'
+type GoalsView = 'life-overview' | 'directional-overview' | 'life-detail' | 'habit-goals'
 type LifeGoalDetailTab = 'focus' | 'tasks' | 'roadmap' | 'why' | 'progress'
 type GoalOverviewViewMode = 'list' | 'board' | 'timeline'
 type GoalOverviewGroupBy = 'none' | 'status' | 'category' | 'life-direction'
@@ -133,13 +177,6 @@ const LIFE_GOAL_TYPE_OPTIONS: Array<{
   { value: 'outcome', label: 'Outcome', description: 'Clear outcome with a defined finish' },
   { value: 'directional', label: 'Directional', description: 'Ongoing path — not meant to be completed' },
 ]
-
-function canGoalTypeLinkToGoalType(sourceType: LifeGoalType, targetType: LifeGoalType) {
-  if (sourceType === 'directional') {
-    return targetType === 'outcome'
-  }
-  return false
-}
 
 const LIFE_GOAL_ICON_OPTIONS = Object.entries(icons)
   .filter(([name]) => !name.endsWith('Icon'))
@@ -334,10 +371,6 @@ const DEFAULT_GOAL_DETAIL_CONTENT_VISIBILITY: GoalDetailContentVisibility = {
 }
 const GOAL_OVERVIEW_USE_TITLE_CASE = false
 
-function toTitleCase(value: string) {
-  return value.replace(/\w\S*/g, (word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-}
-
 function normalizeGoalOverviewViewControls(
   value: Partial<GoalOverviewViewControls> | null | undefined,
 ): GoalOverviewViewControls {
@@ -514,6 +547,43 @@ function createEmptyLifeGoalTask(): LifeGoalTask {
   }
 }
 
+type OutcomeGoalTaskRecord = Task & {
+  dueDate: string | null
+  description?: string
+  notes?: string
+  priority?: LifeGoalTaskPriority
+  tags?: string[]
+  subtasks?: LifeGoalTask['subtasks']
+  milestoneId?: string | null
+  phase?: string | null
+  createdAt?: string
+  updatedAt?: string | null
+}
+
+function normalizeOutcomeGoalTaskRecord(task: Task): LifeGoalTask {
+  const taskRecord = task as OutcomeGoalTaskRecord
+  return {
+    id: task.id,
+    text: task.text,
+    milestoneId: taskRecord.milestoneId ?? null,
+    phase: normalizeLifeGoalPhaseValue(taskRecord.phase),
+    description: typeof taskRecord.description === 'string' ? taskRecord.description : '',
+    notes: typeof taskRecord.notes === 'string' ? taskRecord.notes : '',
+    dueDate: taskRecord.dueDate && isValidIsoDate(taskRecord.dueDate) ? taskRecord.dueDate : null,
+    priority: taskRecord.priority ?? (task.important ? 'high' : 'none'),
+    tags: normalizeTaskTags(Array.isArray(taskRecord.tags) ? taskRecord.tags : []),
+    subtasks: Array.isArray(taskRecord.subtasks)
+      ? taskRecord.subtasks.map((subtask) => ({
+          id: subtask.id,
+          text: subtask.text,
+          completed: subtask.completed,
+        }))
+      : [],
+    completed: task.completed,
+    completedAt: task.completed ? task.completedAt ?? null : null,
+  }
+}
+
 function isLifeGoalTaskDraftEmpty(task: LifeGoalTask) {
   const normalizedPhase = normalizeLifeGoalPhaseValue(task.phase)
   return (
@@ -526,13 +596,6 @@ function isLifeGoalTaskDraftEmpty(task: LifeGoalTask) {
     task.subtasks.length === 0 &&
     normalizedPhase === 'general'
   )
-}
-
-function getMilestoneTaskProgress(tasks: LifeGoalTask[]) {
-  const total = tasks.length
-  const completed = tasks.filter((task) => task.completed).length
-  const percent = total > 0 ? Math.round((completed / total) * 100) : null
-  return { total, completed, percent }
 }
 
 function inferLifeGoalVisionMode(goal: Pick<LifeGoal, 'visionImages' | 'visionStatement'>): LifeGoalVisionMode {
@@ -562,113 +625,6 @@ function createEmptyLifeGoalDraft(): LifeGoalDraft {
 }
 
 const LIFE_GOAL_WEEKDAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const
-function formatDate(date: string) {
-  return new Date(`${date}T00:00:00Z`).toLocaleDateString('en-IE', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  })
-}
-
-function formatDateShortYear(date: string) {
-  return new Date(`${date}T00:00:00Z`).toLocaleDateString('en-IE', {
-    day: 'numeric',
-    month: 'short',
-    year: '2-digit',
-  })
-}
-
-function formatDateContextual(date: string) {
-  const targetDate = new Date(`${date}T00:00:00Z`)
-  const today = new Date(`${getTodayIsoDate()}T00:00:00Z`)
-  const sameYear = targetDate.getUTCFullYear() === today.getUTCFullYear()
-
-  return targetDate.toLocaleDateString('en-IE', {
-    day: 'numeric',
-    month: 'short',
-    ...(sameYear ? {} : { year: '2-digit' as const }),
-  })
-}
-
-function formatTaskDueDate(date: string) {
-  return new Date(`${date}T00:00:00Z`).toLocaleDateString('en-IE', {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-  })
-}
-
-function formatTaskCompletedDate(date: string) {
-  return new Date(date).toLocaleDateString('en-IE', {
-    day: 'numeric',
-    month: 'short',
-  })
-}
-
-function getTodayIsoDate() {
-  return new Date().toISOString().slice(0, 10)
-}
-
-function shiftIsoDate(date: string, deltaDays: number) {
-  const shiftedDate = new Date(`${date}T00:00:00Z`)
-  shiftedDate.setUTCDate(shiftedDate.getUTCDate() + deltaDays)
-  return shiftedDate.toISOString().slice(0, 10)
-}
-
-function isValidIsoDate(date: string) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false
-  const parsed = new Date(`${date}T00:00:00Z`)
-  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date
-}
-
-function getLifeSignalBucket(day: DayEntry): 'good' | 'neutral' | 'low' | null {
-  const values = [day.mood, day.energy, day.clarity, day.motivation].filter((value): value is number => value != null)
-  if (values.length === 0) return null
-  const average = values.reduce((sum, value) => sum + value, 0) / values.length
-  if (average >= 7) return 'good'
-  if (average <= 4) return 'low'
-  return 'neutral'
-}
-
-function getCalendarMonthDate(date?: string) {
-  if (date && isValidIsoDate(date)) {
-    return new Date(`${date}T00:00:00Z`)
-  }
-  return new Date(`${getTodayIsoDate()}T00:00:00Z`)
-}
-
-function startOfCalendarMonth(date: Date) {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1))
-}
-
-function shiftCalendarMonth(date: Date, delta: number) {
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + delta, 1))
-}
-
-function formatCalendarMonthLabel(date: Date) {
-  return date.toLocaleDateString('en-IE', {
-    month: 'long',
-    year: 'numeric',
-    timeZone: 'UTC',
-  })
-}
-
-function getCalendarDays(date: Date) {
-  const monthStart = startOfCalendarMonth(date)
-  const startWeekday = (monthStart.getUTCDay() + 6) % 7
-  const calendarStart = new Date(monthStart)
-  calendarStart.setUTCDate(monthStart.getUTCDate() - startWeekday)
-
-  return Array.from({ length: 42 }, (_, index) => {
-    const day = new Date(calendarStart)
-    day.setUTCDate(calendarStart.getUTCDate() + index)
-    return day
-  })
-}
-
-function formatCalendarDayValue(date: Date) {
-  return date.toISOString().slice(0, 10)
-}
 
 function getTargetLabel(tracker: HabitTracker, target: number, goalType: HabitTrackerAchievement['goalType']) {
   switch (goalType) {
@@ -693,163 +649,6 @@ function getGoalAccentColor(item: GoalDetailItem) {
   return item.tracker.color
 }
 
-function isLifeGoalScheduled(status: LifeGoalStatus, startDate: string) {
-  return status === 'not-started' && isValidIsoDate(startDate) && startDate > getTodayIsoDate()
-}
-
-function getLifeGoalStatusMeta(status: LifeGoalStatus, startDate = '') {
-  if (isLifeGoalScheduled(status, startDate)) {
-    return {
-      label: 'Scheduled',
-      badgeClassName:
-        'border-[rgb(var(--theme-info-rgb)/0.16)] bg-[rgb(var(--theme-info-rgb)/0.08)] text-[rgb(var(--theme-info-rgb)/0.86)]',
-    }
-  }
-
-  switch (status) {
-    case 'not-started':
-      return {
-        label: 'Not Started',
-        badgeClassName:
-          'border-[rgb(var(--theme-border-subtle-rgb)/0.95)] bg-[rgb(var(--theme-surface-soft-rgb)/0.9)] text-[rgb(var(--theme-text-muted-rgb))]',
-      }
-    case 'complete':
-      return {
-        label: 'Completed',
-        badgeClassName:
-          'border-[rgb(var(--theme-accent-rgb)/0.26)] bg-[rgb(var(--theme-accent-rgb)/0.12)] text-[rgb(var(--theme-accent-rgb))]',
-      }
-    case 'paused':
-      return {
-        label: 'Paused',
-        badgeClassName:
-          'border-[rgb(var(--theme-border-subtle-rgb)/0.95)] bg-[rgb(var(--theme-surface-soft-rgb)/0.9)] text-[rgb(var(--theme-text-muted-rgb))]',
-      }
-    default:
-      return {
-        label: 'Active',
-        badgeClassName:
-          'border-[rgb(var(--theme-accent-rgb)/0.22)] bg-[rgb(var(--theme-accent-rgb)/0.08)] text-[rgb(var(--theme-accent-rgb)/0.9)]',
-      }
-  }
-}
-
-function getLifeGoalSecondaryContext(goal: LifeGoal) {
-  const today = getTodayIsoDate()
-
-  if (isLifeGoalScheduled(goal.status, goal.startDate)) {
-    return `Starts ${formatDate(goal.startDate)}`
-  }
-
-  if (goal.status !== 'complete' && isValidIsoDate(goal.targetDate) && goal.targetDate < today) {
-    return 'Overdue'
-  }
-
-  if (goal.status === 'not-started' && isValidIsoDate(goal.startDate) && goal.startDate < today) {
-    return 'Past start date'
-  }
-
-  if (isValidIsoDate(goal.targetDate)) {
-    return `Due ${formatDate(goal.targetDate)}`
-  }
-
-  return null
-}
-
-function getLifeGoalProgress(goal: LifeGoal) {
-  const totalTasks = goal.tasks.length
-  const completedTasks = goal.tasks.filter((task) => task.completed).length
-  const percent = goal.status === 'complete' ? 100 : totalTasks === 0 ? 0 : Math.round((completedTasks / totalTasks) * 100)
-  const nextTask = goal.tasks.find((task) => !task.completed) ?? null
-  const completedTaskItems = goal.tasks.filter((task) => task.completed)
-  const lastCompletedTask = [...completedTaskItems]
-    .sort((left, right) => (right.completedAt ?? '').localeCompare(left.completedAt ?? ''))[0] ?? null
-
-  return {
-    totalTasks,
-    completedTasks,
-    plannedTasks: goal.tasks.filter((task) => !task.completed),
-    completedTaskItems,
-    lastCompletedTask,
-    percent,
-    nextTask,
-  }
-}
-
-function getLifeGoalFlowState(goal: LifeGoal, progress: ReturnType<typeof getLifeGoalProgress>) {
-  if (goal.status === 'complete') return null
-  if (!progress.lastCompletedTask?.completedAt) {
-    return {
-      label: 'Stalled',
-      toneClassName: 'text-[rgb(var(--theme-warning-rgb)/0.72)]',
-    }
-  }
-
-  const completedAt = new Date(progress.lastCompletedTask.completedAt).getTime()
-  if (Number.isNaN(completedAt)) {
-    return {
-      label: 'Stalled',
-      toneClassName: 'text-[rgb(var(--theme-warning-rgb)/0.72)]',
-    }
-  }
-
-  const diffDays = Math.floor((Date.now() - completedAt) / 86400000)
-  if (diffDays <= 2) {
-    return {
-      label: 'Active',
-      toneClassName: 'text-[rgb(var(--theme-accent-rgb)/0.76)]',
-    }
-  }
-  if (diffDays <= 5) {
-    return {
-      label: 'Cooling',
-      toneClassName: 'theme-text-muted',
-    }
-  }
-  return {
-    label: 'Stalled',
-    toneClassName: 'text-[rgb(var(--theme-warning-rgb)/0.72)]',
-  }
-}
-
-function getLifeGoalMomentumState(goal: LifeGoal, progress: ReturnType<typeof getLifeGoalProgress>) {
-  if (goal.status === 'complete') return null
-  if (!progress.lastCompletedTask?.completedAt) {
-    return {
-      tone: 'cold' as const,
-      label: 'none',
-    }
-  }
-
-  const completedAt = new Date(progress.lastCompletedTask.completedAt).getTime()
-  if (Number.isNaN(completedAt)) {
-    return {
-      tone: 'cold' as const,
-      label: 'none',
-    }
-  }
-
-  const diffHours = (Date.now() - completedAt) / 3600000
-  if (diffHours <= 24) {
-    return {
-      tone: 'active' as const,
-      label: 'today',
-    }
-  }
-
-  const diffDays = Math.floor(diffHours / 24)
-  if (diffDays <= 3) {
-    return {
-      tone: 'warming' as const,
-      label: `${diffDays}d ago`,
-    }
-  }
-
-  return {
-    tone: 'cold' as const,
-    label: `${diffDays}d ago`,
-  }
-}
 
 function renderCalendarAddIcon(size = 18) {
   return (
@@ -864,24 +663,6 @@ function renderCalendarAddIcon(size = 18) {
       <path d="M12.45 9.9V14.25M10.25 12.075H14.65" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   )
-}
-
-function getLifeGoalAnchorText(whyItMatters: string) {
-  const trimmed = whyItMatters.trim()
-  if (!trimmed) return ''
-  const firstSentence = trimmed.split(/(?<=[.!?])\s+/)[0] ?? trimmed
-  return firstSentence.length > 120 ? `${firstSentence.slice(0, 117).trim()}...` : firstSentence
-}
-
-function formatGoalCardTitle(title: string) {
-  return title
-    .trim()
-    .split(/\s+/)
-    .map((word) => {
-      if (!word) return word
-      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-    })
-    .join(' ')
 }
 
 function renderLifeGoalIcon(icon: LifeGoalIcon | null | undefined, className: string, size = 15) {
@@ -1011,230 +792,6 @@ function createLifeGoalTaskSubtask(text = '') {
   }
 }
 
-function getTaskPriorityOptions(): Array<{ value: LifeGoalTaskPriority; label: string }> {
-  return [
-    { value: 'none', label: 'None' },
-    { value: 'low', label: 'Low' },
-    { value: 'medium', label: 'Medium' },
-    { value: 'high', label: 'High' },
-  ]
-}
-
-function normalizeCategoryValue(category: string) {
-  return category.trim().toLowerCase()
-}
-
-function getLifeGoalCategoryColorTokenVariable(color: LifeGoalCategoryColor) {
-  switch (color) {
-    case 'green':
-      return '--theme-accent-rgb'
-    case 'blue':
-      return '--theme-info-rgb'
-    case 'purple':
-      return '--theme-violet-rgb'
-    case 'amber':
-      return '--theme-warning-rgb'
-    case 'teal':
-      return '--theme-teal-rgb'
-    case 'red':
-      return '--theme-negative-rgb'
-    default:
-      return '--theme-border-strong-rgb'
-  }
-}
-
-function getLifeGoalCategoryColor(name: string, categories: LifeGoalCategoryDefinition[]) {
-  const normalizedName = normalizeCategoryValue(name)
-  return categories.find((category) => normalizeCategoryValue(category.name) === normalizedName)?.color ?? 'neutral'
-}
-
-function getLifeGoalCategoryOptions(
-  categories: readonly LifeGoalCategoryDefinition[],
-  usedCategories: string[],
-) {
-  const seen = new Set<string>()
-  const options: string[] = []
-
-  for (const category of [...categories.map((item) => item.name), ...usedCategories]) {
-    const trimmed = category.trim()
-    if (!trimmed) continue
-    const normalized = normalizeCategoryValue(trimmed)
-    if (seen.has(normalized)) continue
-    seen.add(normalized)
-    options.push(trimmed)
-  }
-
-  return options
-}
-
-function getLifeGoalCategoryDotStyle(color: LifeGoalCategoryColor) {
-  const variable = getLifeGoalCategoryColorTokenVariable(color)
-  return {
-    backgroundColor: `rgb(var(${variable}) / 0.9)`,
-    boxShadow: `0 0 0 1px rgb(var(${variable}) / 0.18)`,
-  }
-}
-
-function getLifeGoalCategoryChipStyle(color: LifeGoalCategoryColor) {
-  const variable = getLifeGoalCategoryColorTokenVariable(color)
-  return {
-    borderColor: `rgb(var(${variable}) / 0.24)`,
-    backgroundColor: `rgb(var(${variable}) / 0.055)`,
-  }
-}
-
-function getLifeGoalCategoryChipTextStyle(color: LifeGoalCategoryColor) {
-  const variable = getLifeGoalCategoryColorTokenVariable(color)
-  return {
-    color: `rgb(var(${variable}) / 0.82)`,
-  }
-}
-
-function getLifeGoalAccentBarStyle(color: LifeGoalCategoryColor): CSSProperties {
-  const variable = getLifeGoalCategoryColorTokenVariable(color)
-  return {
-    ['--goal-rail-rgb' as string]: `var(${variable})`,
-  }
-}
-
-function getLifeGoalCardHighlightStyle(color: LifeGoalCategoryColor) {
-  const variable = getLifeGoalCategoryColorTokenVariable(color)
-  return {
-    boxShadow: `inset 0 1px 0 rgb(255 255 255 / 0.06), 0 0 0 1px rgb(var(${variable}) / 0.14), 0 16px 34px rgb(15 23 42 / 0.12)`,
-  }
-}
-
-function getLifeGoalRowHighlightStyle(color: LifeGoalCategoryColor) {
-  const variable = getLifeGoalCategoryColorTokenVariable(color)
-  return {
-    boxShadow: `inset 0 1px 0 rgb(255 255 255 / 0.04), 0 0 0 1px rgb(var(${variable}) / 0.12)`,
-  }
-}
-
-function getLifeGoalPrimaryGlowStyle(
-  hover = false,
-  momentumTone: 'active' | 'warming' | 'cold' | null = null,
-) {
-  const topAlpha =
-    momentumTone === 'active'
-      ? hover
-        ? '0.095'
-        : '0.07'
-      : momentumTone === 'cold'
-        ? hover
-          ? '0.065'
-          : '0.042'
-        : hover
-          ? '0.08'
-          : '0.055'
-  const midAlpha =
-    momentumTone === 'active'
-      ? hover
-        ? '0.034'
-        : '0.024'
-      : momentumTone === 'cold'
-        ? hover
-          ? '0.022'
-          : '0.014'
-        : hover
-          ? '0.028'
-          : '0.018'
-  return {
-    background: `radial-gradient(120% 78% at 18% 0%, rgb(var(--theme-text-primary-rgb) / ${topAlpha}) 0%, rgb(var(--theme-text-primary-rgb) / ${midAlpha}) 34%, transparent 68%)`,
-  }
-}
-
-function getLifeGoalCategorySurfaceWashStyle(color: LifeGoalCategoryColor, isPrimary: boolean, hover = false) {
-  if (color === 'neutral') return undefined
-  const variable = getLifeGoalCategoryColorTokenVariable(color)
-  const topAlpha = isPrimary ? (hover ? 0.034 : 0.026) : hover ? 0.082 : 0.072
-  const midAlpha = isPrimary ? (hover ? 0.016 : 0.012) : hover ? 0.038 : 0.03
-  const tailAlpha = isPrimary ? (hover ? 0.006 : 0.004) : hover ? 0.014 : 0.01
-  return {
-    backgroundImage: `linear-gradient(180deg, rgb(var(${variable}) / ${topAlpha}) 0%, rgb(var(${variable}) / ${midAlpha}) 18%, rgb(var(${variable}) / ${tailAlpha}) 32%, transparent 48%)`,
-  }
-}
-
-function getLifeGoalProgressTone(goal: LifeGoal, progress: ReturnType<typeof getLifeGoalProgress>) {
-  if (goal.status === 'complete') return 'complete'
-  if (progress.completedTasks > 0) return 'active'
-  return 'quiet'
-}
-
-function getLifeGoalProgressSurfaceStyle(
-  color: LifeGoalCategoryColor,
-  tone: ReturnType<typeof getLifeGoalProgressTone>,
-  isPrimary: boolean,
-) {
-  if (isPrimary) {
-    return {
-      background: 'linear-gradient(180deg, rgb(255 255 255 / 0.02) 0%, rgb(255 255 255 / 0.008) 100%)',
-    }
-  }
-
-  if (tone === 'active') {
-    const variable = getLifeGoalCategoryColorTokenVariable(color)
-    return {
-      boxShadow: `inset 0 1px 0 rgb(255 255 255 / 0.04), 0 0 0 1px rgb(var(${variable}) / 0.08)`,
-    }
-  }
-
-  return undefined
-}
-
-function getLifeGoalUrgencyMeta(goal: LifeGoal) {
-  const today = getTodayIsoDate()
-  if (!isValidIsoDate(goal.targetDate) || goal.status === 'complete') return null
-
-  const daysUntilTarget = Math.round(
-    (new Date(`${goal.targetDate}T00:00:00Z`).getTime() - new Date(`${today}T00:00:00Z`).getTime()) / 86400000,
-  )
-
-  if (daysUntilTarget < 0) {
-    return {
-      toneClassName: 'text-[rgb(var(--theme-negative-rgb)/0.82)]',
-    }
-  }
-
-  if (daysUntilTarget <= 7) {
-    return {
-      toneClassName: 'text-[rgb(var(--theme-warning-rgb)/0.76)]',
-    }
-  }
-
-  return {
-    toneClassName: 'theme-text-muted',
-  }
-}
-
-function getSubtaskProgressDots(subtasks: LifeGoalTask['subtasks']) {
-  const total = subtasks.length
-  if (total === 0) return []
-
-  const completed = subtasks.filter((subtask) => subtask.completed).length
-  const visibleCount = Math.min(5, total)
-
-  return Array.from({ length: visibleCount }, (_, index) => {
-    const threshold = Math.round(((index + 1) / visibleCount) * total)
-    return completed >= threshold
-  })
-}
-
-function getSubtaskProgressSummary(subtasks: LifeGoalTask['subtasks']) {
-  const total = subtasks.length
-  const completed = subtasks.filter((subtask) => subtask.completed).length
-  return { total, completed }
-}
-
-function getGoalSubtaskProgress(tasks: LifeGoalTask[]) {
-  const total = tasks.reduce((sum, task) => sum + task.subtasks.length, 0)
-  const completed = tasks.reduce(
-    (sum, task) => sum + task.subtasks.filter((subtask) => subtask.completed).length,
-    0,
-  )
-  return { total, completed }
-}
-
 function renderSubtaskProgressDots(subtasks: LifeGoalTask['subtasks'], tone: 'active' | 'completed' = 'active') {
   const summary = getSubtaskProgressSummary(subtasks)
   if (summary.total === 0) return null
@@ -1351,26 +908,6 @@ function createLifeGoalUpdateFromDraft(goal: LifeGoal, draft: LifeGoalDraft, rel
   }
 }
 
-function getLifeGoalEditSnapshot(goal: LifeGoal) {
-  return JSON.stringify({
-    title: goal.title.trim(),
-    icon: goal.icon ?? null,
-    category: goal.category.trim(),
-    goalType: goal.goalType,
-    relatedGoalIds: [...(goal.relatedGoalIds ?? [])].sort(),
-    milestonesEnabled: Boolean(goal.milestonesEnabled),
-    showProgressStrip: goal.showProgressStrip !== false,
-    whyItMatters: goal.whyItMatters.trim(),
-    minimumVersion: goal.minimumVersion.trim(),
-    ifThenPlan: goal.ifThenPlan.trim(),
-    startDate: goal.startDate,
-    targetDate: goal.targetDate,
-    status: goal.status,
-    milestones: goal.milestones ?? [],
-    tasks: goal.tasks,
-  })
-}
-
 function getRecentHabitSupportState(tracker: HabitTracker) {
   const today = new Date()
   const dates = Array.from({ length: 7 }, (_, index) => {
@@ -1408,79 +945,6 @@ function createLinkedHabitFromTask(title: string): HabitTracker {
     achievements: [],
     entries: {},
   }
-}
-
-function sortLifeGoals(goals: LifeGoal[]) {
-  return [...goals].sort((left, right) => {
-    if (left.order !== right.order) return left.order - right.order
-    return right.updatedAt.localeCompare(left.updatedAt)
-  })
-}
-
-function sortLifeGoalsByDue(goals: LifeGoal[]) {
-  const today = getTodayIsoDate()
-
-  const getDueRank = (goal: LifeGoal) => {
-    if (!isValidIsoDate(goal.targetDate)) {
-      return { bucket: 3, distance: Number.POSITIVE_INFINITY }
-    }
-
-    const dueTime = new Date(`${goal.targetDate}T00:00:00Z`).getTime()
-    const todayTime = new Date(`${today}T00:00:00Z`).getTime()
-    const diffDays = Math.round((dueTime - todayTime) / 86400000)
-
-    if (diffDays < 0) {
-      return { bucket: 0, distance: Math.abs(diffDays) }
-    }
-
-    if (diffDays === 0) {
-      return { bucket: 1, distance: 0 }
-    }
-
-    return { bucket: 2, distance: diffDays }
-  }
-
-  return [...goals].sort((left, right) => {
-    const leftRank = getDueRank(left)
-    const rightRank = getDueRank(right)
-
-    if (leftRank.bucket !== rightRank.bucket) {
-      return leftRank.bucket - rightRank.bucket
-    }
-
-    if (leftRank.bucket === 0) {
-      if (leftRank.distance !== rightRank.distance) {
-        return rightRank.distance - leftRank.distance
-      }
-    } else if (leftRank.distance !== rightRank.distance) {
-      return leftRank.distance - rightRank.distance
-    }
-
-    return left.title.localeCompare(right.title)
-  })
-}
-
-function sortLifeGoalsByRecentlyAdded(goals: LifeGoal[]) {
-  return [...goals].sort((left, right) => right.createdAt.localeCompare(left.createdAt))
-}
-
-function sortLifeGoalsByName(goals: LifeGoal[]) {
-  return [...goals].sort((left, right) => left.title.localeCompare(right.title))
-}
-
-function sortLifeGoalsByStatus(goals: LifeGoal[]) {
-  const getStatusRank = (goal: LifeGoal) => {
-    if (goal.status === 'in-motion') return 0
-    if (goal.status === 'not-started') return 1
-    if (goal.status === 'paused') return 2
-    return 3
-  }
-
-  return [...goals].sort((left, right) => {
-    const rankDiff = getStatusRank(left) - getStatusRank(right)
-    if (rankDiff !== 0) return rankDiff
-    return left.title.localeCompare(right.title)
-  })
 }
 
 function sortLifeGoalsForOverview(goals: LifeGoal[], sortMode: LifeGoalOverviewSort) {
@@ -1766,6 +1230,7 @@ export function GoalsPage({
   onArchiveLifeGoal,
   onDeleteLifeGoal,
   onSetLifeGoalAsTodayTask,
+  onUpdateTasks,
   onOpenGlobalTasks,
   onOpenHabitTracker,
 }: {
@@ -1789,6 +1254,7 @@ export function GoalsPage({
   onArchiveLifeGoal: (goalId: string) => void
   onDeleteLifeGoal: (goalId: string) => void
   onSetLifeGoalAsTodayTask: (goal: LifeGoal) => void
+  onUpdateTasks: (updater: (tasks: Task[]) => Task[]) => void
   onOpenGlobalTasks: () => void
   onOpenHabitTracker: (trackerId: string) => void
 }) {
@@ -1840,7 +1306,6 @@ export function GoalsPage({
   const [taskPeekDateViewMonth, setTaskPeekDateViewMonth] = useState(() => startOfCalendarMonth(getCalendarMonthDate()))
   const [taskPeekDatePanelPosition, setTaskPeekDatePanelPosition] = useState<FloatingPanelPosition | null>(null)
   const [milestoneDatePickerMilestoneId, setMilestoneDatePickerMilestoneId] = useState<string | null>(null)
-  const [milestoneDateViewMonth, setMilestoneDateViewMonth] = useState(() => startOfCalendarMonth(getCalendarMonthDate()))
   const [milestoneDatePanelPosition, setMilestoneDatePanelPosition] = useState<FloatingPanelPosition | null>(null)
   const [taskPeekDeleteConfirmation, setTaskPeekDeleteConfirmation] = useState<
     | { kind: 'task'; taskId: string }
@@ -1910,6 +1375,7 @@ export function GoalsPage({
   const [goalOverviewHeaderControlsSticky, setGoalOverviewHeaderControlsSticky] = useState(false)
   const [goalOverviewHeaderControlsTop, setGoalOverviewHeaderControlsTop] = useState(18)
   const [goalOverviewHeaderControlsRight, setGoalOverviewHeaderControlsRight] = useState(12)
+  const [goalOverviewFloatingOpacity, setGoalOverviewFloatingOpacity] = useState(0)
   const [lifeGoalIconPickerOpen, setLifeGoalIconPickerOpen] = useState(false)
   const [lifeGoalIconPickerTab, setLifeGoalIconPickerTab] = useState<'icons' | 'emojis'>('icons')
   const [lifeGoalIconPickerQuery, setLifeGoalIconPickerQuery] = useState('')
@@ -1936,7 +1402,6 @@ export function GoalsPage({
   const [lifeGoalOverviewSortPanelPosition, setLifeGoalOverviewSortPanelPosition] = useState<FloatingPanelPosition | null>(null)
   const [lifeGoalOverviewCategoryMenuOpen, setLifeGoalOverviewCategoryMenuOpen] = useState(false)
   const [lifeGoalOverviewCategoryPanelPosition, setLifeGoalOverviewCategoryPanelPosition] = useState<FloatingPanelPosition | null>(null)
-  const [lifeGoalDateViewMonth, setLifeGoalDateViewMonth] = useState(() => startOfCalendarMonth(getCalendarMonthDate()))
   const [lifeGoalCategoryPanelPosition, setLifeGoalCategoryPanelPosition] = useState<FloatingPanelPosition | null>(null)
   const [lifeGoalDatePanelPosition, setLifeGoalDatePanelPosition] = useState<FloatingPanelPosition | null>(null)
   const [lifeGoalStatusPanelPosition, setLifeGoalStatusPanelPosition] = useState<FloatingPanelPosition | null>(null)
@@ -2029,6 +1494,7 @@ export function GoalsPage({
   const goalOverviewDateDismissUntilRef = useRef(0)
   const goalOverviewHeaderControlsRef = useRef<HTMLDivElement | null>(null)
   const goalOverviewControlsTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const goalOverviewFloatingControlsTriggerRef = useRef<HTMLButtonElement | null>(null)
   const goalOverviewActiveDateTriggerRef = useRef<HTMLElement | null>(null)
   const lifeGoalIconFieldRef = useRef<HTMLButtonElement | null>(null)
   const lifeGoalIconPickerRef = useRef<HTMLDivElement | null>(null)
@@ -2046,6 +1512,16 @@ export function GoalsPage({
   const [pendingDraftTaskFocusId, setPendingDraftTaskFocusId] = useState<string | null>(null)
 
   const sortedLifeGoals = useMemo(() => sortLifeGoals(safeLifeGoals.filter((goal) => !goal.archivedAt)), [safeLifeGoals])
+  const overviewLifeGoals = useMemo(
+    () =>
+      safeLifeGoals.filter((goal) => {
+        if (goal.archivedAt) return false
+        if (goalsView === 'directional-overview') return (goal.goalType ?? 'outcome') === 'directional'
+        if (goalsView === 'life-overview') return (goal.goalType ?? 'outcome') === 'outcome'
+        return true
+      }),
+    [goalsView, safeLifeGoals],
+  )
 
   useEffect(() => {
     if (sortedLifeGoals.length === 0) {
@@ -2156,12 +1632,247 @@ export function GoalsPage({
     () => sortedLifeGoals.find((goal) => goal.id === selectedLifeGoalId) ?? null,
     [selectedLifeGoalId, sortedLifeGoals],
   )
+  const safeTasksForGoal = useMemo(
+    () => (selectedLifeGoal ? safeTasks.filter((task) => task.linkedGoalId === selectedLifeGoal.id) : []),
+    [safeTasks, selectedLifeGoal],
+  )
+  const selectedOutcomeGoalTasks = useMemo(
+    () =>
+      !selectedLifeGoal || selectedLifeGoal.goalType !== 'outcome'
+        ? []
+        : safeTasks
+            .filter((task) => task.linkedGoalId === selectedLifeGoal.id)
+            .slice()
+            .sort((left, right) => left.order - right.order)
+            .map((task) => normalizeOutcomeGoalTaskRecord(task)),
+    [safeTasks, selectedLifeGoal],
+  )
   const safeDraftRelatedGoalIds = lifeGoalDraft.relatedGoalIds ?? []
   const safeSelectedLifeGoalLinkedHabitIds = selectedLifeGoal?.linkedHabitIds ?? []
 
+  useEffect(() => {
+    const isDevelopmentRuntime =
+      typeof window !== 'undefined' &&
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+    if (!isDevelopmentRuntime) return
+    if (!selectedLifeGoal) return
+    if (safeTasksForGoal.length !== (selectedLifeGoal.tasks?.length ?? 0)) {
+      console.warn('Phase 1 migration mismatch: global tasks vs embedded goal.tasks count differ', {
+        goalId: selectedLifeGoal.id,
+        globalTaskCount: safeTasksForGoal.length,
+        embeddedTaskCount: selectedLifeGoal.tasks?.length ?? 0,
+      })
+    }
+  }, [safeTasksForGoal.length, selectedLifeGoal])
+
+  useEffect(() => {
+    const isDevelopmentRuntime =
+      typeof window !== 'undefined' &&
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+    if (!isDevelopmentRuntime) return
+    if (!selectedLifeGoal || selectedLifeGoal.goalType !== 'outcome') return
+    console.log('Outcome-goal task prep', {
+      goalId: selectedLifeGoal.id,
+      globalTaskCount: selectedOutcomeGoalTasks.length,
+      embeddedTaskCount: selectedLifeGoal.tasks.length,
+    })
+  }, [selectedLifeGoal, selectedOutcomeGoalTasks.length])
+
+  const replaceOutcomeGoalTaskStore = useCallback(
+    (goalId: string, nextTasks: LifeGoalTask[]) => {
+      onUpdateTasks((current) => {
+        const currentGoalRecords = current
+          .filter((task) => task.linkedGoalId === goalId)
+          .slice()
+          .sort((left, right) => left.order - right.order) as OutcomeGoalTaskRecord[]
+        const currentRecordById = new Map(currentGoalRecords.map((task) => [task.id, task]))
+        const otherTasks = current.filter((task) => task.linkedGoalId !== goalId)
+        const timestamp = new Date().toISOString()
+        const nextRecords = nextTasks.map((task, index) => {
+          const existing = currentRecordById.get(task.id)
+          return {
+            ...(existing ?? {}),
+            id: task.id,
+            text: task.text,
+            order: index,
+            dueDate: task.dueDate ?? null,
+            starred: existing?.starred ?? false,
+            important: existing?.important ?? false,
+            linkedGoalId: goalId,
+            linkedDirectionId: existing?.linkedDirectionId ?? null,
+            completed: task.completed,
+            completedAt: task.completed ? task.completedAt ?? existing?.completedAt ?? timestamp : null,
+            description: task.description,
+            notes: task.notes,
+            priority: task.priority,
+            tags: normalizeTaskTags(task.tags),
+            subtasks: task.subtasks.map((subtask) => ({
+              id: subtask.id,
+              text: subtask.text,
+              completed: subtask.completed,
+            })),
+            milestoneId: task.milestoneId ?? null,
+            phase: normalizeLifeGoalPhaseValue(task.phase),
+            createdAt: existing?.createdAt ?? task.completedAt ?? new Date(0).toISOString(),
+            updatedAt: timestamp,
+          } as Task
+        })
+        return [...otherTasks, ...nextRecords]
+      })
+    },
+    [onUpdateTasks],
+  )
+
+  const syncEmbeddedOutcomeGoalTasks = useCallback(
+    (goalId: string, nextTasks: LifeGoalTask[]) => {
+      onUpdateLifeGoal(goalId, (goal) => ({
+        ...goal,
+        tasks: nextTasks,
+        updatedAt: new Date().toISOString(),
+      }))
+    },
+    [onUpdateLifeGoal],
+  )
+
+  const updateOutcomeGoalTask = useCallback(
+    (taskId: string, updater: (task: LifeGoalTask) => LifeGoalTask) => {
+      const goalId =
+        selectedLifeGoal?.goalType === 'outcome'
+          ? selectedLifeGoal.id
+          : (safeTasks.find((task) => task.id === taskId)?.linkedGoalId ?? null)
+      if (!goalId) return
+      const currentTasks =
+        selectedLifeGoal?.id === goalId && selectedLifeGoal.goalType === 'outcome'
+          ? selectedOutcomeGoalTasks
+          : safeTasks
+              .filter((task) => task.linkedGoalId === goalId)
+              .slice()
+              .sort((left, right) => left.order - right.order)
+              .map((task) => normalizeOutcomeGoalTaskRecord(task))
+      const nextTasks = currentTasks.map((task) => (task.id === taskId ? updater(task) : task))
+      replaceOutcomeGoalTaskStore(goalId, nextTasks)
+      syncEmbeddedOutcomeGoalTasks(goalId, nextTasks)
+    },
+    [replaceOutcomeGoalTaskStore, safeTasks, selectedLifeGoal, selectedOutcomeGoalTasks, syncEmbeddedOutcomeGoalTasks],
+  )
+
+  const createOutcomeGoalTask = useCallback(
+    (goalId: string, seed?: Partial<LifeGoalTask>) => {
+      const currentTasks =
+        selectedLifeGoal?.id === goalId && selectedLifeGoal.goalType === 'outcome'
+          ? selectedOutcomeGoalTasks
+          : safeTasks
+              .filter((task) => task.linkedGoalId === goalId)
+              .slice()
+              .sort((left, right) => left.order - right.order)
+              .map((task) => normalizeOutcomeGoalTaskRecord(task))
+      const baseTask = createEmptyLifeGoalTask()
+      const nextTask: LifeGoalTask = {
+        ...baseTask,
+        ...seed,
+        id: seed?.id ?? baseTask.id,
+        text: seed?.text ?? '',
+        milestoneId: seed?.milestoneId ?? null,
+        phase: normalizeLifeGoalPhaseValue(seed?.phase),
+        description: seed?.description ?? '',
+        notes: seed?.notes ?? '',
+        dueDate: seed?.dueDate ?? null,
+        priority: seed?.priority ?? 'none',
+        tags: normalizeTaskTags(seed?.tags ?? []),
+        subtasks: seed?.subtasks ?? [],
+        completed: seed?.completed ?? false,
+        completedAt: seed?.completed ? seed.completedAt ?? new Date().toISOString() : null,
+      }
+      const nextTasks = [...currentTasks, nextTask]
+      replaceOutcomeGoalTaskStore(goalId, nextTasks)
+      syncEmbeddedOutcomeGoalTasks(goalId, nextTasks)
+      return nextTask
+    },
+    [replaceOutcomeGoalTaskStore, safeTasks, selectedLifeGoal, selectedOutcomeGoalTasks, syncEmbeddedOutcomeGoalTasks],
+  )
+
+  const deleteOutcomeGoalTask = useCallback(
+    (taskId: string) => {
+      const goalId =
+        selectedLifeGoal?.goalType === 'outcome'
+          ? selectedLifeGoal.id
+          : (safeTasks.find((task) => task.id === taskId)?.linkedGoalId ?? null)
+      if (!goalId) return
+      const currentTasks =
+        selectedLifeGoal?.id === goalId && selectedLifeGoal.goalType === 'outcome'
+          ? selectedOutcomeGoalTasks
+          : safeTasks
+              .filter((task) => task.linkedGoalId === goalId)
+              .slice()
+              .sort((left, right) => left.order - right.order)
+              .map((task) => normalizeOutcomeGoalTaskRecord(task))
+      const nextTasks = currentTasks.filter((task) => task.id !== taskId)
+      replaceOutcomeGoalTaskStore(goalId, nextTasks)
+      syncEmbeddedOutcomeGoalTasks(goalId, nextTasks)
+    },
+    [replaceOutcomeGoalTaskStore, safeTasks, selectedLifeGoal, selectedOutcomeGoalTasks, syncEmbeddedOutcomeGoalTasks],
+  )
+
+  const reorderOutcomeGoalTask = useCallback(
+    (goalId: string, sourceTaskId: string, targetTaskId: string) => {
+      const currentTasks =
+        selectedLifeGoal?.id === goalId && selectedLifeGoal.goalType === 'outcome'
+          ? selectedOutcomeGoalTasks
+          : safeTasks
+              .filter((task) => task.linkedGoalId === goalId)
+              .slice()
+              .sort((left, right) => left.order - right.order)
+              .map((task) => normalizeOutcomeGoalTaskRecord(task))
+      const sourceIndex = currentTasks.findIndex((task) => task.id === sourceTaskId)
+      const targetIndex = currentTasks.findIndex((task) => task.id === targetTaskId)
+      if (sourceIndex === -1 || targetIndex === -1 || sourceIndex === targetIndex) return
+
+      const reordered = currentTasks.slice()
+      const [movedTask] = reordered.splice(sourceIndex, 1)
+      reordered.splice(targetIndex, 0, movedTask)
+      replaceOutcomeGoalTaskStore(goalId, reordered)
+      syncEmbeddedOutcomeGoalTasks(goalId, reordered)
+    },
+    [replaceOutcomeGoalTaskStore, safeTasks, selectedLifeGoal, selectedOutcomeGoalTasks, syncEmbeddedOutcomeGoalTasks],
+  )
+
+  const toggleOutcomeGoalTaskCompletion = useCallback(
+    (taskId: string) => {
+      updateOutcomeGoalTask(taskId, (task) => {
+        const nextCompleted = !task.completed
+        return {
+          ...task,
+          completed: nextCompleted,
+          completedAt: nextCompleted ? new Date().toISOString() : null,
+        }
+      })
+    },
+    [updateOutcomeGoalTask],
+  )
+
+  const restoreOutcomeGoalTask = useCallback(
+    (taskId: string) => {
+      updateOutcomeGoalTask(taskId, (task) => ({
+        ...task,
+        completed: false,
+        completedAt: null,
+      }))
+    },
+    [updateOutcomeGoalTask],
+  )
+  const selectedGoalTaskSource = useMemo(
+    () =>
+      !selectedLifeGoal
+        ? []
+        : selectedLifeGoal.goalType === 'outcome'
+          ? selectedOutcomeGoalTasks
+          : selectedLifeGoal.tasks,
+    [selectedLifeGoal, selectedOutcomeGoalTasks],
+  )
+
   const selectedLifeGoalProgress = useMemo(
-    () => (selectedLifeGoal ? getLifeGoalProgress(selectedLifeGoal) : null),
-    [selectedLifeGoal],
+    () => (selectedLifeGoal ? getLifeGoalProgress(selectedLifeGoal, selectedGoalTaskSource) : null),
+    [selectedGoalTaskSource, selectedLifeGoal],
   )
   const selectedGoalDetailContentVisibility = useMemo(
     () =>
@@ -2210,8 +1921,8 @@ export function GoalsPage({
   }, [inlineLifeGoalEditingField])
   const selectedMilestoneIndex = selectedMilestone ? selectedLifeGoalMilestones.findIndex((milestone) => milestone.id === selectedMilestone.id) : -1
   const selectedMilestoneTasks = useMemo(
-    () => (selectedLifeGoal && selectedMilestone ? selectedLifeGoal.tasks.filter((task) => task.milestoneId === selectedMilestone.id) : []),
-    [selectedLifeGoal, selectedMilestone],
+    () => (selectedLifeGoal && selectedMilestone ? selectedGoalTaskSource.filter((task) => task.milestoneId === selectedMilestone.id) : []),
+    [selectedGoalTaskSource, selectedLifeGoal, selectedMilestone],
   )
   const selectedMilestoneTaskProgress = useMemo(
     () => (selectedMilestone ? getMilestoneTaskProgress(selectedMilestoneTasks) : null),
@@ -2270,10 +1981,10 @@ export function GoalsPage({
   useFocusTrap(Boolean(visionPreviewImage), visionPreviewSurfaceRef, {
     onEscape: () => setVisionPreviewImage(null),
   })
-  const selectedRoadmapSections = useRoadmapSections(selectedLifeGoal?.tasks ?? [])
+  const selectedRoadmapSections = useRoadmapSections(selectedGoalTaskSource)
   const selectedTaskPeek = useMemo(
-    () => (selectedLifeGoal && selectedTaskPeekId ? selectedLifeGoal.tasks.find((task) => task.id === selectedTaskPeekId) ?? null : null),
-    [selectedLifeGoal, selectedTaskPeekId],
+    () => (selectedLifeGoal && selectedTaskPeekId ? selectedGoalTaskSource.find((task) => task.id === selectedTaskPeekId) ?? null : null),
+    [selectedGoalTaskSource, selectedLifeGoal, selectedTaskPeekId],
   )
   const selectedTaskPeekActiveSubtasks = useMemo(
     () => (selectedTaskPeek ? selectedTaskPeek.subtasks.filter((subtask) => !subtask.completed) : []),
@@ -2282,6 +1993,223 @@ export function GoalsPage({
   const selectedTaskPeekCompletedSubtasks = useMemo(
     () => (selectedTaskPeek ? selectedTaskPeek.subtasks.filter((subtask) => subtask.completed) : []),
     [selectedTaskPeek],
+  )
+  const selectedTaskPeekMilestoneOptions = useMemo(() => {
+    if (!(selectedLifeGoal?.goalType === 'outcome' && selectedLifeGoal.milestonesEnabled)) return []
+    const orderedMilestones = (selectedLifeGoal.milestones ?? []).slice().sort((left, right) => left.order - right.order)
+    const currentMilestone =
+      orderedMilestones.find((candidate) => !candidate.completed) ??
+      (orderedMilestones.length > 0 ? orderedMilestones[orderedMilestones.length - 1] : null)
+    return [
+      { value: '', label: 'No milestone' },
+      ...orderedMilestones.map((milestone, index) => ({
+        value: milestone.id,
+        label: `${index + 1}. ${milestone.title.trim() || `Milestone ${index + 1}`}${
+          currentMilestone?.id === milestone.id ? ' — Current' : ''
+        }`,
+      })),
+    ]
+  }, [selectedLifeGoal?.goalType, selectedLifeGoal?.milestones, selectedLifeGoal?.milestonesEnabled])
+  const selectedTaskPeekRelativeDueMeta = useMemo(
+    () => (selectedTaskPeek?.dueDate ? getRelativeDueMeta(selectedTaskPeek.dueDate) : null),
+    [selectedTaskPeek?.dueDate],
+  )
+  const selectedGoalCategory = useMemo(() => selectedLifeGoal?.category.trim() ?? '', [selectedLifeGoal])
+  const selectedGoalCategoryColor = useMemo(
+    () => (selectedGoalCategory ? getLifeGoalCategoryColor(selectedGoalCategory, lifeGoalCategories) : 'neutral'),
+    [lifeGoalCategories, selectedGoalCategory],
+  )
+  const selectedGoalAnchorText = useMemo(
+    () => getLifeGoalAnchorText(selectedLifeGoal?.whyItMatters ?? ''),
+    [selectedLifeGoal?.whyItMatters],
+  )
+  const selectedGoalType = selectedLifeGoal?.goalType ?? 'outcome'
+  const selectedGoalIsOutcome = selectedGoalType === 'outcome'
+  const selectedGoalIsDirectional = selectedGoalType === 'directional'
+  const selectedGoalMilestonesEnabled = selectedGoalIsOutcome && Boolean(selectedLifeGoal?.milestonesEnabled)
+  const selectedCurrentMilestone = useMemo(
+    () => getCurrentGoalMilestone(selectedLifeGoalMilestones),
+    [selectedLifeGoalMilestones],
+  )
+  const selectedCompletedMilestoneCount = useMemo(
+    () => selectedLifeGoalMilestones.filter((milestone) => milestone.completed).length,
+    [selectedLifeGoalMilestones],
+  )
+  const selectedMilestoneOptions = useMemo(
+    () =>
+      selectedGoalMilestonesEnabled
+        ? getMilestoneSelectOptions(selectedLifeGoalMilestones, selectedCurrentMilestone?.id ?? null)
+        : [],
+    [selectedCurrentMilestone?.id, selectedGoalMilestonesEnabled, selectedLifeGoalMilestones],
+  )
+  const selectedMilestoneDateTarget = useMemo(
+    () =>
+      milestoneDatePickerMilestoneId
+        ? selectedLifeGoalMilestones.find((milestone) => milestone.id === milestoneDatePickerMilestoneId) ?? null
+        : null,
+    [milestoneDatePickerMilestoneId, selectedLifeGoalMilestones],
+  )
+  const selectedGoalRelatedGoals = useMemo(() => {
+    if (!selectedLifeGoal) return []
+    const seen = new Set<string>()
+    return (selectedLifeGoal.relatedGoalIds ?? [])
+      .map((goalId) => safeLifeGoals.find((goal) => goal.id === goalId && goal.id !== selectedLifeGoal.id && !goal.archivedAt))
+      .filter((goal): goal is LifeGoal => Boolean(goal))
+      .filter((goal) => {
+        if (seen.has(goal.id)) return false
+        seen.add(goal.id)
+        return true
+      })
+  }, [safeLifeGoals, selectedLifeGoal])
+  const selectedGoalLinkedDirectionalTasks = useMemo(
+    () =>
+      selectedLifeGoal
+        ? safeTasks
+            .filter((task) => task.linkedDirectionId === selectedLifeGoal.id)
+            .filter((task, index, taskItems) => taskItems.findIndex((candidate) => candidate.id === task.id) === index)
+            .slice()
+            .sort((left, right) => {
+              if (left.completed !== right.completed) return left.completed ? 1 : -1
+              if (left.important !== right.important) return left.important ? -1 : 1
+              if (left.dueDate !== right.dueDate) return left.dueDate.localeCompare(right.dueDate)
+              return left.text.localeCompare(right.text)
+            })
+        : [],
+    [safeTasks, selectedLifeGoal],
+  )
+  const selectedGoalSupportingHabits = useMemo(
+    () =>
+      selectedLifeGoal
+        ? safeHabitTrackers
+            .filter((tracker) => (tracker.linkedGoalIds ?? []).includes(selectedLifeGoal.id))
+            .filter((tracker, index, trackers) => trackers.findIndex((candidate) => candidate.id === tracker.id) === index)
+        : [],
+    [safeHabitTrackers, selectedLifeGoal],
+  )
+  const selectedGoalParentGoals = useMemo(
+    () =>
+      selectedLifeGoal
+        ? safeLifeGoals
+            .filter((goal) => !goal.archivedAt && goal.id !== selectedLifeGoal.id)
+            .filter((goal) => (goal.relatedGoalIds ?? []).includes(selectedLifeGoal.id))
+            .filter((goal, index, goals) => goals.findIndex((candidate) => candidate.id === goal.id) === index)
+        : [],
+    [safeLifeGoals, selectedLifeGoal],
+  )
+  const selectedGoalDirectionalMetrics = useMemo(() => {
+    const relatedGoals = selectedGoalRelatedGoals
+    const linkedDirectionalTasks = selectedGoalLinkedDirectionalTasks
+    const activeRelatedGoalsCount = relatedGoals.filter((goal) => goal.status !== 'complete').length
+    const completedRelatedGoalsCount = relatedGoals.filter((goal) => goal.status === 'complete').length
+    const pausedRelatedGoalsCount = relatedGoals.filter((goal) => goal.status === 'paused').length
+    const maxVisibleLinkedGoals = 4
+    const visibleRelatedGoals = relatedGoals.slice(0, maxVisibleLinkedGoals)
+    const hiddenRelatedGoalsCount = Math.max(0, relatedGoals.length - visibleRelatedGoals.length)
+    const visibleParentGoals = selectedGoalParentGoals.slice(0, 2)
+    const hiddenParentGoalsCount = Math.max(0, selectedGoalParentGoals.length - visibleParentGoals.length)
+    const recentCutoff = Date.now() - 14 * 24 * 60 * 60 * 1000
+    // Merge goal-embedded tasks and global direction-linked tasks, deduplicating by id.
+    // Goal-embedded tasks (LifeGoalTask) are created via "+ Add task" on the directional page
+    // but have no linkedDirectionId, so without this union they would never appear in the list.
+    const uniqueTasks = Array.from(
+      new Map([...(selectedLifeGoal?.tasks ?? []), ...linkedDirectionalTasks].map((task) => [task.id, task])).values(),
+    )
+    const recentDirectionalActionCount = uniqueTasks.filter((task) => task.completedAt && Date.parse(task.completedAt) >= recentCutoff).length
+    const incompleteDirectionalTasks = uniqueTasks
+      .filter((task) => !task.completed)
+      .sort((a, b) => {
+        const ad = a.dueDate ?? ''
+        const bd = b.dueDate ?? ''
+        if (ad !== bd) return ad.localeCompare(bd)
+        return a.text.localeCompare(b.text)
+      })
+    const visibleDirectionalTasks = incompleteDirectionalTasks.slice(0, 6)
+    const hiddenDirectionalTasksCount = Math.max(0, incompleteDirectionalTasks.length - visibleDirectionalTasks.length)
+    const visibleSupportingHabits = selectedGoalSupportingHabits.slice(0, 4)
+    const hiddenSupportingHabitsCount = Math.max(0, selectedGoalSupportingHabits.length - visibleSupportingHabits.length)
+    return {
+      activeRelatedGoalsCount,
+      completedRelatedGoalsCount,
+      pausedRelatedGoalsCount,
+      visibleRelatedGoals,
+      hiddenRelatedGoalsCount,
+      visibleParentGoals,
+      hiddenParentGoalsCount,
+      visibleDirectionalTasks,
+      hiddenDirectionalTasksCount,
+      recentDirectionalActionCount,
+      visibleSupportingHabits,
+      hiddenSupportingHabitsCount,
+    }
+  }, [selectedGoalLinkedDirectionalTasks, selectedGoalParentGoals, selectedGoalRelatedGoals, selectedGoalSupportingHabits, selectedLifeGoal?.tasks])
+  const selectedGoalRoadmapDerived = useMemo(() => {
+    const currentMilestone = selectedCurrentMilestone
+    const roadmapSections = selectedRoadmapSections
+    const sortedUpcomingTasks = sortTasksForDisplay(roadmapSections.upcoming, taskListSortMode)
+    const sortedCompletedTasks = sortTasksForDisplay(roadmapSections.completed, taskListSortMode)
+    const sortedPlannedTasks = roadmapSections.current ? [roadmapSections.current, ...sortedUpcomingTasks] : sortedUpcomingTasks
+    const explicitlyAssignedTasksByMilestone = new Map(
+      selectedLifeGoalMilestones.map((milestone) => [
+        milestone.id,
+        selectedGoalTaskSource.filter((task) => task.milestoneId === milestone.id),
+      ]),
+    )
+    const roadmapTasksGroupedByMilestone =
+      selectedGoalIsOutcome && selectedGoalMilestonesEnabled
+        ? getRoadmapTasksGroupedByMilestone(selectedLifeGoalMilestones, sortedPlannedTasks, currentMilestone?.id ?? null)
+        : []
+    const roadmapRemainingCount = roadmapSections.current ? roadmapSections.upcoming.length + 1 : 0
+    const roadmapHasHighPriorityTasks =
+      (roadmapSections.current ? getPriorityScore(roadmapSections.current) === 3 : false) ||
+      roadmapSections.upcoming.some((task) => getPriorityScore(task) === 3)
+    const roadmapHasTaggedTasks = selectedGoalTaskSource.some((task) => normalizeTaskTags(task.tags).length > 0)
+    const goalProgress = selectedLifeGoalProgress
+    const goalReadyToComplete = goalProgress
+      ? goalProgress.totalTasks > 0 &&
+        goalProgress.completedTasks === goalProgress.totalTasks &&
+        selectedLifeGoal?.status !== 'complete'
+      : false
+    return {
+      currentMilestone,
+      sortedUpcomingTasks,
+      sortedCompletedTasks,
+      sortedPlannedTasks,
+      explicitlyAssignedTasksByMilestone,
+      roadmapTasksGroupedByMilestone,
+      roadmapRemainingCount,
+      roadmapHasHighPriorityTasks,
+      roadmapHasTaggedTasks,
+      goalReadyToComplete,
+    }
+  }, [
+    selectedCurrentMilestone,
+    selectedGoalIsOutcome,
+    selectedGoalMilestonesEnabled,
+    selectedGoalTaskSource,
+    selectedLifeGoal?.status,
+    selectedLifeGoalMilestones,
+    selectedLifeGoalProgress,
+    selectedRoadmapSections,
+    taskListSortMode,
+  ])
+  const selectedRoadmapPanelView = selectedLifeGoal ? roadmapPanelViewByGoal[selectedLifeGoal.id] ?? 'tasks' : 'tasks'
+  const selectedShowMilestoneProgressView = selectedGoalIsOutcome && selectedGoalMilestonesEnabled
+  const selectedRoadmapProgressView =
+    selectedShowMilestoneProgressView
+      ? selectedRoadmapPanelView
+      : selectedRoadmapPanelView === 'notes'
+        ? 'notes'
+        : 'tasks'
+  const taskPeekRefs = useMemo(
+    () => ({
+      panelRef: taskPeekPanelRef,
+      titleRef: taskPeekTitleRef,
+      dateFieldRef: taskPeekDateFieldRef,
+      datePanelRef: taskPeekDatePanelRef,
+      subtaskDraftRef: taskPeekSubtaskDraftRef,
+      deleteDialogRef: taskPeekDeleteDialogRef,
+    }),
+    [],
   )
 
   useEffect(() => {
@@ -2373,14 +2301,14 @@ export function GoalsPage({
     }))
   }
 
-  const updateSelectedLifeGoalNotes = (value: string) => {
+  const updateSelectedLifeGoalNotes = useCallback((value: string) => {
     if (!selectedLifeGoal) return
     onUpdateLifeGoal(selectedLifeGoal.id, (goal) => ({
       ...goal,
       notes: value,
       updatedAt: new Date().toISOString(),
     }))
-  }
+  }, [onUpdateLifeGoal, selectedLifeGoal])
 
   const updateSelectedLifeGoalMilestones = (
     updater: (milestones: LifeGoalDraftMilestone[]) => LifeGoalDraftMilestone[],
@@ -2649,11 +2577,11 @@ export function GoalsPage({
     }
 
     const nextSelectedTaskId =
-      selectedLifeGoal.tasks.find((task) => !task.completed)?.id ??
-      selectedLifeGoal.tasks[selectedLifeGoal.tasks.length - 1]?.id ??
+      selectedGoalTaskSource.find((task) => !task.completed)?.id ??
+      selectedGoalTaskSource[selectedGoalTaskSource.length - 1]?.id ??
       null
     setSelectedRoadmapTaskId(nextSelectedTaskId)
-  }, [selectedLifeGoal])
+  }, [selectedGoalTaskSource, selectedLifeGoal])
 
   useEffect(() => {
     if (!selectedLifeGoal || !selectedTaskPeekId) {
@@ -2666,7 +2594,7 @@ export function GoalsPage({
       return
     }
 
-    if (!selectedLifeGoal.tasks.some((task) => task.id === selectedTaskPeekId)) {
+    if (!selectedGoalTaskSource.some((task) => task.id === selectedTaskPeekId)) {
       setCreatingTaskPeekId(null)
       setSelectedTaskPeekId(null)
       setTaskPeekSubtaskDraft('')
@@ -2674,7 +2602,7 @@ export function GoalsPage({
       setTaskPeekSubtaskEntryOpen(false)
       setTaskPeekDeleteConfirmation(null)
     }
-  }, [selectedLifeGoal, selectedTaskPeekId])
+  }, [selectedGoalTaskSource, selectedLifeGoal, selectedTaskPeekId])
 
   useEffect(() => {
     if (!selectedTaskPeek) {
@@ -2975,9 +2903,13 @@ export function GoalsPage({
         ...editDraftGoalPayload,
         updatedAt: new Date().toISOString(),
       }))
+      if (selectedLifeGoal.goalType === 'outcome') {
+        replaceOutcomeGoalTaskStore(editingLifeGoalId, draftTasks)
+      }
     }
 
   }, [
+    draftTasks,
     editDraftGoalPayload,
     editDraftGoalSnapshot,
     editingLifeGoalId,
@@ -2986,6 +2918,7 @@ export function GoalsPage({
     lifeGoalDraft.title,
     lifeGoalDraft.whyItMatters,
     onUpdateLifeGoal,
+    replaceOutcomeGoalTaskStore,
     selectedLifeGoal,
     selectedLifeGoalEditSnapshot,
   ])
@@ -3007,6 +2940,9 @@ export function GoalsPage({
       })
     }
     onCreateLifeGoal(nextGoal)
+    if (nextGoal.goalType === 'outcome') {
+      replaceOutcomeGoalTaskStore(nextGoal.id, createTasks)
+    }
     onSelectLifeGoal(nextGoal.id)
     onChangeGoalsView('life-detail')
     setLifeGoalDraft(createEmptyLifeGoalDraft())
@@ -3093,6 +3029,33 @@ export function GoalsPage({
   }
 
   const setTaskAsNext = (goalId: string, taskId: string) => {
+    const goal = sortedLifeGoals.find((item) => item.id === goalId)
+    if (!goal) return
+    if ((goal.goalType ?? 'outcome') === 'outcome') {
+      const currentTasks =
+        selectedLifeGoal?.id === goalId && selectedLifeGoal.goalType === 'outcome'
+          ? selectedOutcomeGoalTasks
+          : safeTasks
+              .filter((task) => task.linkedGoalId === goalId)
+              .slice()
+              .sort((left, right) => left.order - right.order)
+              .map((task) => normalizeOutcomeGoalTaskRecord(task))
+      const fromIndex = currentTasks.findIndex((task) => task.id === taskId)
+      if (fromIndex === -1) return
+      const targetTask = currentTasks[fromIndex]
+      if (targetTask.completed) return
+      const firstIncompleteIndex = currentTasks.findIndex((task) => !task.completed)
+      if (firstIncompleteIndex === -1 || fromIndex === firstIncompleteIndex) return
+
+      const nextTasks = currentTasks.slice()
+      const [movedTask] = nextTasks.splice(fromIndex, 1)
+      nextTasks.splice(firstIncompleteIndex, 0, movedTask)
+      replaceOutcomeGoalTaskStore(goalId, nextTasks)
+      syncEmbeddedOutcomeGoalTasks(goalId, nextTasks)
+      setSelectedRoadmapTaskId(taskId)
+      return
+    }
+
     onUpdateLifeGoal(goalId, (goal) => {
       const fromIndex = goal.tasks.findIndex((task) => task.id === taskId)
       if (fromIndex === -1) return goal
@@ -3116,6 +3079,38 @@ export function GoalsPage({
 
   const reorderGoalTask = (goalId: string, draggedTaskId: string, targetTaskId: string) => {
     if (draggedTaskId === targetTaskId) return
+
+    const goal = sortedLifeGoals.find((item) => item.id === goalId)
+    if ((goal?.goalType ?? 'outcome') === 'outcome') {
+      const currentTasks =
+        selectedLifeGoal?.id === goalId && selectedLifeGoal.goalType === 'outcome'
+          ? selectedOutcomeGoalTasks
+          : safeTasks
+              .filter((task) => task.linkedGoalId === goalId)
+              .slice()
+              .sort((left, right) => left.order - right.order)
+              .map((task) => normalizeOutcomeGoalTaskRecord(task))
+      const upcomingTasks = currentTasks.filter((task) => !task.completed)
+      const visibleUpcomingIds = upcomingTasks.map((task) => task.id)
+      const fromIndex = visibleUpcomingIds.indexOf(draggedTaskId)
+      const toIndex = visibleUpcomingIds.indexOf(targetTaskId)
+      if (fromIndex === -1 || toIndex === -1) return
+
+      const reorderedUpcoming = [...upcomingTasks]
+      const [movedTask] = reorderedUpcoming.splice(fromIndex, 1)
+      reorderedUpcoming.splice(toIndex, 0, movedTask)
+      let upcomingCursor = 0
+      const nextTasks = currentTasks.map((task) => {
+        if (task.completed) return task
+        const nextTask = reorderedUpcoming[upcomingCursor]
+        upcomingCursor += 1
+        return nextTask
+      })
+      replaceOutcomeGoalTaskStore(goalId, nextTasks)
+      syncEmbeddedOutcomeGoalTasks(goalId, nextTasks)
+      setSelectedRoadmapTaskId(draggedTaskId)
+      return
+    }
 
     onUpdateLifeGoal(goalId, (goal) => {
       const upcomingTasks = goal.tasks.filter((task) => !task.completed)
@@ -3144,6 +3139,67 @@ export function GoalsPage({
   }
 
   const toggleTaskCompletion = (goalId: string, taskId: string, sourceElement?: HTMLElement | null) => {
+    const sourceGoal = sortedLifeGoals.find((goal) => goal.id === goalId)
+    const isOutcomeGoal = (sourceGoal?.goalType ?? 'outcome') === 'outcome'
+
+    if (sourceGoal && isOutcomeGoal) {
+      const sourceTasks =
+        selectedLifeGoal?.id === goalId && selectedLifeGoal.goalType === 'outcome'
+          ? selectedOutcomeGoalTasks
+          : safeTasks
+              .filter((task) => task.linkedGoalId === goalId)
+              .slice()
+              .sort((left, right) => left.order - right.order)
+              .map((task) => normalizeOutcomeGoalTaskRecord(task))
+      const currentTask = sourceTasks.find((task) => task.id === taskId)
+      if (!currentTask) return
+
+      const updatedTasks = sourceTasks.map((task) =>
+        task.id === taskId
+          ? {
+              ...task,
+              completed: !task.completed,
+              completedAt: !task.completed ? new Date().toISOString() : null,
+            }
+          : task,
+      )
+      const nextTaskId = updatedTasks.find((task) => !task.completed)?.id ?? null
+      if (!currentTask.completed) {
+        setSelectedRoadmapTaskId(nextTaskId)
+        if (selectedTaskPeekId === taskId) {
+          setSelectedTaskPeekId(nextTaskId)
+          setTaskPeekSubtaskDraft('')
+        }
+      } else if (selectedRoadmapTaskId === taskId) {
+        setSelectedRoadmapTaskId(taskId)
+      }
+
+      replaceOutcomeGoalTaskStore(goalId, updatedTasks)
+      syncEmbeddedOutcomeGoalTasks(goalId, updatedTasks)
+
+      if (!currentTask.completed) {
+        setTaskMomentumTransition({ completedTaskId: taskId, nextTaskId })
+        showLifeGoalActionFeedback('Step complete', 1350)
+        if (taskMomentumTransitionTimeoutRef.current) {
+          window.clearTimeout(taskMomentumTransitionTimeoutRef.current)
+        }
+        taskMomentumTransitionTimeoutRef.current = window.setTimeout(() => {
+          setTaskMomentumTransition((current) => (current?.completedTaskId === taskId ? null : current))
+          taskMomentumTransitionTimeoutRef.current = null
+        }, 1150)
+        showCompletionPulse(sourceElement)
+        showCompletionUndo({
+          kind: 'task',
+          goalId,
+          taskId,
+          message: 'Task completed',
+        })
+      } else if (completionUndo?.kind === 'task' && completionUndo.goalId === goalId && completionUndo.taskId === taskId) {
+        clearCompletionUndo()
+      }
+      return
+    }
+
     onUpdateLifeGoal(goalId, (goal) => {
       const currentTask = goal.tasks.find((task) => task.id === taskId)
       if (!currentTask) return goal
@@ -3177,7 +3233,6 @@ export function GoalsPage({
       }
     })
 
-    const sourceGoal = sortedLifeGoals.find((goal) => goal.id === goalId)
     const sourceTask = sourceGoal?.tasks.find((task) => task.id === taskId)
     if (sourceGoal && sourceTask && !sourceTask.completed) {
       const updatedTasks = sourceGoal.tasks.map((task) =>
@@ -3241,24 +3296,29 @@ export function GoalsPage({
     showLifeGoalActionFeedback('You finished this', 1450)
   }
 
-  const updateLifeGoalTask = (goalId: string, taskId: string, updater: (task: LifeGoalTask) => LifeGoalTask) => {
+  const updateLifeGoalTask = useCallback((goalId: string, taskId: string, updater: (task: LifeGoalTask) => LifeGoalTask) => {
+    const goal = sortedLifeGoals.find((item) => item.id === goalId)
+    if ((goal?.goalType ?? 'outcome') === 'outcome') {
+      updateOutcomeGoalTask(taskId, updater)
+      return
+    }
     onUpdateLifeGoal(goalId, (goal) => ({
       ...goal,
       tasks: goal.tasks.map((task) => (task.id === taskId ? updater(task) : task)),
       updatedAt: new Date().toISOString(),
     }))
-  }
+  }, [onUpdateLifeGoal, sortedLifeGoals, updateOutcomeGoalTask])
 
-  const openTaskPeek = (taskId: string, trigger?: HTMLElement | null) => {
+  const openTaskPeek = useCallback((taskId: string, trigger?: HTMLElement | null) => {
     taskPeekTriggerRef.current = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null)
     setCreatingTaskPeekId(null)
     setTaskPeekLockedMilestoneContext(null)
     setSelectedTaskPeekId(taskId)
     setSelectedRoadmapTaskId(taskId)
     setTaskPeekSubtaskDraft('')
-  }
+  }, [])
 
-  const openNewTaskPeek = (
+  const openNewTaskPeek = useCallback((
     trigger?: HTMLElement | null,
     milestoneContext?: { milestoneId: string; milestoneTitle: string } | null,
   ) => {
@@ -3275,11 +3335,15 @@ export function GoalsPage({
           : null,
     }
     taskPeekTriggerRef.current = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null)
-    onUpdateLifeGoal(selectedLifeGoal.id, (goal) => ({
-      ...goal,
-      tasks: [...goal.tasks, nextTask],
-      updatedAt: new Date().toISOString(),
-    }))
+    if (selectedLifeGoal.goalType === 'outcome') {
+      createOutcomeGoalTask(selectedLifeGoal.id, nextTask)
+    } else {
+      onUpdateLifeGoal(selectedLifeGoal.id, (goal) => ({
+        ...goal,
+        tasks: [...goal.tasks, nextTask],
+        updatedAt: new Date().toISOString(),
+      }))
+    }
     setCreatingTaskPeekId(nextTask.id)
     setTaskPeekLockedMilestoneContext(
       milestoneContext
@@ -3292,7 +3356,7 @@ export function GoalsPage({
     setTaskPeekSubtaskEntryOpen(false)
     setTaskPeekCompletedSubtasksOpen(false)
     setTaskPeekNotesOpen(false)
-  }
+  }, [createOutcomeGoalTask, onUpdateLifeGoal, selectedLifeGoal])
 
   const openMilestonePeek = (milestoneId: string) => {
     if (!selectedLifeGoal) return
@@ -3310,13 +3374,17 @@ export function GoalsPage({
     }))
   }
 
-  const closeTaskPeek = () => {
+  const closeTaskPeek = useCallback(() => {
     if (selectedLifeGoal && selectedTaskPeek && creatingTaskPeekId === selectedTaskPeek.id && isLifeGoalTaskDraftEmpty(selectedTaskPeek)) {
-      onUpdateLifeGoal(selectedLifeGoal.id, (goal) => ({
-        ...goal,
-        tasks: goal.tasks.filter((task) => task.id !== selectedTaskPeek.id),
-        updatedAt: new Date().toISOString(),
-      }))
+      if (selectedLifeGoal.goalType === 'outcome') {
+        deleteOutcomeGoalTask(selectedTaskPeek.id)
+      } else {
+        onUpdateLifeGoal(selectedLifeGoal.id, (goal) => ({
+          ...goal,
+          tasks: goal.tasks.filter((task) => task.id !== selectedTaskPeek.id),
+          updatedAt: new Date().toISOString(),
+        }))
+      }
       if (selectedRoadmapTaskId === selectedTaskPeek.id) {
         setSelectedRoadmapTaskId(null)
       }
@@ -3325,14 +3393,14 @@ export function GoalsPage({
     setTaskPeekLockedMilestoneContext(null)
     setSelectedTaskPeekId(null)
     setTaskPeekSubtaskDraft('')
-  }
+  }, [creatingTaskPeekId, deleteOutcomeGoalTask, onUpdateLifeGoal, selectedLifeGoal, selectedRoadmapTaskId, selectedTaskPeek])
 
-  const updateSelectedTaskPeek = (updater: (task: LifeGoalTask) => LifeGoalTask) => {
+  const updateSelectedTaskPeek = useCallback((updater: (task: LifeGoalTask) => LifeGoalTask) => {
     if (!selectedLifeGoal || !selectedTaskPeekId) return
     updateLifeGoalTask(selectedLifeGoal.id, selectedTaskPeekId, updater)
-  }
+  }, [selectedLifeGoal, selectedTaskPeekId, updateLifeGoalTask])
 
-  const addTagToSelectedTaskPeek = () => {
+  const addTagToSelectedTaskPeek = useCallback(() => {
     const normalizedTag = normalizeTaskTag(taskPeekTagDraft)
     if (!normalizedTag) return
 
@@ -3347,25 +3415,38 @@ export function GoalsPage({
       }
     })
     setTaskPeekTagDraft('')
-  }
+  }, [taskPeekTagDraft, updateSelectedTaskPeek])
 
-  const removeTagFromSelectedTaskPeek = (tagToRemove: string) => {
+  const removeTagFromSelectedTaskPeek = useCallback((tagToRemove: string) => {
     const normalizedTag = normalizeTaskTag(tagToRemove)
     updateSelectedTaskPeek((task) => ({
       ...task,
       tags: normalizeTaskTags(task.tags).filter((tag) => tag !== normalizedTag),
     }))
-  }
+  }, [updateSelectedTaskPeek])
 
-  const completeTaskById = (goalId: string, taskId: string, mode: 'close' | 'next' = 'close', sourceElement?: HTMLElement | null) => {
+  const completeTaskById = useCallback((goalId: string, taskId: string, mode: 'close' | 'next' = 'close', sourceElement?: HTMLElement | null) => {
     const goal = sortedLifeGoals.find((item) => item.id === goalId)
     if (!goal) return
 
-    const currentTaskIndex = goal.tasks.findIndex((task) => task.id === taskId)
+    const goalTasks =
+      (goal.goalType ?? 'outcome') === 'outcome'
+        ? (
+            selectedLifeGoal?.id === goalId && selectedLifeGoal.goalType === 'outcome'
+              ? selectedOutcomeGoalTasks
+              : safeTasks
+                  .filter((task) => task.linkedGoalId === goalId)
+                  .slice()
+                  .sort((left, right) => left.order - right.order)
+                  .map((task) => normalizeOutcomeGoalTaskRecord(task))
+          )
+        : goal.tasks
+
+    const currentTaskIndex = goalTasks.findIndex((task) => task.id === taskId)
     if (currentTaskIndex === -1) return
 
-    const currentTask = goal.tasks[currentTaskIndex]
-    const updatedTasks = goal.tasks.map((task) =>
+    const currentTask = goalTasks[currentTaskIndex]
+    const updatedTasks = goalTasks.map((task) =>
       task.id === taskId
         ? {
             ...task,
@@ -3389,19 +3470,19 @@ export function GoalsPage({
     }
 
     closeTaskPeek()
-  }
+  }, [closeTaskPeek, safeTasks, selectedLifeGoal, selectedOutcomeGoalTasks, sortedLifeGoals, toggleTaskCompletion])
 
-  const completeTaskFromPeek = (mode: 'close' | 'next', sourceElement?: HTMLElement | null) => {
+  const completeTaskFromPeek = useCallback((mode: 'close' | 'next', sourceElement?: HTMLElement | null) => {
     if (!selectedLifeGoal || !selectedTaskPeekId) return
     completeTaskById(selectedLifeGoal.id, selectedTaskPeekId, mode, sourceElement)
-  }
+  }, [completeTaskById, selectedLifeGoal, selectedTaskPeekId])
 
-  const toggleSelectedTaskPeekCompletion = (sourceElement?: HTMLElement | null) => {
+  const toggleSelectedTaskPeekCompletion = useCallback((sourceElement?: HTMLElement | null) => {
     if (!selectedLifeGoal || !selectedTaskPeekId) return
     toggleTaskCompletion(selectedLifeGoal.id, selectedTaskPeekId, sourceElement)
-  }
+  }, [selectedLifeGoal, selectedTaskPeekId, toggleTaskCompletion])
 
-  const addSelectedTaskPeekSubtask = () => {
+  const addSelectedTaskPeekSubtask = useCallback(() => {
     const text = taskPeekSubtaskDraft.trim()
     if (!text) return
     const nextSubtaskId = `life-goal-subtask-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
@@ -3411,9 +3492,9 @@ export function GoalsPage({
     }))
     setTaskPeekSubtaskDraft('')
     setTaskPeekSubtaskEntryOpen(false)
-  }
+  }, [taskPeekSubtaskDraft, updateSelectedTaskPeek])
 
-  const focusNextIncompleteSubtask = (subtasks: LifeGoalTask['subtasks'], fromSubtaskId: string) => {
+  const focusNextIncompleteSubtask = useCallback((subtasks: LifeGoalTask['subtasks'], fromSubtaskId: string) => {
     const currentIndex = subtasks.findIndex((subtask) => subtask.id === fromSubtaskId)
     if (currentIndex === -1) return
     const nextIncomplete =
@@ -3422,9 +3503,9 @@ export function GoalsPage({
     if (nextIncomplete) {
       setPendingSubtaskFocusId(nextIncomplete.id)
     }
-  }
+  }, [])
 
-  const toggleSelectedTaskPeekSubtaskCompletion = (subtaskId: string, sourceElement?: HTMLElement | null) => {
+  const toggleSelectedTaskPeekSubtaskCompletion = useCallback((subtaskId: string, sourceElement?: HTMLElement | null) => {
     if (!selectedTaskPeek || !selectedLifeGoal) return
     const currentSubtask = selectedTaskPeek.subtasks.find((subtask) => subtask.id === subtaskId)
     if (!currentSubtask) return
@@ -3453,9 +3534,9 @@ export function GoalsPage({
     ) {
       clearCompletionUndo()
     }
-  }
+  }, [clearCompletionUndo, completionUndo, focusNextIncompleteSubtask, selectedLifeGoal, selectedTaskPeek, showCompletionPulse, showCompletionUndo, updateSelectedTaskPeek])
 
-  const reorderSelectedTaskPeekSubtasks = (draggedId: string, targetId: string) => {
+  const reorderSelectedTaskPeekSubtasks = useCallback((draggedId: string, targetId: string) => {
     if (draggedId === targetId) return
     updateSelectedTaskPeek((task) => {
       const fromIndex = task.subtasks.findIndex((subtask) => subtask.id === draggedId)
@@ -3470,20 +3551,25 @@ export function GoalsPage({
       }
     })
     setPendingSubtaskFocusId(draggedId)
-  }
+  }, [updateSelectedTaskPeek])
 
-  const deleteSelectedTaskPeek = () => {
+  const deleteSelectedTaskPeek = useCallback(() => {
     if (!selectedLifeGoal || !selectedTaskPeekId) return
+    const currentTasks = selectedLifeGoal.goalType === 'outcome' ? selectedOutcomeGoalTasks : selectedLifeGoal.tasks
     const fallbackTaskId =
-      selectedLifeGoal.tasks.find((task) => task.id !== selectedTaskPeekId && !task.completed)?.id ??
-      selectedLifeGoal.tasks.find((task) => task.id !== selectedTaskPeekId)?.id ??
+      currentTasks.find((task) => task.id !== selectedTaskPeekId && !task.completed)?.id ??
+      currentTasks.find((task) => task.id !== selectedTaskPeekId)?.id ??
       null
 
-    onUpdateLifeGoal(selectedLifeGoal.id, (goal) => ({
-      ...goal,
-      tasks: goal.tasks.filter((task) => task.id !== selectedTaskPeekId),
-      updatedAt: new Date().toISOString(),
-    }))
+    if (selectedLifeGoal.goalType === 'outcome') {
+      deleteOutcomeGoalTask(selectedTaskPeekId)
+    } else {
+      onUpdateLifeGoal(selectedLifeGoal.id, (goal) => ({
+        ...goal,
+        tasks: goal.tasks.filter((task) => task.id !== selectedTaskPeekId),
+        updatedAt: new Date().toISOString(),
+      }))
+    }
 
     setTaskPeekDeleteConfirmation(null)
     if (creatingTaskPeekId === selectedTaskPeekId) {
@@ -3494,28 +3580,28 @@ export function GoalsPage({
     if (!fallbackTaskId) {
       closeTaskPeek()
     }
-  }
+  }, [closeTaskPeek, creatingTaskPeekId, deleteOutcomeGoalTask, onUpdateLifeGoal, selectedLifeGoal, selectedOutcomeGoalTasks, selectedTaskPeekId])
 
-  const deleteSelectedTaskPeekSubtask = (subtaskId: string) => {
+  const deleteSelectedTaskPeekSubtask = useCallback((subtaskId: string) => {
     updateSelectedTaskPeek((task) => ({
       ...task,
       subtasks: task.subtasks.filter((subtask) => subtask.id !== subtaskId),
     }))
     setTaskPeekDeleteConfirmation(null)
-  }
+  }, [updateSelectedTaskPeek])
 
-  const confirmTaskPeekDelete = () => {
+  const confirmTaskPeekDelete = useCallback(() => {
     if (!taskPeekDeleteConfirmation) return
     if (taskPeekDeleteConfirmation.kind === 'task') {
       deleteSelectedTaskPeek()
       return
     }
     deleteSelectedTaskPeekSubtask(taskPeekDeleteConfirmation.subtaskId)
-  }
+  }, [deleteSelectedTaskPeek, deleteSelectedTaskPeekSubtask, taskPeekDeleteConfirmation])
 
-  const closeTaskPeekDeleteConfirmation = () => {
+  const closeTaskPeekDeleteConfirmation = useCallback(() => {
     setTaskPeekDeleteConfirmation(null)
-  }
+  }, [])
 
   useOverlayScrollLock(Boolean(selectedTaskPeek || taskPeekDeleteConfirmation))
   useReturnFocusOnClose(Boolean(selectedTaskPeek), taskPeekTriggerRef, [selectedTaskPeek?.id])
@@ -3538,7 +3624,12 @@ export function GoalsPage({
   })
 
   const restoreTask = (goalId: string, taskId: string) => {
-    toggleTaskCompletion(goalId, taskId)
+    const goal = sortedLifeGoals.find((item) => item.id === goalId)
+    if ((goal?.goalType ?? 'outcome') === 'outcome') {
+      restoreOutcomeGoalTask(taskId)
+    } else {
+      toggleTaskCompletion(goalId, taskId)
+    }
     setSelectedRoadmapTaskId(taskId)
   }
 
@@ -3546,7 +3637,12 @@ export function GoalsPage({
     if (!completionUndo) return
 
     if (completionUndo.kind === 'task') {
-      toggleTaskCompletion(completionUndo.goalId, completionUndo.taskId)
+      const goal = sortedLifeGoals.find((item) => item.id === completionUndo.goalId)
+      if ((goal?.goalType ?? 'outcome') === 'outcome') {
+        restoreOutcomeGoalTask(completionUndo.taskId)
+      } else {
+        toggleTaskCompletion(completionUndo.goalId, completionUndo.taskId)
+      }
       setSelectedRoadmapTaskId(completionUndo.taskId)
       clearCompletionUndo()
       return
@@ -3574,12 +3670,12 @@ export function GoalsPage({
     openTaskPeek(taskId, event.currentTarget)
   }
 
-  const openTaskPeekDatePicker = () => {
+  const openTaskPeekDatePicker = useCallback(() => {
     setTaskPeekDateViewMonth(startOfCalendarMonth(getCalendarMonthDate(selectedTaskPeek?.dueDate ?? undefined)))
     setTaskPeekDatePickerOpen(true)
-  }
+  }, [selectedTaskPeek?.dueDate])
 
-  const applyTaskPeekDate = (date: string) => {
+  const applyTaskPeekDate = useCallback((date: string) => {
     updateSelectedTaskPeek((task) => ({
       ...task,
       dueDate: date || null,
@@ -3589,10 +3685,281 @@ export function GoalsPage({
     }
     setTaskPeekDatePickerOpen(false)
     setTaskPeekDatePanelPosition(null)
-  }
+  }, [updateSelectedTaskPeek])
+
+  const taskPeekData = useMemo(
+    () => ({
+      task: selectedTaskPeek,
+      activeSubtasks: selectedTaskPeekActiveSubtasks,
+      completedSubtasks: selectedTaskPeekCompletedSubtasks,
+      datePanelPosition: taskPeekDatePanelPosition,
+      dateViewMonth: taskPeekDateViewMonth,
+      priorityOptions: taskPriorityOptions,
+      milestoneOptions: selectedTaskPeekMilestoneOptions,
+      showMilestoneField: Boolean(selectedLifeGoal?.goalType === 'outcome' && selectedLifeGoal?.milestonesEnabled),
+      lockedMilestoneLabel: taskPeekLockedMilestoneContext?.title ?? null,
+      relativeDueMeta: selectedTaskPeekRelativeDueMeta,
+      weekdayLabels: LIFE_GOAL_WEEKDAY_LABELS,
+      todayIsoDate: getTodayIsoDate(),
+    }),
+    [
+      selectedLifeGoal?.goalType,
+      selectedLifeGoal?.milestonesEnabled,
+      selectedTaskPeek,
+      selectedTaskPeekActiveSubtasks,
+      selectedTaskPeekCompletedSubtasks,
+      taskPeekDatePanelPosition,
+      taskPeekDateViewMonth,
+      taskPeekLockedMilestoneContext?.title,
+      taskPriorityOptions,
+      selectedTaskPeekMilestoneOptions,
+      selectedTaskPeekRelativeDueMeta,
+    ],
+  )
+  const taskPeekUiState = useMemo(
+    () => ({
+      open: Boolean(selectedTaskPeek),
+      completedSubtasksOpen: taskPeekCompletedSubtasksOpen,
+      subtaskEntryOpen: taskPeekSubtaskEntryOpen,
+      subtaskDraft: taskPeekSubtaskDraft,
+      notesOpen: taskPeekNotesOpen,
+      datePickerOpen: taskPeekDatePickerOpen,
+      deleteConfirmation: taskPeekDeleteConfirmation,
+      canMarkAsNext: Boolean(
+        !selectedTaskPeek?.completed && selectedLifeGoal && selectedLifeGoalProgress && selectedLifeGoalProgress.nextTask?.id !== selectedTaskPeek?.id,
+      ),
+      draggedSubtaskId,
+      dragOverSubtaskId,
+    }),
+    [
+      dragOverSubtaskId,
+      draggedSubtaskId,
+      selectedLifeGoal,
+      selectedLifeGoalProgress,
+      selectedTaskPeek,
+      taskPeekCompletedSubtasksOpen,
+      taskPeekDatePickerOpen,
+      taskPeekDeleteConfirmation,
+      taskPeekNotesOpen,
+      taskPeekSubtaskDraft,
+      taskPeekSubtaskEntryOpen,
+    ],
+  )
+  const taskPeekActions = useMemo(
+    () => ({
+      setCompletedSubtasksOpen: setTaskPeekCompletedSubtasksOpen,
+      setSubtaskEntryOpen: setTaskPeekSubtaskEntryOpen,
+      setSubtaskDraft: setTaskPeekSubtaskDraft,
+      setNotesOpen: setTaskPeekNotesOpen,
+      setTaskDeleteConfirmation: setTaskPeekDeleteConfirmation,
+      onClose: closeTaskPeek,
+      onTitleChange: (value: string) => updateSelectedTaskPeek((task) => ({ ...task, text: value })),
+      onDescriptionChange: (value: string) => updateSelectedTaskPeek((task) => ({ ...task, description: value })),
+      onNotesChange: (value: string) => updateSelectedTaskPeek((task) => ({ ...task, notes: value })),
+      onMilestoneChange: (value: string | null) => updateSelectedTaskPeek((task) => ({ ...task, milestoneId: value })),
+      onPriorityChange: (value: LifeGoalTaskPriority) => updateSelectedTaskPeek((task) => ({ ...task, priority: value })),
+      tagDraft: taskPeekTagDraft,
+      setTagDraft: setTaskPeekTagDraft,
+      onTagKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => {
+        if (event.key === 'Enter' && !event.shiftKey && !event.metaKey && !event.ctrlKey) {
+          event.preventDefault()
+          addTagToSelectedTaskPeek()
+        }
+      },
+      onAddTag: addTagToSelectedTaskPeek,
+      onRemoveTag: removeTagFromSelectedTaskPeek,
+      onOpenDatePicker: () => {
+        if (taskPeekDatePickerOpen) {
+          setTaskPeekDatePickerOpen(false)
+          setTaskPeekDatePanelPosition(null)
+          return
+        }
+        openTaskPeekDatePicker()
+      },
+      onCloseDatePicker: () => {
+        setTaskPeekDatePickerOpen(false)
+        setTaskPeekDatePanelPosition(null)
+      },
+      onApplyDate: applyTaskPeekDate,
+      onShiftDateMonth: (delta: number) => setTaskPeekDateViewMonth((current) => shiftCalendarMonth(current, delta)),
+      getCalendarDays,
+      formatCalendarDayValue,
+      formatCalendarMonthLabel,
+      formatDate,
+      formatTaskDueDate,
+      formatTaskCompletedDate,
+      setSubtaskInputRef: (id: string, element: HTMLInputElement | null) => {
+        taskPeekSubtaskInputRefs.current[id] = element
+      },
+      onSubtaskTextChange: (id: string, value: string) =>
+        updateSelectedTaskPeek((task) => ({
+          ...task,
+          subtasks: task.subtasks.map((item) => (item.id === id ? { ...item, text: value } : item)),
+        })),
+      onSubtaskKeyDown: (event: React.KeyboardEvent<HTMLInputElement>, id: string) => {
+        if (event.key === 'Enter') {
+          event.preventDefault()
+          const currentIndex = selectedTaskPeekActiveSubtasks.findIndex((candidate) => candidate.id === id)
+          const nextSubtask = currentIndex >= 0 ? selectedTaskPeekActiveSubtasks[currentIndex + 1] ?? null : null
+          if (nextSubtask) {
+            setPendingSubtaskFocusId(nextSubtask.id)
+          } else {
+            setTaskPeekSubtaskEntryOpen(true)
+          }
+        }
+      },
+      onSubtaskToggle: toggleSelectedTaskPeekSubtaskCompletion,
+      onSubtaskRemoveRequest: (subtaskId: string, subtaskText: string) =>
+        setTaskPeekDeleteConfirmation({
+          kind: 'subtask',
+          taskId: selectedTaskPeek?.id ?? '',
+          subtaskId,
+          subtaskText,
+        }),
+      onSubtaskReorderStart: (id: string) => setDraggedSubtaskId(id),
+      onSubtaskReorderOver: (event: React.DragEvent<HTMLDivElement>, id: string) => {
+        event.preventDefault()
+        if (dragOverSubtaskId !== id) setDragOverSubtaskId(id)
+      },
+      onSubtaskReorderDrop: (event: React.DragEvent<HTMLDivElement>, id: string) => {
+        event.preventDefault()
+        if (draggedSubtaskId) reorderSelectedTaskPeekSubtasks(draggedSubtaskId, id)
+        setDraggedSubtaskId(null)
+        setDragOverSubtaskId(null)
+      },
+      onSubtaskReorderEnd: () => {
+        setDraggedSubtaskId(null)
+        setDragOverSubtaskId(null)
+      },
+      onAddSubtask: addSelectedTaskPeekSubtask,
+      onToggleDeleteConfirmation: (kind: 'task') => {
+        taskPeekDeleteTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : taskPeekTriggerRef.current
+        setTaskPeekDeleteConfirmation({ kind, taskId: selectedTaskPeek?.id ?? '' })
+      },
+      onSetAsNext: () => {
+        if (!selectedLifeGoal || !selectedTaskPeek) return
+        if (selectedLifeGoal.goalType === 'outcome') {
+          setTaskAsNext(selectedLifeGoal.id, selectedTaskPeek.id)
+          return
+        }
+        onUpdateLifeGoal(selectedLifeGoal.id, (goal) => ({
+          ...goal,
+          tasks: goal.tasks.map((task) => ({
+            ...task,
+            important: task.id === selectedTaskPeek.id,
+          })),
+          updatedAt: new Date().toISOString(),
+        }))
+      },
+      onRestoreTask: (source: HTMLElement) => {
+        if (!selectedLifeGoal || !selectedTaskPeek) return
+        restoreTask(selectedLifeGoal.id, selectedTaskPeek.id)
+        showCompletionPulse(source)
+      },
+      onCompleteNext: (source: HTMLElement) => completeTaskFromPeek('next', source),
+      onCompleteTask: (source: HTMLElement) => completeTaskFromPeek('close', source),
+      onConfirmDelete: confirmTaskPeekDelete,
+    }),
+    [
+      addSelectedTaskPeekSubtask,
+      addTagToSelectedTaskPeek,
+      applyTaskPeekDate,
+      closeTaskPeek,
+      completeTaskFromPeek,
+      confirmTaskPeekDelete,
+      dragOverSubtaskId,
+      draggedSubtaskId,
+      onUpdateLifeGoal,
+      openTaskPeekDatePicker,
+      removeTagFromSelectedTaskPeek,
+      reorderSelectedTaskPeekSubtasks,
+      setTaskAsNext,
+      selectedLifeGoal,
+      selectedTaskPeek,
+      selectedTaskPeekActiveSubtasks,
+      taskPeekDatePickerOpen,
+      taskPeekTagDraft,
+      toggleSelectedTaskPeekSubtaskCompletion,
+      updateSelectedTaskPeek,
+    ],
+  )
+  const toggleRoadmapHighPriorityFocus = useCallback(() => {
+    setRoadmapHighPriorityFocus((current) => !current)
+  }, [])
+  const toggleRoadmapOrganizationMode = useCallback(() => {
+    setRoadmapOrganizationMode((current) => (current === 'default' ? 'tag' : 'default'))
+  }, [])
+  const setSelectedRoadmapProgressView = useCallback(
+    (view: LifeGoalRoadmapPanelView) => {
+      if (!selectedLifeGoal) return
+      setRoadmapPanelViewByGoal((current) => ({
+        ...current,
+        [selectedLifeGoal.id]: view,
+      }))
+    },
+    [selectedLifeGoal],
+  )
+  const openSelectedGoalRoadmapTab = useCallback(() => {
+    setLifeGoalDetailTab('roadmap')
+  }, [])
+  const handleRoadmapPanelKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (event.key === 'Enter' && event.shiftKey) {
+        event.preventDefault()
+        openNewTaskPeek(event.currentTarget)
+      }
+    },
+    [openNewTaskPeek],
+  )
+  const handleRoadmapPanelAddTask = useCallback((trigger?: HTMLElement | null) => {
+    openNewTaskPeek(trigger)
+  }, [openNewTaskPeek])
+  const toggleRoadmapCompleted = useCallback(() => {
+    setRoadmapCompletedOpen((current) => !current)
+  }, [])
+  const selectedRoadmapPanelUiState = useMemo(
+    () => ({
+      roadmapHighPriorityFocus,
+      completedOpen: roadmapCompletedOpen,
+      showHighPriorityFocus: selectedGoalRoadmapDerived.roadmapHasHighPriorityTasks,
+      progressView: selectedRoadmapProgressView,
+      showMilestonesView: selectedShowMilestoneProgressView,
+      showNotesView: true,
+      organizationMode: roadmapOrganizationMode,
+      showTagGrouping: selectedGoalRoadmapDerived.roadmapHasTaggedTasks,
+    }),
+    [
+      roadmapCompletedOpen,
+      roadmapHighPriorityFocus,
+      roadmapOrganizationMode,
+      selectedGoalRoadmapDerived.roadmapHasHighPriorityTasks,
+      selectedGoalRoadmapDerived.roadmapHasTaggedTasks,
+      selectedRoadmapProgressView,
+      selectedShowMilestoneProgressView,
+    ],
+  )
+  const selectedRoadmapPanelActions = useMemo(
+    () => ({
+      onToggleHighPriorityFocus: toggleRoadmapHighPriorityFocus,
+      onToggleOrganizationMode: toggleRoadmapOrganizationMode,
+      onSetProgressView: setSelectedRoadmapProgressView,
+      onOpenRoadmap: openSelectedGoalRoadmapTab,
+      onRoadmapKeyDown: handleRoadmapPanelKeyDown,
+      onAddTask: handleRoadmapPanelAddTask,
+      onToggleCompleted: toggleRoadmapCompleted,
+    }),
+    [
+      handleRoadmapPanelAddTask,
+      handleRoadmapPanelKeyDown,
+      openSelectedGoalRoadmapTab,
+      setSelectedRoadmapProgressView,
+      toggleRoadmapCompleted,
+      toggleRoadmapHighPriorityFocus,
+      toggleRoadmapOrganizationMode,
+    ],
+  )
 
   const openMilestoneDatePicker = (milestoneId: string, date?: string | null) => {
-    setMilestoneDateViewMonth(startOfCalendarMonth(getCalendarMonthDate(date ?? undefined)))
     setMilestoneDatePickerMilestoneId((current) => (current === milestoneId ? null : milestoneId))
   }
 
@@ -3602,9 +3969,6 @@ export function GoalsPage({
       ...milestone,
       targetDate: date || null,
     }))
-    if (date && isValidIsoDate(date)) {
-      setMilestoneDateViewMonth(startOfCalendarMonth(getCalendarMonthDate(date)))
-    }
     setMilestoneDatePickerMilestoneId(null)
     setMilestoneDatePanelPosition(null)
   }
@@ -3674,12 +4038,6 @@ export function GoalsPage({
     const goal = safeLifeGoals.find((item) => item.id === goalId)
     if (!goal) return
 
-    const activeDateValue = goal[field]
-    const nextViewMonth = isValidIsoDate(activeDateValue)
-      ? startOfCalendarMonth(new Date(`${activeDateValue}T00:00:00Z`))
-      : startOfCalendarMonth(getCalendarMonthDate())
-
-    setLifeGoalDateViewMonth(nextViewMonth)
     const isTogglingClosed = goalOverviewActiveDateField?.goalId === goalId && goalOverviewActiveDateField.field === field
     setGoalOverviewActiveDateField((current) => (current?.goalId === goalId && current.field === field ? null : { goalId, field }))
     if (isTogglingClosed) {
@@ -4033,7 +4391,8 @@ export function GoalsPage({
       const target = event.target as Node
       if (
         goalOverviewControlsPanelRef.current?.contains(target) ||
-        goalOverviewControlsTriggerRef.current?.contains(target)
+        goalOverviewControlsTriggerRef.current?.contains(target) ||
+        goalOverviewFloatingControlsTriggerRef.current?.contains(target)
       ) {
         return
       }
@@ -4148,22 +4507,15 @@ export function GoalsPage({
       if (!slot) return
 
       const rect = slot.getBoundingClientRect()
-      const stickyEnterOffset = 18
-      const stickyExitOffset = 30
       const nextRightOffset = Math.round(Math.max(12, window.innerWidth - rect.right))
-      const restingTopOffset = Math.round(Math.max(0, rect.top))
+      const slotBottom = rect.bottom
+      // Fade in as the slot scrolls from 48px above viewport top down to fully off-screen
+      const fadeRange = 48
+      const opacity = Math.max(0, Math.min(1, (fadeRange - slotBottom) / fadeRange))
 
       setGoalOverviewHeaderControlsRight(nextRightOffset)
-      setGoalOverviewHeaderControlsSticky((current) => {
-        const nextSticky = current ? restingTopOffset <= stickyExitOffset : restingTopOffset <= stickyEnterOffset
-        setGoalOverviewHeaderControlsTop((previousTop) => {
-          if (!nextSticky) {
-            return restingTopOffset
-          }
-          return current ? previousTop : restingTopOffset
-        })
-        return nextSticky
-      })
+      setGoalOverviewFloatingOpacity(opacity)
+      setGoalOverviewHeaderControlsSticky(opacity >= 1)
     }
 
     updateHeaderControlsStickyState()
@@ -4641,7 +4993,6 @@ export function GoalsPage({
 
   const openLifeGoalDatePicker = (field: 'startDate' | 'targetDate') => {
     setLifeGoalActiveDateField(field)
-    setLifeGoalDateViewMonth(startOfCalendarMonth(getCalendarMonthDate(lifeGoalDraft[field])))
   }
 
   const openLifeGoalComposer = (opener?: HTMLElement | null) => {
@@ -4757,9 +5108,6 @@ export function GoalsPage({
     if (!lifeGoalActiveDateField) return
     const nextDate = lifeGoalActiveDateField === 'startDate' && !date ? getTodayIsoDate() : date
     setLifeGoalDraft((current) => ({ ...current, [lifeGoalActiveDateField]: nextDate }))
-    if (nextDate && isValidIsoDate(nextDate)) {
-      setLifeGoalDateViewMonth(startOfCalendarMonth(getCalendarMonthDate(nextDate)))
-    }
     setLifeGoalActiveDateField(null)
     setLifeGoalDatePanelPosition(null)
   }
@@ -4857,12 +5205,12 @@ export function GoalsPage({
               }
               openLifeGoalCategoryMenu()
             }}
-            className={isEditMode ? `${editPanelSelectClassName} flex items-center justify-between gap-3 text-left` : 'theme-input flex w-full items-center justify-between gap-3 rounded-2xl border px-3 py-2.5 text-left text-sm transition'}
+            className={isEditMode ? `${editPanelSelectClassName} relative text-left` : 'theme-input flex w-full items-center justify-between gap-3 rounded-2xl border px-3 py-2.5 text-left text-sm transition'}
           >
             <span className={lifeGoalDraft.category ? 'theme-text-primary' : 'theme-text-muted'}>
               {lifeGoalDraft.category || 'Select category'}
             </span>
-            <span className="pointer-events-none flex items-center text-white/26">
+            <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-white/26">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                 <path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
@@ -5014,12 +5362,12 @@ export function GoalsPage({
               }
               openLifeGoalDatePicker('startDate')
             }}
-            className={isEditMode ? `${editPanelSelectClassName} flex items-center justify-between gap-3 text-left` : 'theme-input flex w-full items-center justify-between gap-3 rounded-2xl border px-3 py-2.5 text-left text-sm transition'}
+            className={isEditMode ? `${editPanelSelectClassName} relative text-left` : 'theme-input flex w-full items-center justify-between gap-3 rounded-2xl border px-3 py-2.5 text-left text-sm transition'}
           >
             <span className={lifeGoalDraft.startDate ? 'theme-text-primary' : 'theme-text-muted'}>
               {lifeGoalDraft.startDate ? formatDate(lifeGoalDraft.startDate) : 'Start today'}
             </span>
-            <span className="pointer-events-none flex items-center text-white/26">
+            <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-white/26">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                 <path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
@@ -5042,7 +5390,7 @@ export function GoalsPage({
               }
               openLifeGoalDatePicker('targetDate')
             }}
-            className={isEditMode ? `${editPanelSelectClassName} flex items-center justify-between gap-3 text-left` : 'theme-input flex w-full items-center justify-between gap-3 rounded-2xl border px-3 py-2.5 text-left text-sm transition'}
+            className={isEditMode ? `${editPanelSelectClassName} relative text-left` : 'theme-input flex w-full items-center justify-between gap-3 rounded-2xl border px-3 py-2.5 text-left text-sm transition'}
           >
             <span className={lifeGoalDraft.targetDate ? 'theme-text-primary' : 'theme-text-muted'}>
               {lifeGoalDraft.targetDate
@@ -5051,7 +5399,7 @@ export function GoalsPage({
                   ? 'Optional horizon'
                   : 'Optional deadline'}
             </span>
-            <span className="pointer-events-none flex items-center text-white/26">
+            <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-white/26">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                 <path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
@@ -5087,112 +5435,23 @@ export function GoalsPage({
       return (
         <div className="space-y-3.5">
           <section className="grid gap-2.5">
-            {goalTypeField}
             {categoryField}
             {startDateField}
             {targetDateField}
             {statusField}
-            {lifeGoalActiveDateField && lifeGoalDatePanelPosition && typeof document !== 'undefined'
-              ? createPortal(
-                  <div
-                    ref={lifeGoalDatePanelRef}
-                    className="theme-popover fixed z-[80] overflow-hidden rounded-[24px] border p-3 shadow-[0_22px_46px_rgba(15,23,42,0.18)]"
-                    style={{
-                      top: `${lifeGoalDatePanelPosition.top}px`,
-                      left: `${lifeGoalDatePanelPosition.left}px`,
-                      width: `${lifeGoalDatePanelPosition.width}px`,
-                    }}
-                  >
-                    <p className="theme-text-faint mb-2 text-[11px] uppercase tracking-[0.14em]">
-                      {lifeGoalActiveDateField === 'startDate' ? 'Start Date' : 'Target Date'}
-                    </p>
-                    <div className="flex items-center justify-between gap-3">
-                      <button
-                        type="button"
-                        onClick={() => setLifeGoalDateViewMonth((current) => shiftCalendarMonth(current, -1))}
-                        className="theme-text-muted rounded-full px-2.5 py-1.5 text-xs transition hover:text-[rgb(var(--theme-text-primary-rgb))]"
-                      >
-                        Prev
-                      </button>
-                      <p className="theme-text-primary text-sm font-medium">{formatCalendarMonthLabel(lifeGoalDateViewMonth)}</p>
-                      <button
-                        type="button"
-                        onClick={() => setLifeGoalDateViewMonth((current) => shiftCalendarMonth(current, 1))}
-                        className="theme-text-muted rounded-full px-2.5 py-1.5 text-xs transition hover:text-[rgb(var(--theme-text-primary-rgb))]"
-                      >
-                        Next
-                      </button>
-                    </div>
-
-                    <div className="mt-3 grid grid-cols-7 gap-1.5">
-                      {LIFE_GOAL_WEEKDAY_LABELS.map((day) => (
-                        <div key={day} className="theme-text-faint px-1 py-1 text-center text-[11px] uppercase tracking-[0.12em]">
-                          {day}
-                        </div>
-                      ))}
-                    </div>
-
-                    <div className="mt-1 grid grid-cols-7 gap-1.5">
-                      {getCalendarDays(lifeGoalDateViewMonth).map((day) => {
-                        const dayValue = formatCalendarDayValue(day)
-                        const inCurrentMonth = day.getUTCMonth() === lifeGoalDateViewMonth.getUTCMonth()
-                        const activeDateValue = lifeGoalActiveDateField ? lifeGoalDraft[lifeGoalActiveDateField] : ''
-                        const isSelected = dayValue === activeDateValue
-                        const isToday = dayValue === getTodayIsoDate()
-
-                        return (
-                          <button
-                            key={dayValue}
-                            type="button"
-                            onClick={() => applyLifeGoalDate(dayValue)}
-                            className={`rounded-2xl border px-0 py-2 text-center text-sm transition ${
-                              isSelected
-                                ? 'border-[rgb(var(--theme-info-rgb)/0.28)] bg-[rgb(var(--theme-info-rgb)/0.12)] text-[rgb(var(--theme-text-primary-rgb))]'
-                                : isToday
-                                  ? 'border-[rgb(var(--theme-border-strong-rgb))] bg-[rgb(var(--theme-surface-soft-rgb))] text-[rgb(var(--theme-text-primary-rgb))] hover:border-[rgb(var(--theme-border-strong-rgb))] hover:bg-[rgb(var(--theme-surface-elevated-rgb))]'
-                                  : inCurrentMonth
-                                    ? 'border-[rgb(var(--theme-border-subtle-rgb)/0.75)] bg-transparent text-[rgb(var(--theme-text-secondary-rgb))] hover:border-[rgb(var(--theme-border-strong-rgb))] hover:bg-[rgb(var(--theme-surface-soft-rgb))] hover:text-[rgb(var(--theme-text-primary-rgb))]'
-                                    : 'border-transparent bg-transparent text-[rgb(var(--theme-text-faint-rgb))] hover:border-[rgb(var(--theme-border-subtle-rgb)/0.55)] hover:bg-[rgb(var(--theme-surface-soft-rgb)/0.6)]'
-                            }`}
-                          >
-                            {day.getUTCDate()}
-                          </button>
-                        )
-                      })}
-                    </div>
-
-                    <div className="mt-3 flex items-center justify-between gap-2 border-t border-[rgb(var(--theme-border-subtle-rgb)/0.7)] pt-3">
-                      <button
-                        type="button"
-                        onClick={() => applyLifeGoalDate(getTodayIsoDate())}
-                        className="theme-text-muted rounded-full px-2 py-1 text-xs transition hover:text-[rgb(var(--theme-text-primary-rgb))]"
-                      >
-                        Today
-                      </button>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => applyLifeGoalDate('')}
-                          className="theme-text-muted rounded-full px-2 py-1 text-xs transition hover:text-[rgb(var(--theme-text-primary-rgb))]"
-                        >
-                          Clear
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setLifeGoalActiveDateField(null)
-                            setLifeGoalDatePanelPosition(null)
-                          }}
-                          className="theme-text-muted rounded-full px-2 py-1 text-xs transition hover:text-[rgb(var(--theme-text-primary-rgb))]"
-                        >
-                          Done
-                        </button>
-                      </div>
-                    </div>
-                  </div>,
-                  document.body,
-                )
-              : null}
+            {lifeGoalActiveDateField ? (
+              <GoalDatePicker
+                ref={lifeGoalDatePanelRef}
+                value={lifeGoalDraft[lifeGoalActiveDateField]}
+                anchorPosition={lifeGoalDatePanelPosition}
+                label={lifeGoalActiveDateField === 'startDate' ? 'Start Date' : 'Target Date'}
+                onChange={applyLifeGoalDate}
+                onClose={() => {
+                  setLifeGoalActiveDateField(null)
+                  setLifeGoalDatePanelPosition(null)
+                }}
+              />
+            ) : null}
             {selectedDraftGoalType === 'outcome' ? (
               <div className="border-t border-white/[0.05] pt-3">
                 <div className="flex items-center justify-between gap-3 rounded-[14px] border border-white/[0.05] bg-white/[0.018] px-3 py-2.5">
@@ -5383,107 +5642,19 @@ export function GoalsPage({
               {targetDateField}
             </div>
 
-            {lifeGoalActiveDateField && lifeGoalDatePanelPosition && typeof document !== 'undefined'
-              ? createPortal(
-                  <div
-                    ref={lifeGoalDatePanelRef}
-                    className="theme-popover fixed z-[80] overflow-hidden rounded-[24px] border p-3 shadow-[0_22px_46px_rgba(15,23,42,0.18)]"
-                    style={{
-                      top: `${lifeGoalDatePanelPosition.top}px`,
-                      left: `${lifeGoalDatePanelPosition.left}px`,
-                      width: `${lifeGoalDatePanelPosition.width}px`,
-                    }}
-                  >
-                    <p className="theme-text-faint mb-2 text-[11px] uppercase tracking-[0.14em]">
-                      {lifeGoalActiveDateField === 'startDate' ? 'Start Date' : 'Target Date'}
-                    </p>
-                    <div className="flex items-center justify-between gap-3">
-                      <button
-                        type="button"
-                        onClick={() => setLifeGoalDateViewMonth((current) => shiftCalendarMonth(current, -1))}
-                        className="theme-text-muted rounded-full px-2.5 py-1.5 text-xs transition hover:text-[rgb(var(--theme-text-primary-rgb))]"
-                      >
-                        Prev
-                      </button>
-                      <p className="theme-text-primary text-sm font-medium">{formatCalendarMonthLabel(lifeGoalDateViewMonth)}</p>
-                      <button
-                        type="button"
-                        onClick={() => setLifeGoalDateViewMonth((current) => shiftCalendarMonth(current, 1))}
-                        className="theme-text-muted rounded-full px-2.5 py-1.5 text-xs transition hover:text-[rgb(var(--theme-text-primary-rgb))]"
-                      >
-                        Next
-                      </button>
-                    </div>
-
-                    <div className="mt-3 grid grid-cols-7 gap-1.5">
-                      {LIFE_GOAL_WEEKDAY_LABELS.map((day) => (
-                        <div key={day} className="theme-text-faint px-1 py-1 text-center text-[11px] uppercase tracking-[0.12em]">
-                          {day}
-                        </div>
-                      ))}
-                    </div>
-
-                    <div className="mt-1 grid grid-cols-7 gap-1.5">
-                      {getCalendarDays(lifeGoalDateViewMonth).map((day) => {
-                        const dayValue = formatCalendarDayValue(day)
-                        const inCurrentMonth = day.getUTCMonth() === lifeGoalDateViewMonth.getUTCMonth()
-                        const activeDateValue = lifeGoalActiveDateField ? lifeGoalDraft[lifeGoalActiveDateField] : ''
-                        const isSelected = dayValue === activeDateValue
-                        const isToday = dayValue === getTodayIsoDate()
-
-                        return (
-                          <button
-                            key={dayValue}
-                            type="button"
-                            onClick={() => applyLifeGoalDate(dayValue)}
-                            className={`rounded-2xl border px-0 py-2 text-center text-sm transition ${
-                              isSelected
-                                ? 'border-[rgb(var(--theme-info-rgb)/0.28)] bg-[rgb(var(--theme-info-rgb)/0.12)] text-[rgb(var(--theme-text-primary-rgb))]'
-                                : isToday
-                                  ? 'border-[rgb(var(--theme-border-strong-rgb))] bg-[rgb(var(--theme-surface-soft-rgb))] text-[rgb(var(--theme-text-primary-rgb))] hover:border-[rgb(var(--theme-border-strong-rgb))] hover:bg-[rgb(var(--theme-surface-elevated-rgb))]'
-                                  : inCurrentMonth
-                                    ? 'border-[rgb(var(--theme-border-subtle-rgb)/0.75)] bg-transparent text-[rgb(var(--theme-text-secondary-rgb))] hover:border-[rgb(var(--theme-border-strong-rgb))] hover:bg-[rgb(var(--theme-surface-soft-rgb))] hover:text-[rgb(var(--theme-text-primary-rgb))]'
-                                    : 'border-transparent bg-transparent text-[rgb(var(--theme-text-faint-rgb))] hover:border-[rgb(var(--theme-border-subtle-rgb)/0.55)] hover:bg-[rgb(var(--theme-surface-soft-rgb)/0.6)]'
-                            }`}
-                          >
-                            {day.getUTCDate()}
-                          </button>
-                        )
-                      })}
-                    </div>
-
-                    <div className="mt-3 flex items-center justify-between gap-2 border-t border-[rgb(var(--theme-border-subtle-rgb)/0.7)] pt-3">
-                      <button
-                        type="button"
-                        onClick={() => applyLifeGoalDate(getTodayIsoDate())}
-                        className="theme-text-muted rounded-full px-2 py-1 text-xs transition hover:text-[rgb(var(--theme-text-primary-rgb))]"
-                      >
-                        Today
-                      </button>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => applyLifeGoalDate('')}
-                          className="theme-text-muted rounded-full px-2 py-1 text-xs transition hover:text-[rgb(var(--theme-text-primary-rgb))]"
-                        >
-                          Clear
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setLifeGoalActiveDateField(null)
-                            setLifeGoalDatePanelPosition(null)
-                          }}
-                          className="theme-text-muted rounded-full px-2 py-1 text-xs transition hover:text-[rgb(var(--theme-text-primary-rgb))]"
-                        >
-                          Done
-                        </button>
-                      </div>
-                    </div>
-                  </div>,
-                  document.body,
-                )
-              : null}
+            {lifeGoalActiveDateField ? (
+              <GoalDatePicker
+                ref={lifeGoalDatePanelRef}
+                value={lifeGoalDraft[lifeGoalActiveDateField]}
+                anchorPosition={lifeGoalDatePanelPosition}
+                label={lifeGoalActiveDateField === 'startDate' ? 'Start Date' : 'Target Date'}
+                onChange={applyLifeGoalDate}
+                onClose={() => {
+                  setLifeGoalActiveDateField(null)
+                  setLifeGoalDatePanelPosition(null)
+                }}
+              />
+            ) : null}
 
             {statusField}
           </div>
@@ -5531,4517 +5702,189 @@ export function GoalsPage({
   }
 
 const renderLifeGoalOverviewPage = () => {
-    const allOverviewGoals = safeLifeGoals.filter((goal) => !goal.archivedAt)
-    const pinnedGoalIds = new Set(goalOverviewRowActions.pinnedGoalIds)
-    const pinnedGoalIndexById = new Map(goalOverviewRowActions.pinnedGoalIds.map((goalId, index) => [goalId, index]))
-    const importantGoalIds = new Set(goalOverviewRowActions.highlightedGoalIds)
-    const baseManualOverviewGoals = [...allOverviewGoals].sort((left, right) => {
-      if (left.order !== right.order) return left.order - right.order
-      return 0
-    })
-    const previewIndexByGoalId = new Map(
-      (goalOverviewDragPreviewOrder ?? baseManualOverviewGoals.map((goal) => goal.id)).map((goalId, index) => [goalId, index]),
-    )
-    const activeOverviewGoals = allOverviewGoals.filter((goal) => goal.status !== 'complete')
-    const completedOverviewGoals = allOverviewGoals.filter((goal) => goal.status === 'complete')
-    const hasPrimaryContent =
-      goalOverviewViewControls.view === 'board'
-        ? activeOverviewGoals.length > 0 || (goalOverviewViewControls.showCompleted && completedOverviewGoals.length > 0)
-        : activeOverviewGoals.length > 0
-
-    const getGoalBelongsTo = (goal: LifeGoal) => {
-      const parentDirections = safeLifeGoals.filter(
-        (candidate) =>
-          !candidate.archivedAt &&
-          candidate.id !== goal.id &&
-          (candidate.goalType ?? 'outcome') === 'directional' &&
-          (candidate.relatedGoalIds ?? []).includes(goal.id),
-      )
-
-      if (parentDirections.length === 0) return null
-      if (parentDirections.length === 1) return parentDirections[0].title
-      return `${parentDirections[0].title} +${parentDirections.length - 1}`
-    }
-
-    const getGoalPriorityValue = (goal: LifeGoal) =>
-      goal.tasks.reduce((highest, task) => Math.max(highest, getPriorityScore(task)), 0)
-
-    const getGoalPriorityLabel = (goal: LifeGoal) => {
-      const priority = getGoalPriorityValue(goal)
-      const priorityMeta = getLifeGoalTaskPriorityMeta(
-        priority >= 3 ? 'high' : priority === 2 ? 'medium' : priority === 1 ? 'low' : 'none',
-      )
-      return priorityMeta?.label ?? 'None'
-    }
-
-    const manualReorderEnabled =
-      goalOverviewViewControls.view === 'list' &&
-      goalOverviewViewControls.groupBy === 'none' &&
-      goalOverviewViewControls.sortBy === 'manual'
-
-    const moveGoalIdInOrder = (goalIds: string[], draggedGoalId: string, targetGoalId: string) => {
-      const fromIndex = goalIds.indexOf(draggedGoalId)
-      const toIndex = goalIds.indexOf(targetGoalId)
-      if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) return goalIds
-      const nextIds = [...goalIds]
-      const [movedGoalId] = nextIds.splice(fromIndex, 1)
-      nextIds.splice(toIndex, 0, movedGoalId)
-      return nextIds
-    }
-
-    const previewOverviewGoalMove = (draggedGoalId: string, targetGoalId: string) => {
-      if (draggedGoalId === targetGoalId) return
-
-      const manualOrderedGoals = (goalOverviewDragPreviewOrder ?? baseManualOverviewGoals.map((goal) => goal.id))
-        .map((goalId) => allOverviewGoals.find((goal) => goal.id === goalId) ?? null)
-        .filter((goal): goal is LifeGoal => goal !== null)
-
-      const draggedGoal = manualOrderedGoals.find((goal) => goal.id === draggedGoalId)
-      const targetGoal = manualOrderedGoals.find((goal) => goal.id === targetGoalId)
-      if (!draggedGoal || !targetGoal) return
-
-      const draggedIsCompleted = draggedGoal.status === 'complete'
-      const targetIsCompleted = targetGoal.status === 'complete'
-      const draggedIsPinned = pinnedGoalIds.has(draggedGoalId)
-      const targetIsPinned = pinnedGoalIds.has(targetGoalId)
-      if (draggedIsCompleted !== targetIsCompleted || draggedIsPinned !== targetIsPinned) return
-
-      const reorderableGoalIds = manualOrderedGoals
-        .filter((goal) => (goal.status === 'complete') === draggedIsCompleted && pinnedGoalIds.has(goal.id) === draggedIsPinned)
-        .map((goal) => goal.id)
-      const reorderedSubsetIds = moveGoalIdInOrder(reorderableGoalIds, draggedGoalId, targetGoalId)
-      if (reorderedSubsetIds === reorderableGoalIds) return
-
-      let subsetCursor = 0
-      const nextOrderedGoalIds = manualOrderedGoals.map((goal) =>
-        (goal.status === 'complete') === draggedIsCompleted && pinnedGoalIds.has(goal.id) === draggedIsPinned
-          ? reorderedSubsetIds[subsetCursor++]
-          : goal.id,
-      )
-      setGoalOverviewDragPreviewOrder(nextOrderedGoalIds)
-    }
-
-    const reorderOverviewGoals = (draggedGoalId: string, targetGoalId: string) => {
-      if (draggedGoalId === targetGoalId) return
-
-      const manualOrderedGoals = [...baseManualOverviewGoals]
-
-      const draggedGoal = manualOrderedGoals.find((goal) => goal.id === draggedGoalId)
-      const targetGoal = manualOrderedGoals.find((goal) => goal.id === targetGoalId)
-      if (!draggedGoal || !targetGoal) return
-
-      const draggedIsCompleted = draggedGoal.status === 'complete'
-      const targetIsCompleted = targetGoal.status === 'complete'
-      const draggedIsPinned = pinnedGoalIds.has(draggedGoalId)
-      const targetIsPinned = pinnedGoalIds.has(targetGoalId)
-
-      if (draggedIsCompleted !== targetIsCompleted || draggedIsPinned !== targetIsPinned) return
-
-      const reorderableGoals = manualOrderedGoals.filter(
-        (goal) => (goal.status === 'complete') === draggedIsCompleted && pinnedGoalIds.has(goal.id) === draggedIsPinned,
-      )
-      const fromIndex = reorderableGoals.findIndex((goal) => goal.id === draggedGoalId)
-      const toIndex = reorderableGoals.findIndex((goal) => goal.id === targetGoalId)
-      if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) return
-
-      const reorderedSubsetIds = moveGoalIdInOrder(
-        reorderableGoals.map((goal) => goal.id),
-        draggedGoalId,
-        targetGoalId,
-      )
-      const reorderedSubset = reorderedSubsetIds
-        .map((goalId) => reorderableGoals.find((goal) => goal.id === goalId) ?? null)
-        .filter((goal): goal is LifeGoal => goal !== null)
-
-      let subsetCursor = 0
-      const nextOrderedGoals = manualOrderedGoals.map((goal) =>
-        (goal.status === 'complete') === draggedIsCompleted && pinnedGoalIds.has(goal.id) === draggedIsPinned
-          ? reorderedSubset[subsetCursor++]
-          : goal,
-      )
-
-      nextOrderedGoals.forEach((goal, index) => {
-        if (goal.order === index) return
-        onUpdateLifeGoal(goal.id, (current) => ({
-          ...current,
-          order: index,
-        }))
-      })
-    }
-
-    const isGoalOverviewInteractiveTarget = (target: EventTarget | null) => {
-      if (!(target instanceof Element)) return false
-      return Boolean(
-        target.closest(
-          'button, a, input, select, textarea, summary, [data-goal-row-interactive="true"], [contenteditable="true"]',
-        ),
-      )
-    }
-
-    const updateGoalOverviewPointerDragTarget = (clientX: number, clientY: number) => {
-      const elementUnderPointer = document.elementFromPoint(clientX, clientY)
-      const rowElement = elementUnderPointer instanceof Element
-        ? elementUnderPointer.closest<HTMLElement>('[data-goal-overview-row-id]')
-        : null
-      const targetGoalId = rowElement?.dataset.goalOverviewRowId ?? null
-      const activeDrag = goalOverviewActivePointerDragRef.current
-      if (!activeDrag || !targetGoalId || targetGoalId === activeDrag.goalId) return
-
-      const draggedPinned = pinnedGoalIds.has(activeDrag.goalId)
-      const targetPinned = pinnedGoalIds.has(targetGoalId)
-      const draggedGoal = safeLifeGoals.find((item) => item.id === activeDrag.goalId)
-      const targetGoal = safeLifeGoals.find((item) => item.id === targetGoalId)
-      if (!draggedGoal || !targetGoal) return
-      if ((draggedGoal.status === 'complete') !== (targetGoal.status === 'complete')) return
-      if (draggedPinned !== targetPinned) return
-
-      if (goalOverviewActivePointerDragRef.current?.targetGoalId !== targetGoalId) {
-        goalOverviewActivePointerDragRef.current = {
-          ...activeDrag,
-          targetGoalId,
+      return (
+        <LifeGoalOverviewPanel
+        lifeGoals={overviewLifeGoals}
+        categories={safeLifeGoalCategories}
+        tasks={safeTasks}
+        selectedGoalId={selectedLifeGoalId}
+        viewControls={goalOverviewViewControls}
+        onUpdateViewControls={(updater) =>
+          setGoalOverviewViewControls((current) => normalizeGoalOverviewViewControls(updater(current)))
         }
-        setDragOverLifeGoalId(targetGoalId)
-      }
-      previewOverviewGoalMove(activeDrag.goalId, targetGoalId)
-    }
-
-    const finishGoalOverviewPointerDrag = (commit: boolean) => {
-      const activeDrag = goalOverviewActivePointerDragRef.current
-
-      goalOverviewPointerDragCleanupRef.current?.()
-      goalOverviewPointerDragCleanupRef.current = null
-      goalOverviewPendingPointerDragRef.current = null
-      goalOverviewActivePointerDragRef.current = null
-
-      if (
-        commit &&
-        activeDrag?.goalId &&
-        activeDrag.targetGoalId &&
-        activeDrag.goalId !== activeDrag.targetGoalId
-      ) {
-        reorderOverviewGoals(activeDrag.goalId, activeDrag.targetGoalId)
-      }
-
-      setDraggedLifeGoalId(null)
-      setDragOverLifeGoalId(null)
-      setGoalOverviewDragPreviewOrder(null)
-      setGoalOverviewDraggingCursor(false)
-      window.setTimeout(() => {
-        suppressGoalOverviewRowClickRef.current = false
-      }, 0)
-    }
-
-    const beginGoalOverviewPointerDrag = (goalId: string) => {
-      suppressGoalOverviewRowClickRef.current = true
-      setGoalOverviewDraggingCursor(true)
-      setDraggedLifeGoalId(goalId)
-      setDragOverLifeGoalId(goalId)
-      setGoalOverviewDragPreviewOrder(baseManualOverviewGoals.map((item) => item.id))
-      goalOverviewActivePointerDragRef.current = {
-        goalId,
-        targetGoalId: goalId,
-      }
-    }
-
-    const startGoalOverviewPointerTracking = (goalId: string, event: React.PointerEvent<HTMLDivElement>) => {
-      if (!manualReorderEnabled || event.button !== 0 || isGoalOverviewInteractiveTarget(event.target)) {
-        return
-      }
-
-      const movementThreshold = 6
-      document.body.style.userSelect = 'none'
-      ;(document.body.style as CSSStyleDeclaration & { webkitUserSelect?: string }).webkitUserSelect = 'none'
-      goalOverviewPendingPointerDragRef.current = {
-        goalId,
-        pointerId: event.pointerId,
-        startX: event.clientX,
-        startY: event.clientY,
-      }
-
-      const handlePointerMove = (moveEvent: PointerEvent) => {
-        const pendingDrag = goalOverviewPendingPointerDragRef.current
-        if (!pendingDrag || moveEvent.pointerId !== pendingDrag.pointerId) return
-
-        const deltaX = moveEvent.clientX - pendingDrag.startX
-        const deltaY = moveEvent.clientY - pendingDrag.startY
-        if (!goalOverviewActivePointerDragRef.current) {
-          if (Math.hypot(deltaX, deltaY) < movementThreshold) return
-          beginGoalOverviewPointerDrag(pendingDrag.goalId)
+        onResetViewControls={() => setGoalOverviewViewControls(DEFAULT_GOAL_OVERVIEW_VIEW_CONTROLS)}
+        rowActions={goalOverviewRowActions}
+        onUpdateRowActions={(updater) =>
+          setGoalOverviewRowActions((current) => normalizeGoalOverviewRowActions(updater(current)))
         }
-
-        moveEvent.preventDefault()
-        updateGoalOverviewPointerDragTarget(moveEvent.clientX, moveEvent.clientY)
-      }
-
-      const handlePointerUp = (upEvent: PointerEvent) => {
-        const pendingDrag = goalOverviewPendingPointerDragRef.current
-        if (!pendingDrag || upEvent.pointerId !== pendingDrag.pointerId) return
-        finishGoalOverviewPointerDrag(Boolean(goalOverviewActivePointerDragRef.current))
-      }
-
-      goalOverviewPointerDragCleanupRef.current?.()
-      goalOverviewPointerDragCleanupRef.current = () => {
-        window.removeEventListener('pointermove', handlePointerMove)
-        window.removeEventListener('pointerup', handlePointerUp)
-        window.removeEventListener('pointercancel', handlePointerUp)
-      }
-
-      window.addEventListener('pointermove', handlePointerMove)
-      window.addEventListener('pointerup', handlePointerUp)
-      window.addEventListener('pointercancel', handlePointerUp)
-    }
-
-    const sortOverviewGoals = (goals: LifeGoal[]) => {
-      const applyPinnedPriority = (sortedGoals: LifeGoal[]) => {
-        if (goalOverviewViewControls.sortBy !== 'manual' || goalOverviewViewControls.groupBy !== 'none') {
-          return sortedGoals
-        }
-
-        return [...sortedGoals].sort((left, right) => {
-          const leftPinned = pinnedGoalIds.has(left.id) ? 1 : 0
-          const rightPinned = pinnedGoalIds.has(right.id) ? 1 : 0
-          if (leftPinned !== rightPinned) return rightPinned - leftPinned
-          if (leftPinned === 1 && rightPinned === 1) {
-            return (pinnedGoalIndexById.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (pinnedGoalIndexById.get(right.id) ?? Number.MAX_SAFE_INTEGER)
-          }
-          return (previewIndexByGoalId.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (previewIndexByGoalId.get(right.id) ?? Number.MAX_SAFE_INTEGER)
-        })
-      }
-
-      switch (goalOverviewViewControls.sortBy) {
-        case 'due':
-          return sortLifeGoalsByDue(goals)
-        case 'priority':
-          return [...goals].sort((left, right) => {
-            const priorityDiff = getGoalPriorityValue(right) - getGoalPriorityValue(left)
-            if (priorityDiff !== 0) return priorityDiff
-            return right.updatedAt.localeCompare(left.updatedAt)
+        onSelectGoal={(goalId) => {
+          onSelectLifeGoal(goalId)
+          setLifeGoalComposerOpen(false)
+          setLifeGoalActionFeedback(null)
+          onChangeGoalsView('life-detail')
+        }}
+        onUpdateLifeGoal={onUpdateLifeGoal}
+        onReorderLifeGoals={(updates) => {
+          updates.forEach(({ goalId, order }) => {
+            onUpdateLifeGoal(goalId, (current) => ({ ...current, order }))
           })
-        case 'updated':
-          return [...goals].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-        case 'manual':
-        default:
-          return applyPinnedPriority(
-            [...goals].sort(
-              (left, right) =>
-                (previewIndexByGoalId.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
-                (previewIndexByGoalId.get(right.id) ?? Number.MAX_SAFE_INTEGER),
-            ),
-          )
-      }
-    }
-
-    const getGroupLabel = (goal: LifeGoal) => {
-      switch (goalOverviewViewControls.groupBy) {
-        case 'status':
-          return getLifeGoalStatusMeta(goal.status, goal.startDate).label
-        case 'category':
-          return goal.category.trim() || 'Uncategorized'
-        case 'life-direction':
-          return (goal.goalType ?? 'outcome') === 'directional' ? 'Life directions' : getGoalBelongsTo(goal) ?? 'Unlinked goals'
-        case 'none':
-        default:
-          return ''
-      }
-    }
-
-    const buildGroupedGoals = (goals: LifeGoal[]) => {
-      const sorted = sortOverviewGoals(goals)
-      if (goalOverviewViewControls.groupBy === 'none') {
-        return [{ label: null, goals: sorted }]
-      }
-
-      const grouped = new Map<string, LifeGoal[]>()
-      sorted.forEach((goal) => {
-        const label = getGroupLabel(goal)
-        if (!grouped.has(label)) grouped.set(label, [])
-        grouped.get(label)!.push(goal)
-      })
-
-      return Array.from(grouped.entries()).map(([label, groupedGoals]) => ({
-        label,
-        goals: groupedGoals,
-      }))
-    }
-
-    const activeGroupedGoals = buildGroupedGoals(activeOverviewGoals)
-    const completedGroupedGoals = buildGroupedGoals(completedOverviewGoals)
-
-    const updateViewControls = (updater: (current: GoalOverviewViewControls) => GoalOverviewViewControls) =>
-      setGoalOverviewViewControls((current) => normalizeGoalOverviewViewControls(updater(current)))
-
-    const togglePinnedGoal = (goalId: string) =>
-      setGoalOverviewRowActions((current) =>
-        normalizeGoalOverviewRowActions({
-          ...current,
-          pinnedGoalIds: current.pinnedGoalIds.includes(goalId)
-            ? current.pinnedGoalIds.filter((id) => id !== goalId)
-            : [...current.pinnedGoalIds, goalId],
-        }),
-      )
-
-    const toggleImportantGoal = (goalId: string) =>
-      setGoalOverviewRowActions((current) =>
-        normalizeGoalOverviewRowActions({
-          ...current,
-          highlightedGoalIds: current.highlightedGoalIds.includes(goalId)
-            ? current.highlightedGoalIds.filter((id) => id !== goalId)
-            : [...current.highlightedGoalIds, goalId],
-        }),
-      )
-
-    const reorderColumnBefore = (
-      sourceColumn: Exclude<GoalOverviewColumnKey, 'milestones'>,
-      targetColumn: Exclude<GoalOverviewColumnKey, 'milestones'>,
-    ) =>
-      updateViewControls((current) => {
-        const movableColumns = current.columnOrder.filter(
-          (item): item is Exclude<GoalOverviewColumnKey, 'milestones'> => item !== 'milestones',
-        )
-        const sourceIndex = movableColumns.indexOf(sourceColumn)
-        const targetIndex = movableColumns.indexOf(targetColumn)
-        if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return current
-
-        const reordered = [...movableColumns]
-        const [removed] = reordered.splice(sourceIndex, 1)
-        reordered.splice(targetIndex, 0, removed)
-
-        return {
-          ...current,
-          columnOrder: reordered,
-        }
-      })
-
-    const renderPriorityIndicator = (goal: LifeGoal) => {
-      const priority = getGoalPriorityValue(goal)
-      if (priority <= 0) return null
-
-      const activeBars = Math.min(priority, 3)
-
-      return (
-        <span className="inline-flex h-4 translate-x-[11px] items-end gap-[2px]" aria-label={`${getGoalPriorityLabel(goal)} priority`} title={`${getGoalPriorityLabel(goal)} priority`}>
-          {[0, 1, 2].map((index) => (
-            <span
-              key={`priority-bar-${index}`}
-              className={`w-[3px] rounded-full transition ${
-                index < activeBars ? 'bg-white/50' : 'bg-white/14'
-              }`}
-              style={{ height: `${6 + index * 3}px` }}
-            />
-          ))}
-        </span>
-      )
-    }
-
-    const renderCompletionIndicator = (goal: LifeGoal) => {
-      const progress = getLifeGoalProgress(goal)
-      const segmentCount = 10
-      const filledSegments = Math.round((progress.percent / 100) * segmentCount)
-      const segmentStep = (Math.PI * 2) / segmentCount
-      const innerRadius = 5.6
-      const outerRadius = 8.4
-
-      return (
-        <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-          <span className="relative inline-flex h-[22px] w-[22px] items-center justify-center shrink-0" aria-hidden="true">
-            <svg width="22" height="22" viewBox="0 0 20 20" fill="none">
-              {Array.from({ length: segmentCount }, (_, index) => {
-                const angle = -(Math.PI / 2) + segmentStep * index
-                const isFilled = index < filledSegments
-                const x1 = 10 + Math.cos(angle) * innerRadius
-                const y1 = 10 + Math.sin(angle) * innerRadius
-                const x2 = 10 + Math.cos(angle) * outerRadius
-                const y2 = 10 + Math.sin(angle) * outerRadius
-                return (
-                  <line
-                    key={`goal-completion-segment-${goal.id}-${index}`}
-                    x1={x1}
-                    y1={y1}
-                    x2={x2}
-                    y2={y2}
-                    stroke={isFilled ? 'rgb(var(--theme-accent-rgb) / 0.9)' : 'rgba(255,255,255,0.14)'}
-                    strokeWidth="1.8"
-                    strokeLinecap="round"
-                  />
-                )
-              })}
-            </svg>
-          </span>
-          <span className="shrink-0 text-[11px] font-medium text-[rgba(255,255,255,0.78)]">{progress.percent}%</span>
-        </span>
-      )
-    }
-
-    const getCompletedGoalTimelineLabel = (goal: LifeGoal) => {
-      if (goal.status !== 'complete') return null
-
-      const startedLabel = isValidIsoDate(goal.startDate) ? formatDateShortYear(goal.startDate) : 'No start set'
-      const completedSource = goal.updatedAt?.slice(0, 10)
-      const completedLabel = isValidIsoDate(completedSource ?? '') ? formatDateShortYear(completedSource!) : 'Completed date unavailable'
-
-      return `Started ${startedLabel} · Completed ${completedLabel}`
-    }
-
-    const getGoalOverviewDueDisplay = (goal: LifeGoal) => {
-      if (goal.status === 'complete' || !isValidIsoDate(goal.targetDate)) return null
-
-      const daysUntilDue = Math.round(
-        (new Date(`${goal.targetDate}T00:00:00Z`).getTime() - new Date(`${getTodayIsoDate()}T00:00:00Z`).getTime()) / 86400000,
-      )
-
-      return {
-        label:
-          daysUntilDue < 0
-            ? `Overdue ${Math.abs(daysUntilDue)} ${Math.abs(daysUntilDue) === 1 ? 'day' : 'days'}`
-            : `${daysUntilDue}d`,
-        className:
-          daysUntilDue < 0
-            ? 'text-[rgb(var(--theme-negative-rgb)/0.92)]'
-            : daysUntilDue < 7
-              ? 'text-[rgb(var(--theme-warning-rgb)/0.9)]'
-              : 'text-[rgba(255,255,255,0.56)]',
-      }
-    }
-
-    const orderedVisibleColumnKeys = goalOverviewViewControls.columnOrder.filter(
-      (column) =>
-        column !== 'milestones' &&
-        column !== 'due' &&
-        column !== 'startDate' &&
-        column !== 'targetDate' &&
-        goalOverviewViewControls.columns[column],
-    )
-
-    const columnMeta: Record<
-      GoalOverviewColumnKey,
-      {
-        label: string
-        width: string
-        render: (goal: LifeGoal) => React.ReactNode
-      }
-    > = {
-      priority: {
-        label: 'Priority',
-        width: '112px',
-        render: (goal) => renderPriorityIndicator(goal),
-      },
-      category: {
-        label: 'Category',
-        width: '112px',
-        render: (goal) => {
-          const categoryColor = goal.category ? getLifeGoalCategoryColor(goal.category, safeLifeGoalCategories) : 'neutral'
-          return goal.category ? (
-            <span
-              className="inline-flex max-w-full items-center truncate rounded-full border px-2 py-[3px] text-[10px] font-medium uppercase leading-none tracking-[0.08em]"
-              style={{ ...getLifeGoalCategoryChipStyle(categoryColor), ...getLifeGoalCategoryChipTextStyle(categoryColor) }}
-            >
-              <span className="truncate">{goal.category}</span>
-            </span>
-          ) : (
-            null
-          )
-        },
-      },
-      belongsTo: {
-        label: 'Supports',
-        width: '112px',
-        render: (goal) => {
-          const belongsTo = getGoalBelongsTo(goal)
-          return belongsTo ? (
-            <span className="relative block overflow-hidden whitespace-nowrap pr-2 text-[12px] text-[rgba(255,255,255,0.62)]">
-              <span className="block truncate">{belongsTo}</span>
-              <span
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-y-0 right-0 w-6"
-                style={{ background: 'linear-gradient(to right, rgba(0,0,0,0), rgb(var(--theme-surface-rgb)))' }}
-              />
-            </span>
-          ) : null
-        },
-      },
-      due: {
-        label: 'Due',
-        width: '112px',
-        render: (goal) => {
-          if (goal.status === 'complete') {
-            return goal.targetDate ? (
-              <span className="block truncate text-[12px] text-[rgba(255,255,255,0.62)]">{formatDateShortYear(goal.targetDate)}</span>
-            ) : null
-          }
-          const daysUntilDue =
-            isValidIsoDate(goal.targetDate)
-              ? Math.round(
-                  (new Date(`${goal.targetDate}T00:00:00Z`).getTime() - new Date(`${getTodayIsoDate()}T00:00:00Z`).getTime()) / 86400000,
-                )
-              : null
-          const dueToneClassName =
-            daysUntilDue !== null
-              ? daysUntilDue < 0
-                ? 'text-[rgb(var(--theme-negative-rgb)/0.92)]'
-                : daysUntilDue < 7
-                  ? 'text-[rgb(var(--theme-warning-rgb)/0.9)]'
-                  : 'text-[rgba(255,255,255,0.62)]'
-              : 'text-[rgba(255,255,255,0.62)]'
-          const dueLabel =
-            daysUntilDue !== null
-              ? daysUntilDue < 0
-                ? `Overdue ${Math.abs(daysUntilDue)} ${Math.abs(daysUntilDue) === 1 ? 'day' : 'days'}`
-                : `${daysUntilDue}d`
-              : goal.targetDate
-                ? formatDate(goal.targetDate)
-                : null
-          return dueLabel ? (
-            <span className={`block truncate text-[12px] ${dueToneClassName}`}>
-              {dueLabel}
-            </span>
-          ) : (
-            null
-          )
-        },
-      },
-      startDate: {
-        label: 'Start date',
-        width: '112px',
-        render: (goal) => (
-          <button
-            type="button"
-            ref={(node) => {
-              goalOverviewStartDateFieldRefs.current[goal.id] = node
-            }}
-            onClick={(event) => {
-              event.preventDefault()
-              event.stopPropagation()
-              openGoalOverviewDatePicker(goal.id, 'startDate', event.currentTarget)
-            }}
-            onMouseDown={(event) => {
-              event.stopPropagation()
-            }}
-            className="block w-full truncate rounded-[10px] px-1.5 py-1 text-left text-[12px] text-[rgba(255,255,255,0.62)] transition hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/[0.12]"
-            aria-label={goal.startDate ? `Edit start date, currently ${formatDateContextual(goal.startDate)}` : 'Set start date'}
-          >
-            {goal.startDate ? (
-              formatDateContextual(goal.startDate)
-            ) : (
-              <span className="inline-flex items-center text-white/46">
-                <svg width="19" height="19" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                  <rect x="2.25" y="3.25" width="11.5" height="10.5" rx="2.25" stroke="currentColor" strokeWidth="1.2" />
-                  <path d="M5 2.5V4.5M11 2.5V4.5M2.5 6.25H13.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-                  <path d="M8 7.75V11.25M6.25 9.5H9.75" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-                </svg>
-              </span>
-            )}
-          </button>
-        ),
-      },
-      targetDate: {
-        label: 'Target date',
-        width: '112px',
-        render: (goal) =>
-          (
-            <button
-              type="button"
-              ref={(node) => {
-                goalOverviewTargetDateFieldRefs.current[goal.id] = node
-              }}
-              onClick={(event) => {
-                event.preventDefault()
-                event.stopPropagation()
-                openGoalOverviewDatePicker(goal.id, 'targetDate', event.currentTarget)
-              }}
-              onMouseDown={(event) => {
-                event.stopPropagation()
-              }}
-              className="block w-full truncate rounded-[10px] px-1.5 py-1 text-left text-[12px] text-[rgba(255,255,255,0.62)] transition hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/[0.12]"
-              aria-label={goal.targetDate ? `Edit target date, currently ${formatDateContextual(goal.targetDate)}` : 'Set target date'}
-            >
-              {goal.targetDate ? (
-                formatDateContextual(goal.targetDate)
-              ) : (
-                <span className="inline-flex items-center text-white/46">
-                  <svg width="19" height="19" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                    <rect x="2.25" y="3.25" width="11.5" height="10.5" rx="2.25" stroke="currentColor" strokeWidth="1.2" />
-                    <path d="M5 2.5V4.5M11 2.5V4.5M2.5 6.25H13.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-                    <path d="M8 7.75V11.25M6.25 9.5H9.75" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-                  </svg>
-                </span>
-              )}
-            </button>
-          ),
-      },
-      milestones: {
-        label: 'Milestones',
-        width: '92px',
-        render: (goal) => {
-          const milestoneCount = getOrderedGoalMilestones(goal).length
-          return milestoneCount > 0 ? <span className="truncate text-[12px] text-white/48">{milestoneCount}</span> : null
-        },
-      },
-      status: {
-        label: 'Status',
-        width: '112px',
-        render: (goal) => {
-          const statusMeta = getLifeGoalStatusMeta(goal.status, goal.startDate)
-          const statusLabel = statusMeta.label === 'Active' ? 'In progress' : statusMeta.label
-          const isStatusMenuOpen = goalOverviewStatusMenuGoalId === goal.id
-          const statusDotClassName =
-            statusMeta.label === 'Active'
-              ? 'bg-emerald-400'
-              : statusMeta.label === 'Scheduled'
-                ? 'bg-blue-400'
-                : statusMeta.label === 'Completed'
-                  ? 'bg-emerald-500/70'
-                  : 'bg-white/30'
-          const statusOptions: Array<{
-            id: 'in-progress' | 'not-started' | 'scheduled'
-            label: string
-            dotClassName: string
-            active: boolean
-            onSelect: () => void
-          }> = [
-            {
-              id: 'in-progress',
-              label: 'In progress',
-              dotClassName: 'bg-emerald-400',
-              active: statusMeta.label === 'Active',
-              onSelect: () => updateLifeGoalStatus(goal.id, 'in-motion'),
-            },
-            {
-              id: 'not-started',
-              label: 'Not Started',
-              dotClassName: 'bg-white/30',
-              active: goal.status === 'not-started' && !isLifeGoalScheduled(goal.status, goal.startDate),
-              onSelect: () => updateLifeGoalStatus(goal.id, 'not-started'),
-            },
-            {
-              id: 'scheduled',
-              label: 'Scheduled',
-              dotClassName: 'bg-blue-400',
-              active: isLifeGoalScheduled(goal.status, goal.startDate),
-              onSelect: () => scheduleLifeGoalFromList(goal.id),
-            },
-          ]
-          return (
-            <div className="relative flex max-w-full items-center">
-              <button
-                type="button"
-                data-goal-status-trigger="true"
-                onClick={(event) => {
-                  event.preventDefault()
-                  event.stopPropagation()
-                  setGoalOverviewStatusMenuGoalId((current) => (current === goal.id ? null : goal.id))
-                }}
-                onMouseDown={(event) => {
-                  event.stopPropagation()
-                }}
-                className="flex cursor-pointer items-center rounded-[10px] px-1.5 py-1 text-left transition hover:bg-white/[0.03] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/[0.12]"
-              >
-                <span className="flex items-center gap-[4px] whitespace-nowrap text-[12px] font-medium leading-[1.2] text-[rgba(255,255,255,0.62)]">
-                  <span aria-hidden="true" className={`h-1.5 w-1.5 shrink-0 rounded-full ${statusDotClassName}`} />
-                  <span className="leading-[1.2]">{statusLabel}</span>
-                </span>
-              </button>
-              {isStatusMenuOpen ? (
-                <div
-                  ref={goalOverviewStatusMenuRef}
-                  className="absolute left-0 top-[calc(100%+6px)] z-[60] min-w-[148px] overflow-hidden rounded-[14px] border border-white/[0.08] bg-[rgb(var(--theme-surface-elevated-rgb))] p-1.5 shadow-[0_14px_28px_rgba(15,23,42,0.24)]"
-                  onMouseDown={(event) => {
-                    event.preventDefault()
-                    event.stopPropagation()
-                  }}
-                  onClick={(event) => {
-                    event.preventDefault()
-                    event.stopPropagation()
-                  }}
-                >
-                  <div className="space-y-0.5">
-                    {statusOptions.map((option) => (
-                      <button
-                        key={option.id}
-                        type="button"
-                        onMouseDown={(event) => {
-                          event.preventDefault()
-                          event.stopPropagation()
-                        }}
-                        onClick={(event) => {
-                          event.preventDefault()
-                          event.stopPropagation()
-                          option.onSelect()
-                          setGoalOverviewStatusMenuGoalId(null)
-                        }}
-                        className={`flex w-full items-center gap-1.5 rounded-[10px] px-2.5 py-2 text-left text-[12px] leading-[1.2] transition ${
-                          option.active ? 'bg-white/[0.06] text-white/86' : 'text-white/68 hover:bg-white/[0.035] hover:text-white/84'
-                        }`}
-                      >
-                        <span aria-hidden="true" className={`h-1.5 w-1.5 shrink-0 rounded-full ${option.dotClassName}`} />
-                        <span className="truncate">{option.label}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          )
-        },
-      },
-      completion: {
-        label: 'Completion',
-        width: '92px',
-        render: (goal) => (
-          <div className="flex items-center gap-1.5 whitespace-nowrap">
-            {renderCompletionIndicator(goal)}
-          </div>
-        ),
-      },
-    }
-
-    const visibleColumnDefs = orderedVisibleColumnKeys.map((column) => ({
-      key: column,
-      ...columnMeta[column],
-    }))
-
-    const listGridTemplateColumns = ['minmax(320px,1.9fr)', ...visibleColumnDefs.map((column) => column.width)].join(' ')
-    const goalOverviewFadeTruncateStyle = {
-      WebkitMaskImage: 'linear-gradient(90deg, #000 0%, #000 calc(100% - 14px), transparent 100%)',
-      maskImage: 'linear-gradient(90deg, #000 0%, #000 calc(100% - 14px), transparent 100%)',
-    } as const
-
-    const renderGoalListHeaders = () =>
-      goalOverviewViewControls.view === 'list' ? (
-        <div className="grid items-center gap-x-3 px-4 pb-2 [&>*]:min-w-0" style={{ gridTemplateColumns: listGridTemplateColumns }}>
-          <div className="text-[12px] font-medium uppercase" style={{ color: 'rgba(255,255,255,0.82)', letterSpacing: '0.06em' }}>
-            GOAL
-          </div>
-          {visibleColumnDefs.map((column) => (
-            <div
-              key={`goal-header-${column.key}`}
-              className="overflow-hidden truncate whitespace-nowrap text-[12px] font-medium uppercase"
-              style={{ color: 'rgba(255,255,255,0.82)', letterSpacing: '0.06em' }}
-            >
-              {column.key === 'priority' ? (
-                <span className="inline-flex items-center gap-1.5">
-                  <span>{column.label.toUpperCase()}</span>
-                  <span aria-hidden="true" className="text-white/46">↑</span>
-                </span>
-              ) : column.key === 'due' ? (
-                <span className="inline-flex items-center gap-1.5">
-                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true" className="shrink-0 text-white/50">
-                    <rect x="2.25" y="3.25" width="11.5" height="10.5" rx="2.25" stroke="currentColor" strokeWidth="1.2" />
-                    <path d="M5 2.5V4.5M11 2.5V4.5M2.5 6.25H13.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-                  </svg>
-                  <span>{column.label.toUpperCase()}</span>
-                </span>
-              ) : (
-                column.label.toUpperCase()
-              )}
-            </div>
-          ))}
-        </div>
-      ) : null
-
-    const renderListRow = (goal: LifeGoal, rowIndex: number) => {
-      const progress = getLifeGoalProgress(goal)
-      const isPinned = pinnedGoalIds.has(goal.id)
-      const isImportant = importantGoalIds.has(goal.id)
-      const milestoneCount = getOrderedGoalMilestones(goal).length
-      const isDirectionalGoal = (goal.goalType ?? 'outcome') === 'directional'
-      const showMilestoneChip = goalOverviewViewControls.rowContent.milestones && milestoneCount > 0
-      const showDirectionalChip = goalOverviewViewControls.rowContent.directional && isDirectionalGoal
-      const completedTimelineLabel = getCompletedGoalTimelineLabel(goal)
-      const dueDisplay = getGoalOverviewDueDisplay(goal)
-      const hasStartDate = isValidIsoDate(goal.startDate)
-      const hasTargetDate = isValidIsoDate(goal.targetDate)
-      const startDateLabel = hasStartDate ? formatDateContextual(goal.startDate!) : ''
-      const targetDateLabel = hasTargetDate ? formatDateContextual(goal.targetDate!) : ''
-      const showWhy = goalOverviewViewControls.rowContent.why
-      const showIcons = goalOverviewViewControls.rowContent.icons
-      const showTimelineStart = goalOverviewViewControls.rowContent.startDate
-      const showTimelineTarget = goalOverviewViewControls.rowContent.targetDate
-      const showTimelineDue = goalOverviewViewControls.rowContent.dueAmount
-      const renderedGoalTitle = GOAL_OVERVIEW_USE_TITLE_CASE ? toTitleCase(formatGoalCardTitle(goal.title)) : formatGoalCardTitle(goal.title)
-      const startOnlyLabel = hasStartDate && goal.startDate! < getTodayIsoDate() ? 'Started' : 'Start'
-      const titleContentOffsetClassName = goal.icon && showIcons ? 'ml-[23px]' : ''
-      const isCompletedGoal = goal.status === 'complete'
-      const showNextTaskCallout = goalOverviewViewControls.showNextTask && !isCompletedGoal && Boolean(progress.nextTask?.text?.trim())
-      const targetDatePickerOpenForGoal =
-        goalOverviewActiveDateField?.goalId === goal.id && goalOverviewActiveDateField.field === 'targetDate'
-      const timelineDueDisplay = showTimelineTarget && showTimelineDue
-        ? dueDisplay
-        : !showTimelineStart && !showTimelineTarget && showTimelineDue
-          ? dueDisplay
-          : null
-      const shouldShowTimelineRow = !isCompletedGoal && (
-        (showTimelineStart && hasStartDate) ||
-        (showTimelineTarget && hasTargetDate) ||
-        (showTimelineStart && !hasStartDate) ||
-        (showTimelineTarget && !hasTargetDate) ||
-        (!showTimelineStart && !showTimelineTarget && showTimelineDue && Boolean(dueDisplay))
-      )
-
-      return (
-        <div
-          key={goal.id}
-          role="button"
-          tabIndex={0}
-          onPointerDown={
-            manualReorderEnabled
-              ? (event) => {
-                  startGoalOverviewPointerTracking(goal.id, event)
-                }
-              : undefined
-          }
-          onKeyDown={
-            (event) => {
-              if (
-                suppressGoalOverviewRowClickRef.current ||
-                draggedLifeGoalId !== null ||
-                goalOverviewControlsPanelOpen ||
-                goalOverviewStatusMenuGoalId !== null ||
-                goalOverviewActiveDateField !== null ||
-                Date.now() < goalOverviewControlsDismissUntilRef.current ||
-                Date.now() < goalOverviewStatusDismissUntilRef.current ||
-                Date.now() < goalOverviewDateDismissUntilRef.current
-              ) {
-                return
-              }
-
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault()
-                onSelectLifeGoal(goal.id)
-                setLifeGoalComposerOpen(false)
-                setLifeGoalActionFeedback(null)
-                onChangeGoalsView('life-detail')
-              }
-            }
-          }
-          onClick={() => {
-            if (
-              suppressGoalOverviewRowClickRef.current ||
-              draggedLifeGoalId !== null ||
-              goalOverviewControlsPanelOpen ||
-              goalOverviewStatusMenuGoalId !== null ||
-              goalOverviewActiveDateField !== null ||
-              Date.now() < goalOverviewControlsDismissUntilRef.current ||
-              Date.now() < goalOverviewStatusDismissUntilRef.current ||
-              Date.now() < goalOverviewDateDismissUntilRef.current
-            ) {
-              suppressGoalOverviewRowClickRef.current = false
-              return
-            }
-            onSelectLifeGoal(goal.id)
-            setLifeGoalComposerOpen(false)
-            setLifeGoalActionFeedback(null)
-            onChangeGoalsView('life-detail')
-          }}
-          className={`group relative grid w-full select-none items-center gap-x-3 border-b border-white/[0.04] px-4 py-2 text-left transition duration-150 last:border-b-0 [&>*]:min-w-0 ${
-            draggedLifeGoalId === goal.id
-              ? 'z-10 border-white/[0.08] bg-white/[0.034] shadow-[0_10px_24px_rgba(0,0,0,0.18)]'
-              : dragOverLifeGoalId === goal.id && draggedLifeGoalId && draggedLifeGoalId !== goal.id
-                ? 'shadow-[inset_0_1px_0_rgba(255,255,255,0.12),inset_0_-1px_0_rgba(255,255,255,0.12)]'
-                : rowIndex % 2 === 1
-                  ? 'bg-white/[0.012] hover:bg-white/[0.018]'
-                  : 'bg-transparent hover:bg-white/[0.01]'
-          }`}
-          style={{ gridTemplateColumns: listGridTemplateColumns }}
-        >
-          <div className="min-w-0">
-            <div className="flex min-w-0 items-start gap-2">
-              <div className="flex min-w-0 items-start gap-2">
-                {showIcons ? renderLifeGoalIcon(goal.icon, 'mt-[3px] shrink-0 text-white/48', 15) : null}
-                <p className="truncate text-[15px] font-medium text-white/84" style={{ letterSpacing: '0.012em' }}>{renderedGoalTitle}</p>
-                {showMilestoneChip ? (
-                  <span className="shrink-0 flex flex-col items-start gap-1">
-                    <span className="rounded-full border border-white/[0.05] bg-white/[0.02] px-2 py-[3px] text-[10px] leading-none text-white/38">
-                      {milestoneCount} milestone{milestoneCount === 1 ? '' : 's'}
-                    </span>
-                    {showDirectionalChip ? (
-                      <span className="rounded-full border border-white/[0.05] bg-white/[0.02] px-2 py-[3px] text-[10px] leading-none text-white/34">
-                        Directional
-                      </span>
-                    ) : null}
-                  </span>
-                ) : null}
-                {!showMilestoneChip && showDirectionalChip ? (
-                  <span className="shrink-0 rounded-full border border-white/[0.05] bg-white/[0.02] px-2 py-[3px] text-[10px] leading-none text-white/34">
-                    Directional
-                  </span>
-                ) : null}
-                <div className="flex shrink-0 items-center gap-[3px] pl-2">
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.preventDefault()
-                      event.stopPropagation()
-                      togglePinnedGoal(goal.id)
-                    }}
-                    onMouseDown={(event) => {
-                      event.preventDefault()
-                      event.stopPropagation()
-                    }}
-                    className={`inline-flex items-center justify-center rounded-[6px] p-[3px] transition ${
-                      isPinned
-                        ? 'bg-transparent text-white/60 opacity-0 group-hover:opacity-100 hover:bg-white/[0.06] hover:text-white/74'
-                        : 'bg-transparent text-[rgba(255,255,255,0.3)] opacity-0 group-hover:opacity-100 hover:bg-white/[0.06] hover:text-white/56'
-                    }`}
-                    aria-label={isPinned ? 'Unpin goal' : 'Pin goal'}
-                    title={isPinned ? 'Unpin' : 'Pin'}
-                  >
-                    <Pin size={12} strokeWidth={1.8} aria-hidden="true" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.preventDefault()
-                      event.stopPropagation()
-                      toggleImportantGoal(goal.id)
-                    }}
-                    onMouseDown={(event) => {
-                      event.preventDefault()
-                      event.stopPropagation()
-                    }}
-                    className={`inline-flex items-center justify-center rounded-[6px] p-[3px] transition ${
-                      isImportant
-                        ? 'bg-transparent text-white/54 opacity-0 group-hover:opacity-100 hover:bg-white/[0.06] hover:text-white/68'
-                        : 'bg-transparent text-[rgba(255,255,255,0.3)] opacity-0 group-hover:opacity-100 hover:bg-white/[0.06] hover:text-white/56'
-                    }`}
-                    aria-label={isImportant ? 'Remove important mark from goal' : 'Mark goal as important'}
-                    title={isImportant ? 'Unmark important' : 'Mark important'}
-                  >
-                    <Flag size={12} strokeWidth={1.8} aria-hidden="true" />
-                  </button>
-                </div>
-              </div>
-              <div className="ml-auto shrink-0" />
-            </div>
-            {showWhy ? (
-              <p className={`mt-px truncate text-[12px] text-[rgba(255,255,255,0.45)] ${titleContentOffsetClassName}`}>
-                {getLifeGoalAnchorText(goal.whyItMatters) || (progress.nextTask?.text ?? 'No next step planned yet.')}
-              </p>
-            ) : null}
-            {shouldShowTimelineRow ? (
-              <div className={`mt-1 inline-flex max-w-full items-center gap-1.5 overflow-visible whitespace-nowrap text-[12px] leading-[1.2] text-[rgba(255,255,255,0.62)] ${titleContentOffsetClassName}`}>
-                {showTimelineStart && showTimelineTarget ? (
-                  <>
-                    {hasStartDate && hasTargetDate ? (
-                      <>
-                        <button
-                          type="button"
-                          ref={(node) => {
-                            goalOverviewStartDateFieldRefs.current[goal.id] = node
-                          }}
-                          onClick={(event) => {
-                            event.preventDefault()
-                            event.stopPropagation()
-                            openGoalOverviewDatePicker(goal.id, 'startDate', event.currentTarget)
-                          }}
-                          onMouseDown={(event) => {
-                            event.stopPropagation()
-                          }}
-                          className="min-w-0 truncate rounded-[8px] px-1 py-0.5 text-left text-[rgba(255,255,255,0.62)] transition hover:bg-white/[0.025] hover:text-[rgba(255,255,255,0.74)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/[0.12]"
-                          aria-label={`Edit start date, currently ${startDateLabel}`}
-                        >
-                          {startDateLabel}
-                        </button>
-                        <span aria-hidden="true" className="shrink-0 text-white/44">
-                          →
-                        </span>
-                        <button
-                          type="button"
-                          ref={(node) => {
-                            goalOverviewTargetDateFieldRefs.current[goal.id] = node
-                          }}
-                          onClick={(event) => {
-                            event.preventDefault()
-                            event.stopPropagation()
-                            openGoalOverviewDatePicker(goal.id, 'targetDate', event.currentTarget)
-                          }}
-                          onMouseDown={(event) => {
-                            event.stopPropagation()
-                          }}
-                          className="min-w-0 truncate rounded-[8px] px-1 py-0.5 text-left text-[rgba(255,255,255,0.62)] transition hover:bg-white/[0.025] hover:text-[rgba(255,255,255,0.74)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/[0.12]"
-                          aria-label={`Edit target date, currently ${targetDateLabel}`}
-                        >
-                          {targetDateLabel}
-                        </button>
-                      </>
-                    ) : hasStartDate ? (
-                      <>
-                        <button
-                          type="button"
-                          ref={(node) => {
-                            goalOverviewStartDateFieldRefs.current[goal.id] = node
-                          }}
-                          onClick={(event) => {
-                            event.preventDefault()
-                            event.stopPropagation()
-                            openGoalOverviewDatePicker(goal.id, 'startDate', event.currentTarget)
-                          }}
-                          onMouseDown={(event) => {
-                            event.stopPropagation()
-                          }}
-                          className="min-w-0 truncate rounded-[8px] px-1 py-0.5 text-left text-[rgba(255,255,255,0.62)] transition hover:bg-white/[0.025] hover:text-[rgba(255,255,255,0.74)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/[0.12]"
-                          aria-label={`Edit start date, currently ${startDateLabel}`}
-                        >
-                          {startDateLabel}
-                        </button>
-                        <span aria-hidden="true" className="shrink-0 text-white/44">
-                          →
-                        </span>
-                        <span className="group/targetdatehelper relative inline-flex shrink-0">
-                          <button
-                            type="button"
-                            ref={(node) => {
-                              goalOverviewTargetDateFieldRefs.current[goal.id] = node
-                            }}
-                            onClick={(event) => {
-                              event.preventDefault()
-                              event.stopPropagation()
-                              openGoalOverviewDatePicker(goal.id, 'targetDate', event.currentTarget)
-                            }}
-                            onMouseDown={(event) => {
-                              event.stopPropagation()
-                            }}
-                            className="inline-flex items-center rounded-[8px] px-0.5 py-0.5 text-white/38 transition hover:bg-white/[0.025] hover:text-white/52 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/[0.12]"
-                            aria-label="Set target date"
-                          >
-                            {renderCalendarAddIcon()}
-                          </button>
-                          {!targetDatePickerOpenForGoal ? (
-                            <span className="pointer-events-none absolute top-[calc(100%+8px)] left-1/2 z-[90] hidden -translate-x-1/2 whitespace-nowrap rounded-xl border border-white/10 bg-[rgb(var(--theme-surface-elevated-rgb))] px-2.5 py-1 text-[11px] font-medium text-white/72 opacity-0 shadow-[0_12px_30px_rgba(15,23,42,0.16)] transition-all duration-150 ease-out group-hover/targetdatehelper:block group-hover/targetdatehelper:opacity-100">
-                              Set target date
-                            </span>
-                          ) : null}
-                        </span>
-                      </>
-                    ) : hasTargetDate ? (
-                      <>
-                        <button
-                          type="button"
-                          ref={(node) => {
-                            goalOverviewStartDateFieldRefs.current[goal.id] = node
-                          }}
-                          onClick={(event) => {
-                            event.preventDefault()
-                            event.stopPropagation()
-                            openGoalOverviewDatePicker(goal.id, 'startDate', event.currentTarget)
-                          }}
-                          onMouseDown={(event) => {
-                            event.stopPropagation()
-                          }}
-                          className="inline-flex items-center rounded-[8px] px-0.5 py-0.5 text-white/38 transition hover:bg-white/[0.025] hover:text-white/52 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/[0.12]"
-                          aria-label="Set start date"
-                        >
-                          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                            <rect x="2.25" y="3.25" width="11.5" height="10.5" rx="2.25" stroke="currentColor" strokeWidth="1.2" />
-                            <path d="M5 2.5V4.5M11 2.5V4.5M2.5 6.25H13.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-                          </svg>
-                        </button>
-                        <span aria-hidden="true" className="shrink-0 text-white/44">
-                          →
-                        </span>
-                        <button
-                          type="button"
-                          ref={(node) => {
-                            goalOverviewTargetDateFieldRefs.current[goal.id] = node
-                          }}
-                          onClick={(event) => {
-                            event.preventDefault()
-                            event.stopPropagation()
-                            openGoalOverviewDatePicker(goal.id, 'targetDate', event.currentTarget)
-                          }}
-                          onMouseDown={(event) => {
-                            event.stopPropagation()
-                          }}
-                          className="min-w-0 truncate rounded-[8px] px-1 py-0.5 text-left text-[rgba(255,255,255,0.62)] transition hover:bg-white/[0.025] hover:text-[rgba(255,255,255,0.74)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/[0.12]"
-                          aria-label={`Edit target date, currently ${targetDateLabel}`}
-                        >
-                          {targetDateLabel}
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <button
-                          type="button"
-                          ref={(node) => {
-                            goalOverviewStartDateFieldRefs.current[goal.id] = node
-                          }}
-                          onClick={(event) => {
-                            event.preventDefault()
-                            event.stopPropagation()
-                            openGoalOverviewDatePicker(goal.id, 'startDate', event.currentTarget)
-                          }}
-                          onMouseDown={(event) => {
-                            event.stopPropagation()
-                          }}
-                          className="inline-flex items-center rounded-[8px] px-0.5 py-0.5 text-white/38 transition hover:bg-white/[0.025] hover:text-white/52 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/[0.12]"
-                          aria-label="Set start date"
-                        >
-                          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                            <rect x="2.25" y="3.25" width="11.5" height="10.5" rx="2.25" stroke="currentColor" strokeWidth="1.2" />
-                            <path d="M5 2.5V4.5M11 2.5V4.5M2.5 6.25H13.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-                          </svg>
-                        </button>
-                        <span aria-hidden="true" className="shrink-0 text-white/44">
-                          →
-                        </span>
-                        <span className="group/targetdatehelper relative inline-flex shrink-0">
-                          <button
-                            type="button"
-                            ref={(node) => {
-                              goalOverviewTargetDateFieldRefs.current[goal.id] = node
-                            }}
-                            onClick={(event) => {
-                              event.preventDefault()
-                              event.stopPropagation()
-                              openGoalOverviewDatePicker(goal.id, 'targetDate', event.currentTarget)
-                            }}
-                            onMouseDown={(event) => {
-                              event.stopPropagation()
-                            }}
-                            className="inline-flex items-center rounded-[8px] px-0.5 py-0.5 text-white/38 transition hover:bg-white/[0.025] hover:text-white/52 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/[0.12]"
-                            aria-label="Set target date"
-                          >
-                            {renderCalendarAddIcon()}
-                          </button>
-                          {!targetDatePickerOpenForGoal ? (
-                            <span className="pointer-events-none absolute top-[calc(100%+8px)] left-1/2 z-[90] hidden -translate-x-1/2 whitespace-nowrap rounded-xl border border-white/10 bg-[rgb(var(--theme-surface-elevated-rgb))] px-2.5 py-1 text-[11px] font-medium text-white/72 opacity-0 shadow-[0_12px_30px_rgba(15,23,42,0.16)] transition-all duration-150 ease-out group-hover/targetdatehelper:block group-hover/targetdatehelper:opacity-100">
-                              Set target date
-                            </span>
-                          ) : null}
-                        </span>
-                      </>
-                    )}
-                    {timelineDueDisplay ? (
-                      <>
-                        {hasTargetDate ? (
-                          <span aria-hidden="true" className="shrink-0 text-white/32">
-                            •
-                          </span>
-                        ) : null}
-                        <span className={`shrink-0 ${timelineDueDisplay.className}`}>{timelineDueDisplay.label}</span>
-                      </>
-                    ) : null}
-                  </>
-                ) : showTimelineStart ? (
-                  hasStartDate ? (
-                    <>
-                      <span className="shrink-0 text-white/42">{startOnlyLabel}</span>
-                      <button
-                        type="button"
-                        ref={(node) => {
-                          goalOverviewStartDateFieldRefs.current[goal.id] = node
-                        }}
-                        onClick={(event) => {
-                          event.preventDefault()
-                          event.stopPropagation()
-                          openGoalOverviewDatePicker(goal.id, 'startDate', event.currentTarget)
-                        }}
-                        onMouseDown={(event) => {
-                          event.stopPropagation()
-                        }}
-                        className="min-w-0 truncate rounded-[8px] px-1 py-0.5 text-left text-[rgba(255,255,255,0.62)] transition hover:bg-white/[0.025] hover:text-[rgba(255,255,255,0.74)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/[0.12]"
-                        aria-label={`Edit start date, currently ${startDateLabel}`}
-                      >
-                        {startDateLabel}
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      type="button"
-                      ref={(node) => {
-                        goalOverviewStartDateFieldRefs.current[goal.id] = node
-                      }}
-                      onClick={(event) => {
-                        event.preventDefault()
-                        event.stopPropagation()
-                        openGoalOverviewDatePicker(goal.id, 'startDate', event.currentTarget)
-                      }}
-                      onMouseDown={(event) => {
-                        event.stopPropagation()
-                      }}
-                      className="inline-flex items-center rounded-[8px] px-0.5 py-0.5 text-white/38 transition hover:bg-white/[0.025] hover:text-white/52 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/[0.12]"
-                      aria-label="Set start date"
-                    >
-                      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                        <rect x="2.25" y="3.25" width="11.5" height="10.5" rx="2.25" stroke="currentColor" strokeWidth="1.2" />
-                        <path d="M5 2.5V4.5M11 2.5V4.5M2.5 6.25H13.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-                      </svg>
-                    </button>
-                  )
-                ) : showTimelineTarget ? (
-                  hasTargetDate ? (
-                    <>
-                      <span className="shrink-0 text-white/42">Target</span>
-                      <button
-                        type="button"
-                        ref={(node) => {
-                          goalOverviewTargetDateFieldRefs.current[goal.id] = node
-                        }}
-                        onClick={(event) => {
-                          event.preventDefault()
-                          event.stopPropagation()
-                          openGoalOverviewDatePicker(goal.id, 'targetDate', event.currentTarget)
-                        }}
-                        onMouseDown={(event) => {
-                          event.stopPropagation()
-                        }}
-                        className="min-w-0 truncate rounded-[8px] px-1 py-0.5 text-left text-[rgba(255,255,255,0.62)] transition hover:bg-white/[0.025] hover:text-[rgba(255,255,255,0.74)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/[0.12]"
-                        aria-label={`Edit target date, currently ${targetDateLabel}`}
-                      >
-                        {targetDateLabel}
-                      </button>
-                      {timelineDueDisplay ? (
-                        <>
-                          <span aria-hidden="true" className="shrink-0 text-white/32">
-                            •
-                          </span>
-                          <span className={`shrink-0 ${timelineDueDisplay.className}`}>{timelineDueDisplay.label}</span>
-                        </>
-                      ) : null}
-                    </>
-                  ) : (
-                    <span className="group/targetdatehelper relative inline-flex shrink-0">
-                      <button
-                        type="button"
-                        ref={(node) => {
-                          goalOverviewTargetDateFieldRefs.current[goal.id] = node
-                        }}
-                        onClick={(event) => {
-                          event.preventDefault()
-                          event.stopPropagation()
-                          openGoalOverviewDatePicker(goal.id, 'targetDate', event.currentTarget)
-                        }}
-                        onMouseDown={(event) => {
-                          event.stopPropagation()
-                        }}
-                        className="inline-flex items-center rounded-[8px] px-0.5 py-0.5 text-white/38 transition hover:bg-white/[0.025] hover:text-white/52 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/[0.12]"
-                        aria-label="Set target date"
-                      >
-                        {renderCalendarAddIcon()}
-                      </button>
-                      {!targetDatePickerOpenForGoal ? (
-                        <span className="pointer-events-none absolute top-[calc(100%+8px)] left-1/2 z-[90] hidden -translate-x-1/2 whitespace-nowrap rounded-xl border border-white/10 bg-[rgb(var(--theme-surface-elevated-rgb))] px-2.5 py-1 text-[11px] font-medium text-white/72 opacity-0 shadow-[0_12px_30px_rgba(15,23,42,0.16)] transition-all duration-150 ease-out group-hover/targetdatehelper:block group-hover/targetdatehelper:opacity-100">
-                          Set target date
-                        </span>
-                      ) : null}
-                    </span>
-                  )
-                ) : timelineDueDisplay ? (
-                  <span className={`shrink-0 ${timelineDueDisplay.className}`}>{timelineDueDisplay.label}</span>
-                ) : null}
-              </div>
-            ) : null}
-            {completedTimelineLabel ? (
-              <div className="mt-1 inline-flex max-w-full flex-col items-start">
-                <span aria-hidden="true" className="mb-1 h-px w-full max-w-[220px] bg-white/[0.06]" />
-                <p className="truncate text-[11px] text-white/34">{completedTimelineLabel}</p>
-              </div>
-            ) : null}
-            {showNextTaskCallout ? (
-              <div className={`mt-2 flex max-w-full items-start gap-2 ${titleContentOffsetClassName}`}>
-                <span className="mt-[1px] h-[26px] w-px shrink-0 bg-[rgb(var(--theme-info-rgb)/0.58)]" aria-hidden="true" />
-                <div className="min-w-0">
-                  <p className="text-[10px] uppercase tracking-[0.12em] text-white/[0.44]">Next task</p>
-                  <p className="mt-[2px] truncate text-[12px] text-white/[0.7]">
-                    {progress.nextTask!.text.trim()}
-                  </p>
-                </div>
-              </div>
-            ) : null}
-          </div>
-          {visibleColumnDefs.map((column) => (
-            <div
-              key={`${goal.id}-${column.key}`}
-              className={`min-w-0 whitespace-nowrap ${column.key === 'status' ? 'relative overflow-visible flex items-center' : 'overflow-hidden'}`}
-            >
-              <div
-                className={`min-w-0 ${column.key === 'status' ? 'overflow-visible flex items-center' : 'overflow-hidden'}`}
-                style={column.key === 'belongsTo' ? goalOverviewFadeTruncateStyle : undefined}
-              >
-                {column.render(goal)}
-              </div>
-            </div>
-          ))}
-          <span
-            aria-hidden="true"
-            className={`pointer-events-none absolute left-[2px] top-3 bottom-3 rounded-full transition-all ${
-              isImportant
-                ? 'z-[3] w-[2px] bg-[rgb(var(--theme-accent-rgb)/0.84)] shadow-[0_0_0_1px_rgb(var(--theme-accent-rgb)/0.08),0_0_8px_rgb(var(--theme-accent-rgb)/0.08)]'
-                : 'z-[1] w-[2px] bg-transparent group-hover:bg-white/[0.14]'
-            }`}
-          />
-        </div>
-      )
-    }
-
-    const renderGroupedList = (groups: Array<{ label: string | null; goals: LifeGoal[] }>) => (
-      <div className="space-y-4">
-        {groups.map((group) => (
-          <section key={group.label ?? 'default'} className="space-y-2">
-            {group.label ? <p className="px-4 text-[12px] font-medium tracking-[-0.01em] text-mist/48">{group.label}</p> : null}
-            <div>{group.goals.map((goal, rowIndex) => renderListRow(goal, rowIndex))}</div>
-          </section>
-        ))}
-      </div>
-    )
-
-    const renderBoardCard = (goal: LifeGoal) => {
-      const categoryColor = goal.category ? getLifeGoalCategoryColor(goal.category, safeLifeGoalCategories) : 'neutral'
-      const milestoneCount = getOrderedGoalMilestones(goal).length
-      return (
-        <button
-          key={goal.id}
-          type="button"
-          onClick={() => {
-            onSelectLifeGoal(goal.id)
-            setLifeGoalComposerOpen(false)
-            setLifeGoalActionFeedback(null)
-            onChangeGoalsView('life-detail')
-          }}
-          className="group relative rounded-[18px] border border-white/[0.04] bg-white/[0.014] px-4 py-3 text-left transition hover:bg-white/[0.02]"
-        >
-          <span
-            aria-hidden="true"
-            className="absolute left-0 top-3 bottom-3 w-[2px] rounded-full bg-[rgb(var(--goal-rail-rgb)/0.24)]"
-            style={getLifeGoalAccentBarStyle(categoryColor)}
-          />
-          <div className="space-y-2 pl-2">
-            <div className="flex min-w-0 items-center gap-2">
-              {renderLifeGoalIcon(goal.icon, 'shrink-0 text-white/46', 14)}
-              <p className="truncate text-[14px] font-medium tracking-[-0.01em] text-white/88">{formatGoalCardTitle(goal.title)}</p>
-              {milestoneCount > 0 ? (
-                <span className="shrink-0 rounded-full border border-white/[0.05] bg-white/[0.018] px-2 py-[3px] text-[10px] text-white/36">
-                  {milestoneCount}
-                </span>
-              ) : null}
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              {goal.category ? (
-                <span
-                  className="inline-flex items-center gap-1.5 rounded-full border px-2 py-[3px] text-[10px] font-medium leading-none text-white/44"
-                  style={getLifeGoalCategoryChipStyle(categoryColor)}
-                >
-                  <span className="h-1.5 w-1.5 rounded-full" style={getLifeGoalCategoryDotStyle(categoryColor)} />
-                  <span>{goal.category}</span>
-                </span>
-              ) : null}
-              <span className={`${goalStatusChipClassName} h-[22px] px-2 py-0 text-[9px] opacity-85 ${getLifeGoalStatusMeta(goal.status, goal.startDate).badgeClassName}`}>
-                {getLifeGoalStatusMeta(goal.status, goal.startDate).label}
-              </span>
-            </div>
-            <p className="truncate text-[12px] text-white/48">{getLifeGoalAnchorText(goal.whyItMatters) || 'No context yet.'}</p>
-          </div>
-        </button>
-      )
-    }
-
-    const renderBoardView = () => {
-      const columns = [
-        { id: 'not-started', label: 'Not Started', goals: sortOverviewGoals(activeOverviewGoals.filter((goal) => goal.status === 'not-started' || goal.status === 'paused')) },
-        { id: 'active', label: 'Active', goals: sortOverviewGoals(activeOverviewGoals.filter((goal) => goal.status === 'in-motion')) },
-        ...(goalOverviewViewControls.showCompleted
-          ? [{ id: 'completed', label: 'Completed', goals: sortOverviewGoals(completedOverviewGoals) }]
-          : []),
-      ]
-
-      return (
-        <div className={`grid gap-4 ${columns.length === 3 ? 'lg:grid-cols-3' : 'lg:grid-cols-2'}`}>
-          {columns.map((column) => (
-            <section key={column.id} className="space-y-2.5">
-              <div className="flex items-center justify-between px-1">
-                <p className="text-[12px] font-medium tracking-[-0.01em] text-mist/46">{column.label}</p>
-                <span className="text-[11px] text-mist/36">{column.goals.length}</span>
-              </div>
-              <div className="space-y-2">
-                {column.goals.length > 0 ? column.goals.map((goal) => renderBoardCard(goal)) : <div className="px-1 py-3 text-[12px] text-mist/38">No goals</div>}
-              </div>
-            </section>
-          ))}
-        </div>
-      )
-    }
-
-    const renderTimelinePlaceholder = () => (
-      <div className="px-4 py-6 text-[13px] text-mist/52">
-        Timeline view is reserved here next, using the same goal collection and control state.
-      </div>
-    )
-
-    const renderCompletedSection = () => {
-      if (!goalOverviewViewControls.showCompleted || completedOverviewGoals.length === 0 || goalOverviewViewControls.view === 'board') return null
-
-      return (
-        <section className="border-t border-white/[0.05] pt-4">
-          <button
-            type="button"
-            onClick={() => setGoalOverviewCompletedOpen((current) => !current)}
-            className="flex w-full items-center justify-between px-4 pb-2 text-left"
-          >
-            <span className="text-[12px] font-medium tracking-[-0.01em] text-white/70">Completed</span>
-            <span className="text-[12px] text-mist/42">{goalOverviewCompletedOpen ? 'Hide' : completedOverviewGoals.length}</span>
-          </button>
-          {goalOverviewCompletedOpen ? renderGroupedList(completedGroupedGoals) : null}
-        </section>
-      )
-    }
-
-    const renderOverviewContent = () => {
-      if (goalOverviewViewControls.view === 'board') return renderBoardView()
-      if (goalOverviewViewControls.view === 'timeline') return renderTimelinePlaceholder()
-      return (
-        <div className="space-y-4">
-          <div className="border-b border-[rgba(255,255,255,0.08)] pb-2">{renderGoalListHeaders()}</div>
-          {renderGroupedList(activeGroupedGoals)}
-        </div>
-      )
-    }
-
-    const panelPrimaryLabelClassName = GOALS_UTILITY_PANEL_PRIMARY_LABEL_CLASSNAME
-    const panelSecondaryLabelClassName = GOALS_UTILITY_PANEL_SECONDARY_LABEL_CLASSNAME
-    const panelSelectClassName = GOALS_UTILITY_PANEL_SELECT_CLASSNAME
-
-    const renderControlsPanel = () => (
-      <AnimatePresence>
-        {goalOverviewControlsPanelOpen ? (
-          <motion.aside
-            ref={goalOverviewControlsPanelRef}
-            className={`absolute right-0 top-[calc(100%+10px)] z-[80] flex max-h-[calc(100vh-32px)] w-[344px] max-w-[calc(100vw-32px)] min-h-0 flex-col ${GOALS_UTILITY_PANEL_SHELL_CLASSNAME}`}
-            initial={{ opacity: 0, x: 12, y: -6 }}
-            animate={{ opacity: 1, x: 0, y: 0 }}
-            exit={{ opacity: 0, x: 12, y: -6 }}
-            transition={{ duration: 0.16, ease: 'easeOut' }}
-          >
-            <div className="min-h-0 flex-1 space-y-3.5 overflow-y-auto overscroll-contain pr-1" onWheel={containScrollWithinElement}>
-              <section className="space-y-1.5">
-                <div className="grid grid-cols-3 gap-2">
-                  {[
-                    ['list', 'List', 'list'],
-                    ['board', 'Board', 'board'],
-                    ['timeline', 'Timeline', 'timeline'],
-                  ].map(([value, label, icon]) => (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => updateViewControls((current) => ({ ...current, view: value as GoalOverviewViewMode }))}
-                      className={`inline-flex items-center justify-center gap-1.5 rounded-[14px] border px-2.5 py-1.5 text-[12px] font-medium transition ${
-                        goalOverviewViewControls.view === value
-                          ? 'border-white/[0.1] bg-white/[0.06] text-white/88'
-                          : 'border-white/[0.05] bg-white/[0.018] text-white/46 hover:border-white/[0.08] hover:text-white/76'
-                      }`}
-                    >
-                      {icon === 'list' ? (
-                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                          <path d="M3 4H13M3 8H13M3 12H13" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-                        </svg>
-                      ) : null}
-                      {icon === 'board' ? (
-                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                          <rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.2" />
-                          <rect x="9" y="2.5" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.2" />
-                          <rect x="2.5" y="9" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.2" />
-                          <rect x="9" y="9" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.2" />
-                        </svg>
-                      ) : null}
-                      {icon === 'timeline' ? (
-                        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                          <path d="M4 3.5V12.5M8 5.5V10.5M12 2.5V13.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-                          <circle cx="4" cy="8" r="1" fill="currentColor" />
-                          <circle cx="8" cy="3.5" r="1" fill="currentColor" />
-                          <circle cx="12" cy="11.5" r="1" fill="currentColor" />
-                        </svg>
-                      ) : null}
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </section>
-
-              <section className="grid gap-2.5">
-                <div className="flex items-center justify-between gap-3">
-                  <label className={panelPrimaryLabelClassName}>Group</label>
-                  <div className="relative">
-                    <select
-                      value={goalOverviewViewControls.groupBy}
-                      onChange={(event) => updateViewControls((current) => ({ ...current, groupBy: event.target.value as GoalOverviewGroupBy }))}
-                      className={panelSelectClassName}
-                    >
-                      <option value="none">None</option>
-                      <option value="status">Status</option>
-                      <option value="category">Category</option>
-                      <option value="life-direction">Life Direction</option>
-                    </select>
-                    <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-white/26">
-                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                        <path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between gap-3">
-                  <label className={panelPrimaryLabelClassName}>Sort</label>
-                  <div className="relative">
-                    <select
-                      value={goalOverviewViewControls.sortBy}
-                      onChange={(event) => updateViewControls((current) => ({ ...current, sortBy: event.target.value as GoalOverviewSortBy }))}
-                      className={panelSelectClassName}
-                    >
-                      <option value="manual">Manual (drag to reorder)</option>
-                      <option value="due">Due date</option>
-                      <option value="priority">Priority</option>
-                      <option value="updated">Recently updated</option>
-                    </select>
-                    <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-white/26">
-                      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                        <path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between gap-3 rounded-[14px] border border-white/[0.05] bg-white/[0.018] px-3 py-2.5">
-                  <div>
-                    <p className={panelPrimaryLabelClassName}>Show next task</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => updateViewControls((current) => ({ ...current, showNextTask: !current.showNextTask }))}
-                    className={`inline-flex h-5 w-9 rounded-full border p-[2px] transition ${
-                      goalOverviewViewControls.showNextTask
-                        ? 'border-white/[0.12] bg-white/[0.08]'
-                        : 'border-white/[0.06] bg-transparent'
-                    }`}
-                  >
-                    <span
-                      className={`h-full w-4 rounded-full bg-white/70 transition ${
-                        goalOverviewViewControls.showNextTask ? 'translate-x-[14px]' : ''
-                      }`}
-                    />
-                  </button>
-                </div>
-
-                <div className="flex items-center justify-between gap-3 rounded-[14px] border border-white/[0.05] bg-white/[0.018] px-3 py-2.5">
-                  <div>
-                    <p className={panelPrimaryLabelClassName}>Show completed</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => updateViewControls((current) => ({ ...current, showCompleted: !current.showCompleted }))}
-                    className={`inline-flex h-5 w-9 rounded-full border p-[2px] transition ${
-                      goalOverviewViewControls.showCompleted
-                        ? 'border-white/[0.12] bg-white/[0.08]'
-                        : 'border-white/[0.06] bg-transparent'
-                    }`}
-                  >
-                    <span
-                      className={`h-full w-4 rounded-full bg-white/70 transition ${
-                        goalOverviewViewControls.showCompleted ? 'translate-x-[14px]' : ''
-                      }`}
-                    />
-                  </button>
-                </div>
-              </section>
-
-              <section className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <p className={panelPrimaryLabelClassName}>Columns</p>
-                  <p className={panelSecondaryLabelClassName}>Visible in list view</p>
-                </div>
-                <div className="grid gap-1">
-                  {goalOverviewViewControls.columnOrder
-                    .filter((columnKey) => columnKey !== 'milestones' && columnKey !== 'due' && columnKey !== 'startDate' && columnKey !== 'targetDate')
-                    .map((columnKey) => {
-                    const label = columnMeta[columnKey].label
-                    const isVisible = goalOverviewViewControls.columns[columnKey]
-                    return (
-                      <div
-                        key={columnKey}
-                        onDragOver={(event) => {
-                          if (!goalOverviewDraggedColumn || goalOverviewDraggedColumn === columnKey) return
-                          event.preventDefault()
-                        }}
-                        onDrop={(event) => {
-                          event.preventDefault()
-                          if (!goalOverviewDraggedColumn || goalOverviewDraggedColumn === columnKey) return
-                          reorderColumnBefore(goalOverviewDraggedColumn, columnKey)
-                          setGoalOverviewDraggedColumn(null)
-                        }}
-                        className={`flex w-full items-center justify-between rounded-[12px] px-2.5 py-2 transition ${
-                          isVisible ? 'hover:bg-white/[0.03]' : 'opacity-70'
-                        } ${goalOverviewDraggedColumn === columnKey ? 'bg-white/[0.03]' : ''}`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            draggable
-                            onDragStart={(event) => {
-                              event.stopPropagation()
-                              setGoalOverviewDraggedColumn(columnKey)
-                            }}
-                            onDragEnd={() => setGoalOverviewDraggedColumn(null)}
-                            className={`inline-flex h-5 w-5 cursor-grab items-center justify-center rounded-[8px] text-[13px] leading-none transition hover:bg-white/[0.03] hover:text-white/62 active:cursor-grabbing ${
-                              isVisible ? 'text-white/45' : 'text-white/28'
-                            }`}
-                            aria-label={`Reorder ${label} column`}
-                          >
-                            ⋮⋮
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              updateViewControls((current) => ({
-                                ...current,
-                                columns: {
-                                  ...current.columns,
-                                  [columnKey]: !current.columns[columnKey],
-                                },
-                              }))
-                            }
-                            className={`text-left text-[12px] transition ${panelSecondaryLabelClassName} hover:text-[rgba(255,255,255,0.7)]`}
-                          >
-                            {label}
-                          </button>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              updateViewControls((current) => ({
-                                ...current,
-                                columns: {
-                                  ...current.columns,
-                                  [columnKey]: !current.columns[columnKey],
-                                },
-                              }))
-                            }
-                            className={`inline-flex h-4 w-7 rounded-full border p-[2px] ${
-                              isVisible ? 'border-white/[0.12] bg-white/[0.08]' : 'border-white/[0.06] bg-transparent'
-                            }`}
-                          >
-                            <span className={`h-full w-3 rounded-full bg-white/70 transition ${isVisible ? 'translate-x-[11px]' : ''}`} />
-                          </button>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </section>
-
-              <section className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <p className={panelPrimaryLabelClassName}>Row content</p>
-                </div>
-                <div className="grid gap-1">
-                  {[
-                    ['icons', 'Icons'],
-                    ['why', 'Why'],
-                    ['startDate', 'Start date'],
-                    ['targetDate', 'Target date'],
-                    ['dueAmount', 'Due (days)'],
-                    ['milestones', 'Milestones'],
-                    ['directional', 'Directional'],
-                  ].map(([key, label]) => {
-                    const rowContentKey = key as GoalOverviewRowContentKey
-                    const isVisible = goalOverviewViewControls.rowContent[rowContentKey]
-
-                    return (
-                      <div
-                        key={rowContentKey}
-                        className={`flex w-full items-center justify-between rounded-[12px] px-2.5 py-2 transition ${
-                          isVisible ? 'hover:bg-white/[0.03]' : 'opacity-70'
-                        }`}
-                      >
-                        <button
-                          type="button"
-                          onClick={() =>
-                            updateViewControls((current) => ({
-                              ...current,
-                              rowContent: {
-                                ...current.rowContent,
-                                [rowContentKey]: !current.rowContent[rowContentKey],
-                              },
-                            }))
-                          }
-                          className={`text-left text-[12px] transition ${panelSecondaryLabelClassName} hover:text-[rgba(255,255,255,0.7)]`}
-                        >
-                          {label}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            updateViewControls((current) => ({
-                              ...current,
-                              rowContent: {
-                                ...current.rowContent,
-                                [rowContentKey]: !current.rowContent[rowContentKey],
-                              },
-                            }))
-                          }
-                          className={`inline-flex h-5 w-9 rounded-full border p-[2px] transition ${
-                            isVisible ? 'border-white/[0.12] bg-white/[0.08]' : 'border-white/[0.06] bg-transparent'
-                          }`}
-                          aria-label={`${isVisible ? 'Hide' : 'Show'} ${label.toLowerCase()}`}
-                        >
-                          <span className={`h-full w-4 rounded-full bg-white/70 transition ${isVisible ? 'translate-x-[14px]' : ''}`} />
-                        </button>
-                      </div>
-                    )
-                  })}
-                </div>
-              </section>
-
-              <div className="border-t border-white/[0.05] pt-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setGoalOverviewViewControls(DEFAULT_GOAL_OVERVIEW_VIEW_CONTROLS)
-                    setGoalOverviewCompletedOpen(false)
-                  }}
-                  className={`${panelPrimaryLabelClassName} transition hover:text-white/82`}
-                >
-                  Reset
-                </button>
-              </div>
-            </div>
-          </motion.aside>
-        ) : null}
-      </AnimatePresence>
-    )
-
-    const goalsHeaderControlsSlot =
-      typeof document !== 'undefined' ? document.getElementById('goals-header-controls-slot') : null
-    const goalsHeaderControlsPortalTarget =
-      goalOverviewHeaderControlsSticky && typeof document !== 'undefined' ? document.body : goalsHeaderControlsSlot
-
-    return (
-      <div ref={goalOverviewPageRef} className="relative mx-auto max-w-[1280px] space-y-3">
-        {goalsHeaderControlsPortalTarget
-          ? createPortal(
-              <div
-                ref={goalOverviewHeaderControlsRef}
-                className={`inline-flex items-center gap-2 ${goalOverviewHeaderControlsSticky ? 'fixed z-[120]' : 'relative'}`}
-                style={
-                  goalOverviewHeaderControlsSticky
-                    ? {
-                        top: `${goalOverviewHeaderControlsTop}px`,
-                        right: `${goalOverviewHeaderControlsRight}px`,
-                      }
-                    : undefined
-                }
-              >
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    if (lifeGoalComposerOpen && lifeGoalComposerMode === 'create') {
-                      closeLifeGoalComposer()
-                      return
-                    }
-                    setLifeGoalDraft(createEmptyLifeGoalDraft())
-                    openLifeGoalComposer(event.currentTarget)
-                  }}
-                  className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border text-[18px] text-white/48 transition hover:border-white/[0.07] hover:text-white/74 ${
-                    goalOverviewHeaderControlsSticky
-                      ? 'border-white/[0.06] bg-[rgb(var(--theme-surface-elevated-rgb)/0.96)] hover:bg-[rgb(var(--theme-surface-elevated-rgb)/0.98)]'
-                      : 'border-white/[0.045] bg-[rgb(var(--theme-surface-elevated-rgb)/0.44)] hover:bg-[rgb(var(--theme-surface-elevated-rgb)/0.56)]'
-                  }`}
-                  aria-label="Create goal"
-                >
-                  +
-                </button>
-
-                <button
-                  ref={goalOverviewControlsTriggerRef}
-                  type="button"
-                  onClick={() => setGoalOverviewControlsPanelOpen((current) => !current)}
-                  className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border text-white/50 transition hover:border-white/[0.07] hover:text-white/76 ${
-                    goalOverviewHeaderControlsSticky
-                      ? 'border-white/[0.06] bg-[rgb(var(--theme-surface-elevated-rgb)/0.96)] hover:bg-[rgb(var(--theme-surface-elevated-rgb)/0.98)]'
-                      : 'border-white/[0.045] bg-[rgb(var(--theme-surface-elevated-rgb)/0.44)] hover:bg-[rgb(var(--theme-surface-elevated-rgb)/0.56)]'
-                  }`}
-                  aria-label="Open view controls"
-                  aria-expanded={goalOverviewControlsPanelOpen}
-                >
-                  <svg width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                    <path d="M2.5 4.5H13.5M2.5 8H13.5M2.5 11.5H13.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-                    <circle cx="5.5" cy="4.5" r="1.4" fill="currentColor" />
-                    <circle cx="10.5" cy="8" r="1.4" fill="currentColor" />
-                    <circle cx="7" cy="11.5" r="1.4" fill="currentColor" />
-                  </svg>
-                </button>
-
-                {renderControlsPanel()}
-              </div>,
-              goalsHeaderControlsPortalTarget,
-            )
-          : null}
-
-        {lifeGoalComposerOpen && lifeGoalComposerMode === 'create' ? (
-          <div className="rounded-[24px] border border-white/[0.05] bg-[rgb(var(--theme-surface-elevated-rgb)/0.42)] px-4 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
-            {renderLifeGoalComposer()}
-          </div>
-        ) : null}
-
-        {goalOverviewActiveDateField && goalOverviewDatePanelPosition && typeof document !== 'undefined'
-          ? createPortal(
-              <div
-                ref={goalOverviewDatePanelRef}
-                className="theme-popover fixed z-[80] overflow-hidden rounded-[22px] border p-2.5 shadow-[0_22px_46px_rgba(15,23,42,0.18)]"
-                style={{
-                  top: `${goalOverviewDatePanelPosition.top}px`,
-                  left: `${goalOverviewDatePanelPosition.left}px`,
-                  width: `${goalOverviewDatePanelPosition.width}px`,
-                }}
-                onMouseDown={(event) => {
-                  event.preventDefault()
-                  event.stopPropagation()
-                }}
-                onClick={(event) => {
-                  event.preventDefault()
-                  event.stopPropagation()
-                }}
-              >
-                <p className="theme-text-faint mb-2 text-[10px] uppercase tracking-[0.14em]">
-                  {goalOverviewActiveDateField.field === 'startDate' ? 'Start Date' : 'Target Date'}
-                </p>
-                <div className="mb-3 flex flex-nowrap justify-center gap-1">
-                  {[
-                    { label: 'Today', value: getTodayIsoDate() },
-                    { label: '1W', value: shiftIsoDate(getTodayIsoDate(), 7) },
-                    { label: '1M', value: shiftIsoDate(getTodayIsoDate(), 30) },
-                    { label: '3M', value: shiftIsoDate(getTodayIsoDate(), 90) },
-                    { label: '6M', value: shiftIsoDate(getTodayIsoDate(), 180) },
-                    { label: '1Y', value: shiftIsoDate(getTodayIsoDate(), 365) },
-                  ].map((preset) => (
-                    <button
-                      key={preset.label}
-                      type="button"
-                      onClick={() => applyGoalOverviewDate(goalOverviewActiveDateField.goalId, goalOverviewActiveDateField.field, preset.value)}
-                      className="theme-text-muted min-w-0 rounded-full border border-[rgb(var(--theme-border-subtle-rgb)/0.65)] px-2 py-1.5 text-center text-[10px] transition hover:border-[rgb(var(--theme-border-strong-rgb)/0.7)] hover:text-[rgb(var(--theme-text-primary-rgb))] hover:bg-[rgb(var(--theme-surface-soft-rgb)/0.7)]"
-                    >
-                      {preset.label}
-                    </button>
-                  ))}
-                </div>
-                <div className="flex items-center justify-between gap-2.5">
-                  <button
-                    type="button"
-                    onClick={() => setLifeGoalDateViewMonth((current) => shiftCalendarMonth(current, -1))}
-                    className="theme-text-muted rounded-full px-2.25 py-1.25 text-[11px] transition hover:bg-[rgb(var(--theme-surface-soft-rgb)/0.45)] hover:text-[rgb(var(--theme-text-primary-rgb))]"
-                  >
-                    Prev
-                  </button>
-                  <p className="theme-text-primary text-[13px] font-medium">{formatCalendarMonthLabel(lifeGoalDateViewMonth)}</p>
-                  <button
-                    type="button"
-                    onClick={() => setLifeGoalDateViewMonth((current) => shiftCalendarMonth(current, 1))}
-                    className="theme-text-muted rounded-full px-2.25 py-1.25 text-[11px] transition hover:bg-[rgb(var(--theme-surface-soft-rgb)/0.45)] hover:text-[rgb(var(--theme-text-primary-rgb))]"
-                  >
-                    Next
-                  </button>
-                </div>
-
-                <div className="mt-2.5 grid grid-cols-7 gap-1.25">
-                  {LIFE_GOAL_WEEKDAY_LABELS.map((day) => (
-                    <div key={day} className="theme-text-faint px-1 py-0.5 text-center text-[10px] uppercase tracking-[0.12em]">
-                      {day}
-                    </div>
-                  ))}
-                </div>
-
-                <div className="mt-1 grid grid-cols-7 gap-1.25">
-                  {getCalendarDays(lifeGoalDateViewMonth).map((day) => {
-                    const dayValue = formatCalendarDayValue(day)
-                    const inCurrentMonth = day.getUTCMonth() === lifeGoalDateViewMonth.getUTCMonth()
-                    const activeGoal = safeLifeGoals.find((item) => item.id === goalOverviewActiveDateField.goalId)
-                    const activeDateValue = activeGoal ? activeGoal[goalOverviewActiveDateField.field] : ''
-                    const isSelected = dayValue === activeDateValue
-                    const isToday = dayValue === getTodayIsoDate()
-
-                    return (
-                      <button
-                        key={dayValue}
-                        type="button"
-                        onClick={() => applyGoalOverviewDate(goalOverviewActiveDateField.goalId, goalOverviewActiveDateField.field, dayValue)}
-                        className={`rounded-[18px] border px-0 py-1.5 text-center text-[13px] transition ${
-                          isSelected
-                            ? 'border-[rgb(var(--theme-info-rgb)/0.28)] bg-[rgb(var(--theme-info-rgb)/0.12)] text-[rgb(var(--theme-text-primary-rgb))]'
-                            : isToday
-                              ? 'border-[rgb(var(--theme-border-strong-rgb))] bg-[rgb(var(--theme-surface-soft-rgb))] text-[rgb(var(--theme-text-primary-rgb))] hover:border-[rgb(var(--theme-border-strong-rgb))] hover:bg-[rgb(var(--theme-surface-elevated-rgb))]'
-                              : inCurrentMonth
-                                ? 'border-[rgb(var(--theme-border-subtle-rgb)/0.75)] bg-transparent text-[rgb(var(--theme-text-secondary-rgb))] hover:border-[rgb(var(--theme-border-strong-rgb))] hover:bg-[rgb(var(--theme-surface-soft-rgb))] hover:text-[rgb(var(--theme-text-primary-rgb))]'
-                                : 'border-transparent bg-transparent text-[rgb(var(--theme-text-faint-rgb))] hover:border-[rgb(var(--theme-border-subtle-rgb)/0.55)] hover:bg-[rgb(var(--theme-surface-soft-rgb)/0.6)]'
-                        }`}
-                      >
-                        {day.getUTCDate()}
-                      </button>
-                    )
-                  })}
-                </div>
-
-                <div className="mt-2.5 flex items-center justify-between gap-2 border-t border-[rgb(var(--theme-border-subtle-rgb)/0.7)] pt-2.5">
-                  <button
-                    type="button"
-                    onClick={() => applyGoalOverviewDate(goalOverviewActiveDateField.goalId, goalOverviewActiveDateField.field, getTodayIsoDate())}
-                    className="theme-text-muted rounded-full px-2 py-1 text-xs transition hover:text-[rgb(var(--theme-text-primary-rgb))]"
-                  >
-                    Today
-                  </button>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => applyGoalOverviewDate(goalOverviewActiveDateField.goalId, goalOverviewActiveDateField.field, '')}
-                      className="theme-text-muted rounded-full px-2 py-1 text-xs transition hover:text-[rgb(var(--theme-text-primary-rgb))]"
-                    >
-                      Clear
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        goalOverviewActiveDateTriggerRef.current = null
-                        setGoalOverviewActiveDateField(null)
-                        setGoalOverviewDatePanelPosition(null)
-                      }}
-                      className="theme-text-muted rounded-full px-2 py-1 text-xs transition hover:text-[rgb(var(--theme-text-primary-rgb))]"
-                    >
-                      Done
-                    </button>
-                  </div>
-                </div>
-              </div>,
-              document.body,
-            )
-          : null}
-
-        {allOverviewGoals.length === 0 && !lifeGoalComposerOpen ? (
-          <div className="rounded-[24px] border border-white/[0.05] bg-[rgb(var(--theme-surface-elevated-rgb)/0.46)] px-4 py-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
-            <p className="text-[15px] text-white/80">No goals yet</p>
-            <p className="mt-1.5 text-[13px] text-white/48">Create one meaningful direction to start using the workspace.</p>
-          </div>
-        ) : null}
-
-        {hasPrimaryContent ? (
-          <div className="rounded-[24px] border border-white/[0.05] bg-[rgb(var(--theme-surface-elevated-rgb)/0.54)] px-0 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
-            {renderOverviewContent()}
-            {renderCompletedSection()}
-          </div>
-        ) : allOverviewGoals.length > 0 ? (
-          <div className="rounded-[24px] border border-white/[0.05] bg-[rgb(var(--theme-surface-elevated-rgb)/0.46)] px-4 py-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
-            <p className="text-[15px] text-white/80">No active goals visible</p>
-            <p className="mt-1.5 text-[13px] text-white/48">Turn on completed goals in View Controls to show archived progress here.</p>
-          </div>
-        ) : null}
-      </div>
-    )
-}
-
-  const renderLifeGoalDetailPage = () => {
-    if (!selectedLifeGoal || !selectedLifeGoalProgress) {
-      return renderLifeGoalOverviewPage()
-    }
-
-    const selectedGoalCategory = selectedLifeGoal.category.trim()
-    const selectedGoalCategoryColor = selectedGoalCategory
-      ? getLifeGoalCategoryColor(selectedGoalCategory, lifeGoalCategories)
-      : 'neutral'
-    const anchorText = getLifeGoalAnchorText(selectedLifeGoal.whyItMatters)
-    const selectedGoalType = selectedLifeGoal.goalType ?? 'outcome'
-    const showDetailIcon = selectedGoalDetailContentVisibility.icon
-    const showDetailCategory = selectedGoalDetailContentVisibility.category
-    const showDetailStatus = selectedGoalDetailContentVisibility.status
-    const showDetailWhy = selectedGoalDetailContentVisibility.why
-    const showDetailVision = selectedGoalDetailContentVisibility.vision
-    const showDetailMetrics = selectedGoalDetailContentVisibility.metrics
-    const isOutcomeGoal = selectedGoalType === 'outcome'
-    const isDirectionalGoal = selectedGoalType === 'directional'
-    const milestonesEnabled = isOutcomeGoal && Boolean(selectedLifeGoal.milestonesEnabled)
-    const goalMilestones = getOrderedGoalMilestones(selectedLifeGoal)
-    const currentMilestone = getCurrentGoalMilestone(goalMilestones)
-    const completedMilestoneCount = goalMilestones.filter((milestone) => milestone.completed).length
-    const roadmapPanelView = roadmapPanelViewByGoal[selectedLifeGoal.id] ?? 'tasks'
-    const showMilestoneProgressView = isOutcomeGoal && milestonesEnabled
-    const milestoneOptions = milestonesEnabled ? getMilestoneSelectOptions(goalMilestones, currentMilestone?.id ?? null) : []
-    const milestoneDateTarget = milestoneDatePickerMilestoneId
-      ? goalMilestones.find((milestone) => milestone.id === milestoneDatePickerMilestoneId) ?? null
-      : null
-    const isRoadmapMode = !isDirectionalGoal && (lifeGoalDetailTab === 'tasks' || lifeGoalDetailTab === 'roadmap')
-    const roadmapSections = selectedRoadmapSections
-    const roadmapRemainingCount = roadmapSections.current ? roadmapSections.upcoming.length + 1 : 0
-    const roadmapHasHighPriorityTasks =
-      (roadmapSections.current ? getPriorityScore(roadmapSections.current) === 3 : false) ||
-      roadmapSections.upcoming.some((task) => getPriorityScore(task) === 3)
-    const roadmapHasTaggedTasks = selectedLifeGoal.tasks.some((task) => normalizeTaskTags(task.tags).length > 0)
-    const sortedUpcomingTasks = sortTasksForDisplay(roadmapSections.upcoming, taskListSortMode)
-    const sortedCompletedTasks = sortTasksForDisplay(roadmapSections.completed, taskListSortMode)
-    const sortedPlannedTasks = roadmapSections.current ? [roadmapSections.current, ...sortedUpcomingTasks] : sortedUpcomingTasks
-    const explicitlyAssignedTasksByMilestone = new Map(
-      goalMilestones.map((milestone) => [
-        milestone.id,
-        selectedLifeGoal.tasks.filter((task) => task.milestoneId === milestone.id),
-      ]),
-    )
-    const roadmapTasksGroupedByMilestone =
-      isOutcomeGoal && milestonesEnabled
-        ? getRoadmapTasksGroupedByMilestone(goalMilestones, sortedPlannedTasks, currentMilestone?.id ?? null)
-        : []
-    const goalReadyToComplete =
-      selectedLifeGoalProgress.totalTasks > 0 &&
-      selectedLifeGoalProgress.completedTasks === selectedLifeGoalProgress.totalTasks &&
-      selectedLifeGoal.status !== 'complete'
-    const todayIsoDate = getTodayIsoDate()
-    const relatedGoals = (() => {
-      const seen = new Set<string>()
-      return (selectedLifeGoal.relatedGoalIds ?? [])
-        .map((goalId) => safeLifeGoals.find((goal) => goal.id === goalId && goal.id !== selectedLifeGoal.id && !goal.archivedAt))
-        .filter((goal): goal is LifeGoal => Boolean(goal))
-        .filter((goal) => {
-          if (seen.has(goal.id)) return false
-          seen.add(goal.id)
-          return true
-        })
-    })()
-    const linkedDirectionalTasks = safeTasks
-      .filter((task) => task.linkedDirectionId === selectedLifeGoal.id)
-      .filter((task, index, taskItems) => taskItems.findIndex((candidate) => candidate.id === task.id) === index)
-      .slice()
-      .sort((left, right) => {
-        if (left.completed !== right.completed) return left.completed ? 1 : -1
-        if (left.important !== right.important) return left.important ? -1 : 1
-        if (left.dueDate !== right.dueDate) return left.dueDate.localeCompare(right.dueDate)
-        return left.text.localeCompare(right.text)
-      })
-    const supportingHabits = safeHabitTrackers
-      .filter((tracker) => (tracker.linkedGoalIds ?? []).includes(selectedLifeGoal.id))
-      .filter((tracker, index, trackers) => trackers.findIndex((candidate) => candidate.id === tracker.id) === index)
-    const parentGoals = safeLifeGoals
-      .filter((goal) => !goal.archivedAt && goal.id !== selectedLifeGoal.id)
-      .filter((goal) => (goal.relatedGoalIds ?? []).includes(selectedLifeGoal.id))
-      .filter((goal, index, goals) => goals.findIndex((candidate) => candidate.id === goal.id) === index)
-    const activeRelatedGoalsCount = relatedGoals.filter((goal) => goal.status === 'in-motion').length
-    const pausedRelatedGoalsCount = relatedGoals.filter((goal) => goal.status === 'paused').length
-    const maxVisibleLinkedGoals = 4
-    const visibleRelatedGoals = relatedGoals.slice(0, maxVisibleLinkedGoals)
-    const hiddenRelatedGoalsCount = Math.max(0, relatedGoals.length - visibleRelatedGoals.length)
-    const visibleParentGoals = parentGoals.slice(0, 2)
-    const hiddenParentGoalsCount = Math.max(0, parentGoals.length - visibleParentGoals.length)
-    const visibleDirectionalTasks = linkedDirectionalTasks.slice(0, 6)
-    const hiddenDirectionalTasksCount = Math.max(0, linkedDirectionalTasks.length - visibleDirectionalTasks.length)
-    const visibleSupportingHabits = supportingHabits.slice(0, 4)
-    const hiddenSupportingHabitsCount = Math.max(0, supportingHabits.length - visibleSupportingHabits.length)
-    const goalHeaderChipClassName =
-      'inline-flex h-6 shrink-0 items-center justify-center rounded-full border px-2.5 text-[10px] uppercase tracking-[0.14em] leading-none border-white/[0.06]'
-    const startInlineTitleEdit = () => {
-      primeInlineLifeGoalDraft(selectedLifeGoal)
-      setInlineLifeGoalEditingField('title')
-    }
-    const startInlineWhyEdit = () => {
-      primeInlineLifeGoalDraft(selectedLifeGoal)
-      setInlineLifeGoalEditingField('why')
-    }
-    const startInlineIconEdit = (trigger: HTMLButtonElement) => {
-      primeInlineLifeGoalDraft(selectedLifeGoal)
-      lifeGoalIconFieldRef.current = trigger
-      setLifeGoalIconPickerQuery('')
-      setLifeGoalIconPickerTab(selectedLifeGoal.icon?.startsWith('emoji:') ? 'emojis' : 'icons')
-      setInlineLifeGoalIconGoalId(selectedLifeGoal.id)
-      setLifeGoalIconPickerOpen(true)
-    }
-    const handleInlineIconMouseDown = (event: React.MouseEvent<HTMLButtonElement>) => {
-      event.preventDefault()
-      event.stopPropagation()
-      startInlineIconEdit(event.currentTarget)
-    }
-    const handleInlineIconKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
-      if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault()
-        event.stopPropagation()
-        startInlineIconEdit(event.currentTarget)
-      }
-    }
-    const inlineEditableIconControl = !showDetailIcon ? null : selectedLifeGoal.icon?.startsWith('emoji:') ? (
-      <button
-        type="button"
-        onMouseDown={handleInlineIconMouseDown}
-        onKeyDown={handleInlineIconKeyDown}
-        className="mt-[2px] inline-flex h-5 w-5 shrink-0 items-center justify-center text-[16px] leading-none"
-      >
-        {selectedLifeGoal.icon.slice(6)}
-      </button>
-    ) : selectedLifeGoal.icon && LIFE_GOAL_ICON_MAP[selectedLifeGoal.icon] ? (
-      <button
-        type="button"
-        onMouseDown={handleInlineIconMouseDown}
-        onKeyDown={handleInlineIconKeyDown}
-        className="mt-[2px] inline-flex h-5 w-5 shrink-0 items-center justify-center text-white/52"
-      >
-        {(() => {
-          const Icon = LIFE_GOAL_ICON_MAP[selectedLifeGoal.icon].Icon
-          return <Icon size={16} className="text-white/52" />
-        })()}
-      </button>
-    ) : (
-      <button
-        type="button"
-        onMouseDown={handleInlineIconMouseDown}
-        onKeyDown={handleInlineIconKeyDown}
-        className="mt-[2px] inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[14px] text-white/26 transition hover:text-white/52"
-        aria-label="Select icon"
-      >
-        +
-      </button>
-    )
-    const inlineEditableTitle = (
-      <div className="flex min-w-0 items-center gap-2">
-        {inlineEditableIconControl}
-        <input
-          ref={lifeGoalTitleInputRef}
-          value={lifeGoalDraft.title}
-          onChange={(event) => setLifeGoalDraft((current) => ({ ...current, title: event.target.value }))}
-          onBlur={() => commitInlineLifeGoalField(selectedLifeGoal, 'title')}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') {
-              event.preventDefault()
-              commitInlineLifeGoalField(selectedLifeGoal, 'title')
-            }
-            if (event.key === 'Escape') {
-              event.preventDefault()
-              cancelInlineLifeGoalField(selectedLifeGoal, 'title')
-            }
-          }}
-          placeholder="Goal title"
-          spellCheck={true}
-          className="min-w-0 w-full bg-transparent px-0 py-0 text-[20px] font-semibold leading-tight text-white outline-none placeholder:text-white/30"
-        />
-      </div>
-    )
-    const inlineEditableWhy = (
-      <textarea
-        ref={lifeGoalWhyTextareaRef}
-        value={lifeGoalDraft.whyItMatters}
-        onChange={(event) => {
-          setLifeGoalDraft((current) => ({ ...current, whyItMatters: event.target.value }))
-          event.currentTarget.style.height = 'auto'
-          event.currentTarget.style.height = `${event.currentTarget.scrollHeight}px`
         }}
-        onBlur={() => commitInlineLifeGoalField(selectedLifeGoal, 'whyItMatters')}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') {
-            event.preventDefault()
-            cancelInlineLifeGoalField(selectedLifeGoal, 'whyItMatters')
-          }
+        onArchiveLifeGoal={onArchiveLifeGoal}
+        onSetLifeGoalAsTodayTask={onSetLifeGoalAsTodayTask}
+        onOpenComposer={(trigger) => openLifeGoalComposer(trigger ?? undefined)}
+        onCloseComposer={closeLifeGoalComposer}
+        onResetComposerDraft={() => setLifeGoalDraft(createEmptyLifeGoalDraft())}
+        onOpenTaskPeek={(taskId, trigger) => openTaskPeek(taskId, trigger ?? undefined)}
+        onOpenNewTaskPeek={(trigger) => openNewTaskPeek(trigger ?? undefined)}
+        onOpenIconPicker={(goalId, trigger) => {
+          setInlineLifeGoalIconGoalId(goalId)
+          lifeGoalIconFieldRef.current = trigger as HTMLButtonElement | null
+          setLifeGoalIconPickerOpen(true)
         }}
-        placeholder="Why it matters..."
-        spellCheck={true}
-        className="min-h-[72px] w-full resize-none bg-transparent px-0 py-0 text-[13px] leading-6 text-white/70 outline-none placeholder:text-white/28"
+        onRequestDeleteGoal={(goalId) => setDeleteGoalConfirmationTarget({ goalId, context: 'detail' })}
+        composerSlot={renderLifeGoalComposer()}
+        composerOpen={lifeGoalComposerOpen}
+        composerMode={lifeGoalComposerMode}
+        containScrollWithinElement={containScrollWithinElement}
+        renderLifeGoalIcon={renderLifeGoalIcon}
       />
-    )
-    const inlineTitleDisplay = (
-      <div className="inline-flex min-w-0 items-center gap-2">
-        {showDetailIcon && selectedLifeGoal.icon?.startsWith('emoji:') ? (
-          <button
-            type="button"
-            onMouseDown={handleInlineIconMouseDown}
-            onKeyDown={handleInlineIconKeyDown}
-            className="mt-[2px] inline-flex h-5 w-5 shrink-0 items-center justify-center text-[16px] leading-none"
-          >
-            {selectedLifeGoal.icon.slice(6)}
-          </button>
-        ) : showDetailIcon && selectedLifeGoal.icon && LIFE_GOAL_ICON_MAP[selectedLifeGoal.icon] ? (
-          <button
-            type="button"
-            onMouseDown={handleInlineIconMouseDown}
-            onKeyDown={handleInlineIconKeyDown}
-            className="mt-[2px] inline-flex h-5 w-5 shrink-0 items-center justify-center text-white/52"
-          >
-            {(() => {
-              const Icon = LIFE_GOAL_ICON_MAP[selectedLifeGoal.icon].Icon
-              return <Icon size={16} className="text-white/52" />
-            })()}
-          </button>
-        ) : showDetailIcon ? (
-          <button
-            type="button"
-            onMouseDown={handleInlineIconMouseDown}
-            onKeyDown={handleInlineIconKeyDown}
-            className="mt-[2px] inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[14px] text-white/26 transition hover:text-white/52"
-            aria-label="Select icon"
-          >
-            +
-          </button>
-        ) : null}
-        <button type="button" onClick={startInlineTitleEdit} className="min-w-0 truncate text-left">
-          {selectedLifeGoal.title}
-        </button>
-      </div>
-    )
-    const inlineWhyDisplay = (
-      <button type="button" onClick={startInlineWhyEdit} className="w-full text-left">
-        <div className="min-h-[72px] text-[13px] leading-6 text-white/70">
-          {selectedLifeGoal.whyItMatters.trim() || <span className="text-white/30">Why it matters...</span>}
-        </div>
-      </button>
-    )
-    const renderGoalTypeInfoChip = (label: string, tooltip: string, chipClassName: string) => (
-      <span className={`group/typeinfo relative ${goalHeaderChipClassName} ${chipClassName}`}>
-        <span>{label}</span>
-        <span className="theme-tooltip pointer-events-none absolute left-1/2 top-[calc(100%+10px)] z-20 hidden w-[240px] -translate-x-1/2 whitespace-normal rounded-xl border px-2.5 py-1.5 text-left text-[11px] font-medium leading-4 opacity-0 shadow-[0_12px_30px_rgba(15,23,42,0.16)] transition-all duration-150 ease-out group-hover/typeinfo:block group-hover/typeinfo:translate-y-0 group-hover/typeinfo:opacity-100">
-          {tooltip}
-        </span>
-      </span>
-    )
-    const renderRoadmapTaskGroups = (
-      tasks: LifeGoalTask[],
-      keyPrefix: string,
-      options: { groupedByTag?: boolean } | undefined,
-      renderTask: (task: LifeGoalTask, meta: { groupIndex: number; taskIndex: number }) => any,
-    ) => {
-      const groups = options?.groupedByTag ? getRoadmapTagGroups(tasks) : [{ label: null, tasks }]
-
-      return groups.map((group, groupIndex) => {
-        const shouldShowGroupHeader = Boolean(options?.groupedByTag && group.tasks.length > 0)
-
-        return (
-          <div key={`${keyPrefix}-${groupIndex}-${group.label ?? 'default'}`} className={groupIndex > 0 ? (shouldShowGroupHeader ? 'pt-4' : 'pt-1') : ''}>
-            {shouldShowGroupHeader ? (
-              <div className="flex items-center justify-between gap-3 pb-2" style={roadmapContentInsetStyle}>
-                <p className="text-[10px] uppercase tracking-[0.18em] text-mist/42">{group.label ?? 'untagged'}</p>
-                <p className="text-[10px] tracking-[0.08em] text-mist/30">
-                  {group.tasks.filter((task) => task.completed).length}/{group.tasks.length}
-                </p>
-              </div>
-            ) : null}
-            {group.tasks.map((task, taskIndex) => renderTask(task, { groupIndex, taskIndex }))}
-          </div>
-        )
-      })
-    }
-    const renderPriorityChip = (task: LifeGoalTask) => {
-      const priorityMeta = getLifeGoalTaskPriorityMeta(task.priority)
-      if (!priorityMeta) return null
-
-      return (
-        <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium tracking-[0.08em] leading-none ${priorityMeta.chipClassName}`}>
-          {priorityMeta.label}
-        </span>
-      )
-    }
-    const roadmapHeaderControlBaseClass =
-      'inline-flex items-center rounded-full border border-white/[0.045] bg-white/[0.018] px-2.5 py-[5px] text-[10px] uppercase tracking-[0.14em] text-white/50 transition hover:border-white/[0.08] hover:text-white/70'
-    const roadmapHeaderControlActiveClass =
-      'inline-flex items-center rounded-full border border-white/[0.08] bg-white/[0.04] px-2.5 py-[5px] text-[10px] uppercase tracking-[0.14em] text-white/76 transition hover:border-white/[0.1] hover:text-white/84'
-    const renderTaskTags = (task: LifeGoalTask) => {
-      const tags = normalizeTaskTags(task.tags)
-      if (tags.length === 0) return null
-
-      const visibleTags = tags.slice(0, 3)
-      const overflowCount = tags.length - visibleTags.length
-
-      return (
-        <>
-          {visibleTags.map((tag) => (
-            <span
-              key={`${task.id}-${tag}`}
-              className="inline-flex items-center rounded-full border border-white/[0.055] bg-white/[0.022] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] leading-none text-white/50"
-            >
-              {tag}
-            </span>
-          ))}
-          {overflowCount > 0 ? (
-            <span
-              title={tags.join(' · ')}
-              className="inline-flex items-center rounded-full border border-white/[0.05] bg-white/[0.018] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] leading-none text-white/42"
-            >
-              +{overflowCount}
-            </span>
-          ) : null}
-        </>
-      )
-    }
-    const renderRoadmapPanelTaskRow = (task: LifeGoalTask, section: 'current' | 'upcoming') => {
-      const dueMeta = task.dueDate ? getRelativeDueMeta(task.dueDate) : null
-      const visualState = getRoadmapTaskVisualState(task, section, roadmapHighPriorityFocus)
-      const isCompressed = section === 'upcoming' && roadmapHighPriorityFocus && getPriorityScore(task) !== 3
-
-      if (section === 'current') {
-        return (
-          <button
-            key={task.id}
-            ref={(element) => {
-              roadmapTaskRowRefs.current[task.id] = element
-            }}
-            data-goal-task-id={task.id}
-            type="button"
-            onClick={(event) => openTaskPeek(task.id, event.currentTarget)}
-            onKeyDown={(event) => handleTaskRowKeyDown(event, task.id)}
-            draggable
-            onDragStart={() => setDraggedTaskId(task.id)}
-            onDragOver={(event) => {
-              event.preventDefault()
-              if (dragOverTaskId !== task.id) setDragOverTaskId(task.id)
-            }}
-            onDrop={(event) => {
-              event.preventDefault()
-              if (draggedTaskId) reorderGoalTask(selectedLifeGoal.id, draggedTaskId, task.id)
-              setDraggedTaskId(null)
-              setDragOverTaskId(null)
-            }}
-            onDragEnd={() => {
-              setDraggedTaskId(null)
-              setDragOverTaskId(null)
-            }}
-            className={`group relative grid w-full items-start gap-x-3 gap-y-1 rounded-none border border-[rgb(var(--theme-accent-rgb)/0.1)] bg-white/[0.012] py-[14px] text-left transition duration-200 ease-out hover:bg-white/[0.02] hover:border-[rgb(var(--theme-accent-rgb)/0.14)] ${
-              dragOverTaskId === task.id && draggedTaskId && draggedTaskId !== task.id ? 'bg-white/[0.03]' : ''
-            } ${visibleGoalStartCueTaskId === task.id ? 'goal-start-highlight' : ''} ${
-              roadmapArrivalCueActive ? 'goal-current-arrival' : ''
-            } ${taskMomentumTransition?.nextTaskId === task.id ? 'goal-next-task-activate' : ''} ${
-              taskMomentumTransition?.completedTaskId === task.id ? 'goal-task-complete-flash' : ''
-            }`}
-            style={{ ...visualState.rowStyle, opacity: visualState.opacity, gridTemplateColumns: roadmapNodeGridTemplate }}
-          >
-            <span aria-hidden="true" className="relative z-[3] mt-[2px] flex h-[18px] w-[18px] items-center justify-center justify-self-center">
-              {renderRoadmapNodeCutout(roadmapCurrentNodeDiameter)}
-              <span className="roadmap-current-node-pulse absolute h-[20px] w-[20px] rounded-full bg-[rgb(var(--theme-accent-rgb)/0.18)] blur-[6px]" />
-              <span
-                className={`relative flex items-center justify-center rounded-full border transition-transform duration-200 ease-out group-hover:scale-110 ${
-                  getPriorityScore(task) === 3
-                    ? 'h-[14px] w-[14px] border-[rgb(var(--theme-accent-rgb)/0.9)] shadow-[0_0_8px_rgb(var(--theme-accent-rgb)/0.08)]'
-                    : 'h-[14px] w-[14px] border-[rgb(var(--theme-accent-rgb)/0.8)] shadow-[0_0_6px_rgb(var(--theme-accent-rgb)/0.06)]'
-                }`}
-              >
-                <span
-                  className={`rounded-full border ${
-                    getPriorityScore(task) === 3
-                      ? 'h-[8px] w-[8px] border-[rgb(var(--theme-accent-rgb)/0.94)]'
-                      : 'h-[8px] w-[8px] border-[rgb(var(--theme-accent-rgb)/0.86)]'
-                  }`}
-                />
-              </span>
-            </span>
-            <div className="min-w-0 px-1 pb-3 pr-10 pt-0.5">
-              <div className="min-w-0">
-                <AnimatePresence initial={false}>
-                  {roadmapArrivalCueActive ? (
-                    <motion.p
-                      className="mb-1 text-[10px] uppercase tracking-[0.14em] text-white/56"
-                      initial={{ opacity: 0, y: 3 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -3 }}
-                      transition={{ duration: 0.18, ease: 'easeOut' }}
-                    >
-                      Start here
-                    </motion.p>
-                  ) : null}
-                </AnimatePresence>
-                <AnimatePresence initial={false}>
-                  {taskMomentumTransition?.nextTaskId === task.id ? (
-                    <motion.p
-                      className="mb-1 text-[10px] uppercase tracking-[0.14em] text-white/62"
-                      initial={{ opacity: 0, y: 4 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -4 }}
-                      transition={{ duration: 0.2, ease: 'easeOut' }}
-                    >
-                      Next step ready
-                    </motion.p>
-                  ) : null}
-                </AnimatePresence>
-                <AnimatePresence initial={false}>
-                  {visibleGoalStartCueTaskId === task.id ? (
-                    <motion.p
-                      className="mb-1 text-[10px] uppercase tracking-[0.14em] text-white/64"
-                      initial={{ opacity: 0, y: 4 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -4 }}
-                      transition={{ duration: 0.18, ease: 'easeOut' }}
-                    >
-                      Goal started • 1 step ready
-                    </motion.p>
-                  ) : null}
-                </AnimatePresence>
-                <p className={`text-[15px] font-medium ${visualState.titleClassName}`}>{task.text}</p>
-                <div className="mt-1 flex min-h-[18px] items-end justify-between gap-3">
-                  <div className="min-w-0 text-left pb-[2px]">
-                    <div className="flex flex-wrap items-center gap-2">
-                      {task.dueDate ? (
-                        <p className={`text-[12px] ${dueMeta?.toneClassName ?? visualState.metaClassName}`}>
-                          {dueMeta ? `${dueMeta.compactLabel} · ${formatTaskDueDate(task.dueDate)}` : formatTaskDueDate(task.dueDate)}
-                        </p>
-                      ) : null}
-                      {renderPriorityChip(task)}
-                      {renderTaskTags(task)}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            {task.subtasks.length > 0 ? (
-              <div className="pointer-events-none absolute bottom-4 right-3.5 flex items-center justify-end">
-                {renderSubtaskProgressDots(task.subtasks)}
-              </div>
-            ) : null}
-          </button>
-        )
-      }
-
-      return (
-        <button
-          key={task.id}
-          ref={(element) => {
-            roadmapTaskRowRefs.current[task.id] = element
-          }}
-          data-goal-task-id={task.id}
-          type="button"
-          onClick={(event) => openTaskPeek(task.id, event.currentTarget)}
-          onKeyDown={(event) => handleTaskRowKeyDown(event, task.id)}
-          draggable
-          onDragStart={() => setDraggedTaskId(task.id)}
-          onDragOver={(event) => {
-            event.preventDefault()
-            if (dragOverTaskId !== task.id) setDragOverTaskId(task.id)
-          }}
-          onDrop={(event) => {
-            event.preventDefault()
-            if (draggedTaskId) reorderGoalTask(selectedLifeGoal.id, draggedTaskId, task.id)
-            setDraggedTaskId(null)
-            setDragOverTaskId(null)
-          }}
-          onDragEnd={() => {
-            setDraggedTaskId(null)
-            setDragOverTaskId(null)
-          }}
-          className={`group relative grid w-full items-start gap-x-3 rounded-[14px] text-left transition-all duration-200 ease-out hover:bg-white/[0.015] ${
-            isCompressed ? 'gap-y-0 py-[1px]' : 'gap-y-1 py-[10px]'
-          } ${
-            dragOverTaskId === task.id && draggedTaskId && draggedTaskId !== task.id ? 'bg-white/[0.028]' : ''
-          } ${visibleGoalStartCueTaskId === task.id ? 'goal-start-highlight' : ''} ${
-            taskMomentumTransition?.nextTaskId === task.id ? 'goal-next-task-activate' : ''
-          } ${taskMomentumTransition?.completedTaskId === task.id ? 'goal-task-complete-flash' : ''}`}
-          style={{
-            ...visualState.rowStyle,
-            gridTemplateColumns: roadmapNodeGridTemplate,
-            opacity:
-              visualState.opacity *
-              (roadmapArrivalCueActive ? 0.78 : 1) *
-              (taskMomentumTransition?.completedTaskId === task.id ? 0.75 : 1),
-          }}
-        >
-          <span aria-hidden="true" className="relative z-[3] mt-[2px] flex h-4 w-4 items-center justify-center justify-self-center">
-            {renderRoadmapNodeCutout(roadmapSmallNodeDiameter)}
-            <span className={`h-2 w-2 rounded-full border border-white/[0.26] bg-transparent transition-transform duration-200 ease-out group-hover:scale-110 ${getPriorityScore(task) === 3 ? 'shadow-[0_0_0_1px_rgb(var(--theme-accent-rgb)/0.08)]' : ''}`} />
-          </span>
-          <div className={`min-w-0 border-b border-white/[0.02] pr-8 transition-all duration-200 ease-out ${isCompressed ? 'pb-0' : 'pb-[10px]'}`}>
-            <div className="min-w-0">
-              <AnimatePresence initial={false}>
-                {taskMomentumTransition?.nextTaskId === task.id ? (
-                  <motion.p
-                    className="mb-1 text-[10px] uppercase tracking-[0.14em] text-white/62"
-                    initial={{ opacity: 0, y: 4 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -4 }}
-                    transition={{ duration: 0.2, ease: 'easeOut' }}
-                  >
-                    Next step ready
-                  </motion.p>
-                ) : null}
-              </AnimatePresence>
-              <AnimatePresence initial={false}>
-                {visibleGoalStartCueTaskId === task.id ? (
-                  <motion.p
-                    className="mb-1 text-[10px] uppercase tracking-[0.14em] text-white/64"
-                    initial={{ opacity: 0, y: 4 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -4 }}
-                    transition={{ duration: 0.18, ease: 'easeOut' }}
-                  >
-                    Goal started • 1 step ready
-                  </motion.p>
-                ) : null}
-              </AnimatePresence>
-              <p className={`${isCompressed ? 'text-[14px] leading-5' : 'text-[15px]'} ${visualState.titleClassName} transition-all duration-200 ease-out`}>{task.text}</p>
-              <div className={`flex items-end justify-between gap-3 transition-all duration-200 ease-out ${isCompressed ? 'mt-0.5 min-h-[14px]' : 'mt-1 min-h-[18px]'}`}>
-                <div className="min-w-0 text-left pb-[2px]">
-                  <div className={`flex flex-wrap items-center transition-all duration-200 ease-out ${isCompressed ? 'gap-1.5' : 'gap-2'}`}>
-                    {task.dueDate ? (
-                      <p className={`text-[12px] ${dueMeta?.toneClassName ?? visualState.metaClassName}`}>
-                        {dueMeta ? `${dueMeta.compactLabel} · ${formatTaskDueDate(task.dueDate)}` : formatTaskDueDate(task.dueDate)}
-                      </p>
-                    ) : null}
-                    {!isCompressed ? renderPriorityChip(task) : null}
-                    {!isCompressed ? renderTaskTags(task) : null}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-          {task.subtasks.length > 0 ? (
-            <div className="pointer-events-none absolute bottom-[16px] right-4 flex items-center justify-end">
-              {renderSubtaskProgressDots(task.subtasks)}
-            </div>
-          ) : null}
-        </button>
-      )
-    }
-    const renderTaskSortControl = () => (
-      <div className="inline-flex min-w-[132px] items-center justify-between gap-3 rounded-full border border-white/[0.045] bg-white/[0.018] px-2.5 py-[5px]">
-        <span className="shrink-0 text-[10px] uppercase tracking-[0.14em] text-white/38">Sort</span>
-        <div className="relative">
-          <select
-            value={taskListSortMode}
-            onChange={(event) => setTaskListSortMode(event.target.value as LifeGoalTaskListSort)}
-            className="appearance-none bg-transparent pr-4 text-right text-[10px] uppercase tracking-[0.14em] text-white/60 outline-none"
-          >
-            <option value="default" className="bg-[rgb(var(--theme-surface-elevated-rgb))] text-white">
-              Default
-            </option>
-            <option value="due" className="bg-[rgb(var(--theme-surface-elevated-rgb))] text-white">
-              Due
-            </option>
-            <option value="priority" className="bg-[rgb(var(--theme-surface-elevated-rgb))] text-white">
-              Priority
-            </option>
-          </select>
-          <span className="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 text-[10px] text-white/26">▾</span>
-        </div>
-      </div>
-    )
-    const roadmapGeometry = {
-      timelineX: 12,
-      nodeColumnWidth: 24,
-      contentInset: 36,
-      lineWidth: 1,
-      lineOpacity: 0.36,
-      smallNodeDiameter: 8,
-      currentNodeDiameter: 14,
-      connectorReach: 24,
-      currentMilestoneTickReach: 24,
-    } as const
-    const roadmapLineOpacity = roadmapGeometry.lineOpacity
-    const roadmapLineColor = `rgb(var(--theme-accent-rgb) / ${roadmapLineOpacity})`
-    const roadmapLineWidth = roadmapGeometry.lineWidth
-    const roadmapSmallNodeDiameter = roadmapGeometry.smallNodeDiameter
-    const roadmapCurrentNodeDiameter = roadmapGeometry.currentNodeDiameter
-    const roadmapNodeGridTemplate = `${roadmapGeometry.nodeColumnWidth}px minmax(0, 1fr)`
-    const roadmapContentInsetStyle = { paddingLeft: `${roadmapGeometry.contentInset}px` }
-    const roadmapRailLeftStyle = { left: `${roadmapGeometry.timelineX}px` }
-    const roadmapConnectorLeft = roadmapGeometry.timelineX - roadmapGeometry.contentInset
-    const roadmapConnectorWidth = roadmapGeometry.contentInset - roadmapGeometry.timelineX
-    const roadmapConnectorCurveOffset = Math.max(8, Math.round(roadmapConnectorWidth * 0.46))
-    const roadmapMilestoneConnectorPath = (() => {
-      const x = roadmapLineWidth / 2
-      const centerY = 50
-      const curveStartY = centerY - roadmapConnectorCurveOffset
-      const curveEndY = centerY + roadmapConnectorCurveOffset
-      return `M ${x} 0 L ${x} ${curveStartY} Q ${x} ${centerY} ${roadmapConnectorWidth} ${centerY} Q ${x} ${centerY} ${x} ${curveEndY} L ${x} 100`
-    })()
-    const renderRoadmapNodeCutout = (diameter: number, surfaceRgb = 'var(--theme-surface-elevated-rgb)') => (
-      <span
-        aria-hidden="true"
-        className="pointer-events-none absolute left-1/2 top-1/2 z-[-1] -translate-x-1/2 -translate-y-1/2"
-        style={{
-          width: `${roadmapLineWidth + 1}px`,
-          height: `${diameter}px`,
-          background: `rgb(${surfaceRgb} / 0.98)`,
-        }}
-      />
-    )
-    const roadmapMilestoneStructuredContent =
-      roadmapTasksGroupedByMilestone.length > 0 ? (
-        <div className="pb-4">
-          {(() => {
-            let upcomingMilestoneVisualIndex = 0
-            return roadmapTasksGroupedByMilestone.map(({ milestone, tasks }, groupIndex) => {
-            const isCurrentGroup = milestone.id === currentMilestone?.id
-            const isUpcomingGroup = !isCurrentGroup
-            const isNextUpcomingGroup = isUpcomingGroup && upcomingMilestoneVisualIndex === 0
-            const incompleteGroupTasks = tasks.filter((task) => !task.completed)
-            if (incompleteGroupTasks.length === 0) return null
-            if (isUpcomingGroup) {
-              upcomingMilestoneVisualIndex += 1
-            }
-
-            return (
-              <div key={`roadmap-milestone-group-${milestone.id}`} className={groupIndex > 0 ? 'pt-5' : ''}>
-                <div className="relative" style={roadmapContentInsetStyle}>
-                  {isCurrentGroup ? (
-                    <p className="pb-1 text-[10px] font-medium uppercase tracking-[0.18em] text-[rgb(var(--theme-accent-rgb)/0.88)] [text-shadow:0_0_8px_rgb(var(--theme-accent-rgb)/0.24)]">
-                      You are here
-                    </p>
-                  ) : null}
-                </div>
-                <div className="relative pb-3" style={roadmapContentInsetStyle}>
-                  <div className="relative flex flex-wrap items-center gap-2">
-                    {isUpcomingGroup ? (
-                      <>
-                        <span
-                          aria-hidden="true"
-                          className="pointer-events-none absolute bottom-0 top-0 z-[2]"
-                          style={{
-                            left: `${roadmapConnectorLeft}px`,
-                            width: `${roadmapLineWidth + 1}px`,
-                            background: 'rgb(var(--theme-surface-rgb) / 1)',
-                          }}
-                        />
-                        <svg
-                          aria-hidden="true"
-                          className="pointer-events-none absolute inset-y-0 z-[3] h-full"
-                          style={{
-                            left: `${roadmapConnectorLeft}px`,
-                            width: `${roadmapConnectorWidth}px`,
-                          }}
-                          viewBox={`0 0 ${roadmapConnectorWidth} 100`}
-                          preserveAspectRatio="none"
-                        >
-                          <path
-                            d={roadmapMilestoneConnectorPath}
-                            fill="none"
-                            stroke={roadmapLineColor}
-                            strokeWidth={roadmapLineWidth}
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            shapeRendering="geometricPrecision"
-                            vectorEffect="non-scaling-stroke"
-                          />
-                        </svg>
-                      </>
-                    ) : null}
-                    {isCurrentGroup ? (
-                      <span
-                        aria-hidden="true"
-                        className="pointer-events-none absolute top-1/2 h-px -translate-y-1/2"
-                        style={{
-                          left: `${roadmapConnectorLeft}px`,
-                          width: `${roadmapGeometry.currentMilestoneTickReach}px`,
-                          background: roadmapLineColor,
-                          height: `${roadmapLineWidth}px`,
-                        }}
-                      />
-                    ) : null}
-                    {isUpcomingGroup ? (
-                      <button
-                        type="button"
-                        onClick={() => openMilestonePeek(milestone.id)}
-                        className={`flex w-full flex-wrap items-center gap-2 rounded-[14px] border px-[14px] py-[10px] text-left transition ${
-                          isNextUpcomingGroup
-                            ? 'border-[rgb(var(--theme-accent-rgb)/0.25)] bg-white/[0.02] shadow-[0_0_0_1px_rgb(var(--theme-accent-rgb)/0.08)] hover:border-[rgb(var(--theme-accent-rgb)/0.32)]'
-                            : 'border-white/[0.07] bg-white/[0.02] hover:border-white/[0.1] hover:bg-white/[0.024]'
-                        }`}
-                      >
-                        <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-white/88">
-                          {milestone.title}
-                        </p>
-                        <span
-                          className={`rounded-full border px-2 py-0.5 text-[9px] uppercase tracking-[0.12em] ${
-                            isNextUpcomingGroup
-                              ? 'border-white/[0.06] bg-white/[0.02] text-white/48 opacity-70'
-                              : 'border-white/[0.05] bg-white/[0.016] text-white/42 opacity-70'
-                          }`}
-                        >
-                          {isNextUpcomingGroup ? 'Next milestone' : 'Upcoming milestone'}
-                        </span>
-                        {milestone.targetDate ? (
-                          <span className={`text-[12px] ${getRelativeDueMeta(milestone.targetDate)?.toneClassName ?? 'text-mist/50'}`}>
-                            {getRelativeDueMeta(milestone.targetDate)?.label ?? formatDate(milestone.targetDate)}
-                          </span>
-                        ) : null}
-                      </button>
-                    ) : (
-                      <div
-                        className={`flex w-full flex-wrap items-center gap-2 ${
-                        isUpcomingGroup
-                          ? `rounded-[14px] border px-[14px] py-[10px] ${
-                              isNextUpcomingGroup
-                                ? 'border-[rgb(var(--theme-accent-rgb)/0.25)] bg-white/[0.02] shadow-[0_0_0_1px_rgb(var(--theme-accent-rgb)/0.08)]'
-                                : 'border-white/[0.07] bg-white/[0.02]'
-                            }`
-                          : ''
-                        }`}
-                      >
-                        <p className={`text-[11px] uppercase tracking-[0.18em] ${isCurrentGroup ? 'text-white/78' : 'font-medium text-white/88'}`}>
-                          {milestone.title}
-                        </p>
-                        <span
-                          className={`rounded-full border px-2 py-0.5 text-[9px] uppercase tracking-[0.12em] ${
-                            isCurrentGroup
-                              ? 'border-[rgb(var(--theme-accent-rgb)/0.12)] bg-[rgb(var(--theme-accent-rgb)/0.05)] text-[rgb(var(--theme-accent-rgb)/0.72)]'
-                              : isNextUpcomingGroup
-                                ? 'border-white/[0.06] bg-white/[0.02] text-white/48 opacity-70'
-                                : 'border-white/[0.05] bg-white/[0.016] text-white/42 opacity-70'
-                          }`}
-                        >
-                          {isCurrentGroup ? 'Current milestone' : isNextUpcomingGroup ? 'Next milestone' : 'Upcoming milestone'}
-                        </span>
-                        {milestone.targetDate ? (
-                          <span className={`text-[12px] ${getRelativeDueMeta(milestone.targetDate)?.toneClassName ?? 'text-mist/50'}`}>
-                            {getRelativeDueMeta(milestone.targetDate)?.label ?? formatDate(milestone.targetDate)}
-                          </span>
-                        ) : null}
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <div className={`space-y-0.5 ${isUpcomingGroup ? 'mt-2' : ''}`}>
-                  {incompleteGroupTasks.map((task) =>
-                    renderRoadmapPanelTaskRow(task, task.id === roadmapSections.current?.id ? 'current' : 'upcoming'),
-                  )}
-                </div>
-              </div>
-            )
-          })
-          })()}
-        </div>
-      ) : null
-    const renderParentGoalChips = () => (
-      <>
-        {visibleParentGoals.map((goal) => (
-          <button
-            key={`parent-chip-${goal.id}`}
-            type="button"
-            onClick={() => onSelectLifeGoal(goal.id)}
-            className={`${goalHeaderChipClassName} border-white/[0.05] bg-white/[0.02] text-white/52 transition hover:border-white/[0.08] hover:text-white/74`}
-            title={goal.title}
-          >
-            <span className="text-white/28">Belongs to:</span>
-            <span className="text-white/48">{goal.title}</span>
-          </button>
-        ))}
-        {hiddenParentGoalsCount > 0 ? (
-          <span className={`${goalHeaderChipClassName} border-white/[0.05] bg-white/[0.018] text-white/40`}>
-            +{hiddenParentGoalsCount}
-          </span>
-        ) : null}
-      </>
-    )
-    const detailHeaderRelationshipChips = (
-      <>
-        {isDirectionalGoal
-          ? renderGoalTypeInfoChip(
-              'Direction',
-              'Long-term life direction. Not something to complete.',
-              'border-white/[0.08] bg-white/[0.04] text-white/76',
-            )
-          : renderGoalTypeInfoChip(
-              'Outcome',
-              'An outcome goal is a destination with a clear finish. Use tasks for the execution steps to reach it.',
-              'border-white/[0.08] bg-white/[0.03] text-white/75',
-            )}
-        {renderParentGoalChips()}
-      </>
-    )
-    const linkedGoalsSection = (
-      <div className="rounded-[24px] border border-white/[0.05] bg-white/[0.02] px-5 py-4">
-        <div>
-          <p className="text-[11px] uppercase tracking-[0.16em] text-mist/52">Related goals</p>
-          <p className="mt-1 text-sm text-mist">Goals linked with this goal.</p>
-        </div>
-
-        <div className="mt-4 space-y-2">
-          {relatedGoals.length > 0 ? (
-            <>
-              {visibleRelatedGoals.map((goal) => {
-                const dueMeta = goal.targetDate && isValidIsoDate(goal.targetDate) ? getRelativeDueMeta(goal.targetDate) : null
-                return (
-                  <button
-                    key={`linked-goal-${goal.id}`}
-                    type="button"
-                    onClick={() => onSelectLifeGoal(goal.id)}
-                    className="flex w-full items-center justify-between rounded-[18px] border border-white/[0.05] bg-white/[0.018] px-4 py-3 text-left transition hover:border-white/[0.08] hover:bg-white/[0.03]"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-sm text-white/84">{goal.title}</p>
-                      <div className="mt-1 flex flex-wrap items-center gap-2">
-                        {goal.category ? <p className="text-[12px] text-mist/56">{goal.category}</p> : null}
-                        {goal.targetDate ? (
-                          <p className={`text-[12px] ${dueMeta?.toneClassName ?? 'text-mist/56'}`}>
-                            {dueMeta ? `${dueMeta.label} · ${formatDate(goal.targetDate)}` : formatDate(goal.targetDate)}
-                          </p>
-                        ) : null}
-                        <span className={`${goalStatusChipClassName} h-5 px-2 py-0 text-[9px] ${getLifeGoalStatusMeta(goal.status, goal.startDate).badgeClassName}`}>
-                          {getLifeGoalStatusMeta(goal.status, goal.startDate).label}
-                        </span>
-                      </div>
-                    </div>
-                    <span className="text-[11px] uppercase tracking-[0.14em] text-white/36">Open</span>
-                  </button>
-                )
-              })}
-              {hiddenRelatedGoalsCount > 0 ? (
-                <div className="rounded-[18px] border border-white/[0.05] bg-white/[0.018] px-4 py-3 text-sm text-mist">
-                  +{hiddenRelatedGoalsCount} more
-                </div>
-              ) : null}
-            </>
-          ) : null}
-        </div>
-      </div>
-    )
-    const directionalAnchorCard = (
-      <div className="rounded-[24px] border border-white/[0.08] bg-white/[0.03] px-5 py-4">
-        <div className="min-w-0">
-          <div className="flex items-center justify-between gap-4">
-            <div className="min-w-0 flex-1 pr-2">
-              <div className="flex flex-wrap items-center gap-2">
-                <h3 className="theme-page-title min-w-0 flex-1">
-                  {inlineLifeGoalEditingField === 'title' ? inlineEditableTitle : inlineTitleDisplay}
-                </h3>
-                <span className={`${goalHeaderChipClassName} border-white/[0.08] bg-white/[0.04] text-white/76`}>
-                  Directional
-                </span>
-                <span className="group relative inline-flex">
-                  <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.03] text-[11px] text-white/42 transition group-hover:text-white/64">
-                    i
-                  </span>
-                  <span className="pointer-events-none absolute left-1/2 top-[calc(100%+10px)] z-20 hidden w-[240px] -translate-x-1/2 rounded-2xl border border-white/10 bg-[#141414] px-3 py-2 text-left text-xs leading-5 text-mist shadow-[0_16px_34px_rgba(0,0,0,0.36)] group-hover:block">
-                    This is a long-term direction, not something to complete. It is moved forward by the goals connected to it.
-                  </span>
-                </span>
-                {selectedGoalCategory ? (
-                  <span
-                    className={`${goalHeaderChipClassName} gap-1.5 text-white/70`}
-                    style={getLifeGoalCategoryChipStyle(selectedGoalCategoryColor)}
-                  >
-                    <span className="h-1.5 w-1.5 rounded-full" style={getLifeGoalCategoryDotStyle(selectedGoalCategoryColor)} />
-                    {selectedGoalCategory}
-                  </span>
-                ) : null}
-                {renderParentGoalChips()}
-              </div>
-              <p className="mt-2 text-[11px] uppercase tracking-[0.18em] text-mist/56">Long-term direction</p>
-            </div>
-            <span
-              className={`${goalHeaderChipClassName} ${
-                getLifeGoalStatusMeta(selectedLifeGoal.status, selectedLifeGoal.startDate).badgeClassName
-              }`}
-            >
-              {isLifeGoalScheduled(selectedLifeGoal.status, selectedLifeGoal.startDate)
-                ? 'Scheduled'
-                : getLifeGoalStatusMeta(selectedLifeGoal.status, selectedLifeGoal.startDate).label}
-            </span>
-          </div>
-          <div className="mt-2 h-px bg-[linear-gradient(90deg,rgb(var(--theme-border-subtle-rgb)/0.72)_0%,rgb(var(--theme-border-subtle-rgb)/0.22)_82%,transparent_100%)]" />
-        </div>
-
-        <div className="mt-3 space-y-3">
-          {anchorText || inlineLifeGoalEditingField === 'why' ? (
-            <div className="space-y-1">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-mist/56">Why it matters</p>
-              {inlineLifeGoalEditingField === 'why' ? (
-                <div className="max-w-[44rem]">{inlineEditableWhy}</div>
-              ) : (
-                <div className="max-w-[44rem]">{inlineWhyDisplay}</div>
-              )}
-            </div>
-          ) : null}
-
-          <div className="flex flex-wrap items-center gap-2.5">
-            <span className="inline-flex items-center rounded-full border border-white/[0.06] bg-white/[0.025] px-3 py-1.5 text-[11px] text-white/68">
-              {relatedGoals.length} active paths
-            </span>
-            <span className="inline-flex items-center rounded-full border border-white/[0.06] bg-white/[0.02] px-3 py-1.5 text-[11px] text-white/62">
-              {activeRelatedGoalsCount} in motion
-            </span>
-            {pausedRelatedGoalsCount > 0 ? (
-              <span className="inline-flex items-center rounded-full border border-white/[0.06] bg-white/[0.02] px-3 py-1.5 text-[11px] text-white/58">
-                {pausedRelatedGoalsCount} paused
-              </span>
-            ) : null}
-          </div>
-
-          <p className="text-[12px] leading-5 text-mist/58">No fixed finish line. Let the goals connected to this direction carry it forward.</p>
-        </div>
-      </div>
-    )
-    const visionEditImagesContent =
-      selectedLifeGoal.visionImages.length > 0
-        ? renderVisionImageLayout(selectedLifeGoal.visionImages, {
-            draggableState: {
-              enabled: true,
-              draggedIndex: draggedVisionImageIndex,
-              dragOverIndex: dragOverVisionImageIndex,
-              onDragStart: (index) => {
-                setDraggedVisionImageIndex(index)
-                setDragOverVisionImageIndex(null)
-              },
-              onDragOver: (event, index) => {
-                event.preventDefault()
-                if (dragOverVisionImageIndex !== index) {
-                  setDragOverVisionImageIndex(index)
-                }
-              },
-              onDrop: (event, index) => {
-                event.preventDefault()
-                if (draggedVisionImageIndex !== null) {
-                  reorderSelectedLifeGoalVisionImages(draggedVisionImageIndex, index)
-                }
-                setDraggedVisionImageIndex(null)
-                setDragOverVisionImageIndex(null)
-              },
-              onDragEnd: () => {
-                setDraggedVisionImageIndex(null)
-                setDragOverVisionImageIndex(null)
-              },
-            },
-            fitMode: 'contain',
-            removable: true,
-            onRemove: removeSelectedLifeGoalVisionImage,
-            interactive: visionImageInteractiveOptions,
-          })
-        : null
-    const visionDisplayContent = (
-      <div
-        className={`mt-2 w-full ${
-          selectedLifeGoalVisionShowsStatementInDisplay && !selectedLifeGoalVisionShowsImagesInDisplay
-            ? 'flex min-h-[280px] flex-1 flex-col'
-            : ''
-        }`}
-      >
-        {selectedLifeGoalVisionShowsImagesInDisplay && selectedLifeGoal.visionImages.length > 0 ? (
-          <div className="space-y-3">
-            {renderVisionImageLayout(selectedLifeGoal.visionImages, {
-              displayStyle: 'minimal',
-              fitMode: 'contain',
-              onOpenPreview: setVisionPreviewImage,
-              interactive: visionImageInteractiveOptions,
-            })}
-
-            {selectedLifeGoalVisionMode === 'images-statement' && selectedLifeGoal.visionStatement.trim() ? (
-              <div className="space-y-2 px-2 pb-1 pt-0.5 text-center sm:space-y-2.5">
-                <div className="mx-auto h-px w-[34%] max-w-[220px] min-w-[120px] bg-white/[0.08]" />
-                <p
-                  className="mx-auto max-w-[34rem] text-[18px] font-medium leading-[1.58] tracking-[0.012em] text-white/86 [text-shadow:0_0_18px_rgba(var(--theme-accent-rgb),0.08)] sm:text-[19px]"
-                  style={{
-                    display: '-webkit-box',
-                    WebkitLineClamp: 3,
-                    WebkitBoxOrient: 'vertical',
-                    overflow: 'hidden',
-                  }}
-                >
-                  {selectedLifeGoal.visionStatement.trim()}
-                </p>
-              </div>
-            ) : null}
-          </div>
-        ) : selectedLifeGoalVisionShowsStatementInDisplay ? (
-          <div className="flex h-full w-full flex-1 items-center justify-center bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.05),rgba(255,255,255,0.016)_34%,rgba(255,255,255,0)_72%)] px-6 py-8 text-center sm:px-10 sm:py-10">
-            <div className="w-full max-w-[46rem]">
-              <p className="mx-auto max-w-[30rem] text-center text-[28px] leading-[1.45] tracking-[-0.02em] text-white/88 sm:text-[34px]">
-                {selectedLifeGoal.visionStatement.trim()}
-              </p>
-            </div>
-          </div>
-        ) : null}
-      </div>
-    )
-    const roadmapNotesContent = (
-      <LifeGoalNotesEditor value={selectedLifeGoal.notes ?? ''} onChange={updateSelectedLifeGoalNotes} />
-    )
-    const relatedGoalsSection = (
-      <div className="rounded-[24px] border border-white/[0.05] bg-white/[0.02] px-5 py-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <p className="text-[11px] uppercase tracking-[0.16em] text-mist/52">Active paths</p>
-            <span className="group relative inline-flex">
-              <span className="inline-flex h-4.5 w-4.5 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.03] text-[10px] text-white/38 transition group-hover:text-white/60">
-                i
-              </span>
-              <span className="pointer-events-none absolute left-1/2 top-[calc(100%+10px)] z-20 hidden w-[220px] -translate-x-1/2 rounded-2xl border border-white/10 bg-[#141414] px-3 py-2 text-left text-xs leading-5 text-mist shadow-[0_16px_34px_rgba(0,0,0,0.36)] group-hover:block">
-                These are goals that move this direction forward. They are connected goals, not sub-tasks.
-              </span>
-            </span>
-          </div>
-          <p className="mt-1 text-xs uppercase tracking-[0.18em] text-mist/68">Related goals</p>
-          <p className="mt-1 text-sm text-mist">Goals linked to this direction and moving it forward.</p>
-        </div>
-
-        <div className="mt-4 space-y-2">
-          {relatedGoals.length > 0 ? (
-            <>
-              {visibleRelatedGoals.map((goal) => {
-              const dueMeta = goal.targetDate && isValidIsoDate(goal.targetDate) ? getRelativeDueMeta(goal.targetDate) : null
-              return (
-                <button
-                  key={goal.id}
-                  type="button"
-                  onClick={() => onSelectLifeGoal(goal.id)}
-                  className="flex w-full items-center justify-between rounded-[18px] border border-white/[0.05] bg-white/[0.018] px-4 py-3 text-left transition hover:border-white/[0.08] hover:bg-white/[0.03]"
-                >
-                  <div className="min-w-0">
-                    <p className="text-sm text-white/84">{goal.title}</p>
-                    <div className="mt-1 flex flex-wrap items-center gap-2">
-                      {goal.category ? <p className="text-[12px] text-mist/56">{goal.category}</p> : null}
-                      {goal.targetDate ? (
-                        <p className={`text-[12px] ${dueMeta?.toneClassName ?? 'text-mist/56'}`}>
-                          {dueMeta ? `${dueMeta.label} · ${formatDate(goal.targetDate)}` : formatDate(goal.targetDate)}
-                        </p>
-                      ) : null}
-                      <span className={`${goalStatusChipClassName} h-5 px-2 py-0 text-[9px] ${getLifeGoalStatusMeta(goal.status, goal.startDate).badgeClassName}`}>
-                        {getLifeGoalStatusMeta(goal.status, goal.startDate).label}
-                      </span>
-                    </div>
-                  </div>
-                  <span className="text-[11px] uppercase tracking-[0.14em] text-white/36">Open</span>
-                </button>
-              )
-            })}
-              {hiddenRelatedGoalsCount > 0 ? (
-                <div className="rounded-[18px] border border-white/[0.05] bg-white/[0.018] px-4 py-3 text-sm text-mist">
-                  +{hiddenRelatedGoalsCount} more
-                </div>
-              ) : null}
-            </>
-          ) : (
-            <div className="rounded-[18px] border border-white/[0.05] bg-white/[0.018] px-4 py-4">
-              <p className="text-sm text-white/78">No active paths yet</p>
-              <p className="mt-1 text-sm text-mist">Add goals that move this direction forward.</p>
-              <button
-                type="button"
-                onClick={(event) => openEditLifeGoalComposer(selectedLifeGoal, event.currentTarget)}
-                className="mt-3 inline-flex items-center rounded-full border border-white/[0.06] bg-white/[0.025] px-3 py-1.5 text-[11px] uppercase tracking-[0.14em] text-white/58 transition hover:border-white/[0.1] hover:text-white/78"
-              >
-                Link a goal
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-    )
-    const directionalReflectionsSection = (
-      <div className="px-1 py-1">
-        <p className="text-[11px] uppercase tracking-[0.16em] text-mist/50">Reflections</p>
-        <p className="mt-2 text-sm text-white/58">No reflections yet</p>
-        <p className="mt-1 text-sm text-mist/56">Capture thoughts and check-ins as this direction evolves.</p>
-      </div>
-    )
-    const supportingHabitsSection = (
-      <div className="rounded-[24px] border border-white/[0.05] bg-white/[0.018] px-4 py-4">
-        <div>
-          <p className="text-[11px] uppercase tracking-[0.16em] text-mist/50">Supporting habits</p>
-          <p className="mt-1 text-sm text-mist">Simple repeatable behaviors linked to this goal.</p>
-        </div>
-
-        <div className="mt-4 space-y-2.5">
-          {visibleSupportingHabits.length > 0 ? (
-            <>
-              {visibleSupportingHabits.map((tracker) => {
-                const streak = getLiveTrackerStreak(tracker, year)
-                const progress = tracker.goal ? getTrackerGoalProgress(tracker, year) : null
-
-                return (
-                  <button
-                    key={`supporting-habit-${tracker.id}`}
-                    type="button"
-                    onClick={() => onOpenHabitTracker(tracker.id)}
-                    className="flex w-full items-start justify-between gap-3 rounded-[18px] border border-white/[0.05] bg-white/[0.018] px-4 py-3 text-left transition hover:border-white/[0.08] hover:bg-white/[0.026]"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm leading-6 text-white/78">{tracker.title}</p>
-                      <p className="mt-1 text-[12px] text-mist/54">
-                        {progress?.progressText ?? (streak > 0 ? `${streak} day streak` : 'No goal set')}
-                      </p>
-                    </div>
-                    <span className="shrink-0 rounded-full border border-white/[0.05] bg-white/[0.02] px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-white/46">
-                      Habit
-                    </span>
-                  </button>
-                )
-              })}
-              {hiddenSupportingHabitsCount > 0 ? (
-                <div className="rounded-[18px] border border-white/[0.05] bg-white/[0.018] px-4 py-3 text-sm text-mist">
-                  +{hiddenSupportingHabitsCount} more
-                </div>
-              ) : null}
-            </>
-          ) : (
-            <div className="rounded-[18px] border border-white/[0.05] bg-white/[0.018] px-4 py-4">
-              <p className="text-sm text-white/68">No supporting habits yet</p>
-              <p className="mt-1 text-sm text-mist">Linked habits will appear here when they support this goal.</p>
-            </div>
-          )}
-        </div>
-      </div>
-    )
-    const outcomeMilestoneContent =
-      isOutcomeGoal && milestonesEnabled ? (
-        goalMilestones.length > 0 ? (
-          <div className="space-y-2">
-            {goalMilestones.length > 1 ? (
-              <div className="mb-1 flex items-center gap-2 px-1 pb-2">
-                {goalMilestones.map((milestone, index) => {
-                  const isCurrentMilestone = currentMilestone?.id === milestone.id && !milestone.completed
-                  return (
-                    <span
-                      key={`milestone-progress-${milestone.id}`}
-                      title={milestone.title.trim() || `Milestone ${index + 1}`}
-                      className={`inline-flex h-2.5 w-2.5 rounded-full border transition ${
-                        milestone.completed
-                          ? 'border-[rgb(var(--theme-accent-rgb)/0.36)] bg-[rgb(var(--theme-accent-rgb)/0.74)]'
-                          : isCurrentMilestone
-                            ? 'border-[rgb(var(--theme-accent-rgb)/0.34)] bg-[rgb(var(--theme-accent-rgb)/0.18)] shadow-[0_0_0_2px_rgb(var(--theme-accent-rgb)/0.06)]'
-                            : 'border-white/[0.18] bg-transparent'
-                      }`}
-                    />
-                  )
-                })}
-              </div>
-            ) : null}
-            {goalMilestones.map((milestone, milestoneIndex) => {
-              const isCurrentMilestone = currentMilestone?.id === milestone.id && !milestone.completed
-              const milestoneDueMeta = milestone.targetDate ? getRelativeDueMeta(milestone.targetDate) : null
-              const milestoneDescriptionPreview = milestone.description.trim()
-              const milestoneTasks = explicitlyAssignedTasksByMilestone.get(milestone.id) ?? []
-              const milestoneTaskProgress = getMilestoneTaskProgress(milestoneTasks)
-              return (
-                <div
-                  key={milestone.id}
-                  onClick={() => openMilestonePeek(milestone.id)}
-                  onKeyDown={(event) => {
-                    if (event.target !== event.currentTarget) return
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault()
-                      openMilestonePeek(milestone.id)
-                    }
-                  }}
-                  role="button"
-                  tabIndex={0}
-                  className={`w-full cursor-pointer rounded-[20px] border px-4 py-3.5 text-left transition ${
-                    isCurrentMilestone
-                      ? 'border-[rgb(var(--theme-accent-rgb)/0.08)] bg-[rgb(var(--theme-accent-rgb)/0.022)] hover:border-[rgb(var(--theme-accent-rgb)/0.12)]'
-                      : 'border-white/[0.05] bg-white/[0.018] hover:border-white/[0.08] hover:bg-white/[0.026]'
-                  }`}
-                >
-                  <div className="grid grid-cols-[32px_minmax(0,1fr)] items-start gap-x-3.5">
-                    <span aria-hidden="true" className="mt-0.5 flex h-7 w-7 items-center justify-center">
-                      <span
-                        className={`inline-flex h-7 w-7 items-center justify-center rounded-full border text-[11px] font-medium transition ${
-                          milestone.completed
-                            ? 'border-[rgb(var(--theme-accent-rgb)/0.18)] bg-[rgb(var(--theme-accent-rgb)/0.12)] text-[rgb(var(--theme-accent-rgb)/0.82)]'
-                            : isCurrentMilestone
-                              ? 'border-[rgb(var(--theme-accent-rgb)/0.16)] bg-[rgb(var(--theme-accent-rgb)/0.04)] text-white/84'
-                              : 'border-white/[0.12] bg-white/[0.02] text-white/46'
-                        }`}
-                      >
-                        {milestone.completed ? '✓' : milestoneIndex + 1}
-                      </span>
-                    </span>
-                    <div className="min-w-0">
-                      <div className="flex items-start justify-between gap-3">
-                        <p className={`min-w-0 flex-1 text-[15px] font-medium leading-6 ${milestone.completed ? 'text-white/54 line-through' : 'text-white/88'}`}>
-                          {milestone.title.trim() || `Milestone ${milestoneIndex + 1}`}
-                        </p>
-                        <div className="flex shrink-0 items-center gap-2">
-                          <span
-                            className={`rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] ${
-                              milestone.completed
-                                ? 'border-white/[0.06] bg-white/[0.025] text-white/44'
-                                : isCurrentMilestone
-                                  ? 'border-[rgb(var(--theme-accent-rgb)/0.16)] bg-[rgb(var(--theme-accent-rgb)/0.06)] text-[rgb(var(--theme-accent-rgb)/0.74)]'
-                                  : 'border-white/[0.06] bg-white/[0.018] text-white/42'
-                            }`}
-                          >
-                            {milestone.completed ? 'Completed' : isCurrentMilestone ? 'Current' : 'Upcoming'}
-                          </span>
-                          {milestone.targetDate ? (
-                            <span className={`text-[12px] ${milestoneDueMeta?.toneClassName ?? 'text-mist/56'}`}>
-                              {milestoneDueMeta ? `${milestoneDueMeta.compactLabel} · ` : ''}
-                              {formatDate(milestone.targetDate)}
-                            </span>
-                          ) : null}
-                          {milestoneTaskProgress.percent != null ? (
-                            <span
-                              className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] ${
-                                milestoneTaskProgress.percent === 100
-                                  ? 'border-[rgb(var(--theme-accent-rgb)/0.16)] bg-[rgb(var(--theme-accent-rgb)/0.08)] text-[rgb(var(--theme-accent-rgb)/0.72)]'
-                                  : milestoneTaskProgress.percent > 0
-                                    ? 'border-white/[0.08] bg-white/[0.03] text-white/56'
-                                    : 'border-white/[0.05] bg-white/[0.016] text-white/40'
-                              }`}
-                            >
-                              {milestoneTaskProgress.percent}% complete
-                            </span>
-                          ) : null}
-                        </div>
-                      </div>
-                      {milestoneDescriptionPreview ? (
-                        <p className="mt-1 line-clamp-2 text-[12px] leading-5 text-white/58">{milestoneDescriptionPreview}</p>
-                      ) : null}
-                      {milestoneTaskProgress.percent != null ? (
-                        <p className="mt-1 text-[12px] text-mist/56">
-                          {milestoneTaskProgress.completed}/{milestoneTaskProgress.total} tasks complete
-                        </p>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-              )
-            })}
-            <button
-              type="button"
-              onClick={addSelectedLifeGoalMilestone}
-              className="group flex w-full items-center gap-3 rounded-[20px] border border-dashed border-white/[0.08] bg-white/[0.012] px-4 py-3.5 text-left transition hover:border-white/[0.14] hover:bg-white/[0.02]"
-            >
-              <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.02] text-[15px] text-white/44 transition group-hover:text-white/64">
-                +
-              </span>
-              <span className="text-[15px] font-medium text-white/54 transition group-hover:text-white/74">Add milestone</span>
-            </button>
-          </div>
-        ) : (
-          <div className="pt-1" style={roadmapContentInsetStyle}>
-            <p className="text-sm text-white/68">No milestones yet</p>
-            <button
-              type="button"
-              onClick={addSelectedLifeGoalMilestone}
-              className="mt-2 inline-flex items-center rounded-full border border-white/[0.06] bg-white/[0.025] px-3 py-1.5 text-[11px] uppercase tracking-[0.14em] text-white/56 transition hover:border-white/[0.1] hover:text-white/78"
-            >
-              + Add first milestone
-            </button>
-          </div>
-        )
-      ) : null
-    const milestoneDatePicker =
-      milestoneDatePickerMilestoneId && milestoneDatePanelPosition && milestoneDateTarget && typeof document !== 'undefined'
-        ? createPortal(
-            <div
-              ref={milestoneDatePanelRef}
-              className="theme-popover fixed z-[80] overflow-hidden rounded-[24px] border p-3 shadow-[0_22px_46px_rgba(15,23,42,0.18)]"
-              style={{
-                top: `${milestoneDatePanelPosition.top}px`,
-                left: `${milestoneDatePanelPosition.left}px`,
-                width: `${milestoneDatePanelPosition.width}px`,
-              }}
-            >
-              <div className="flex items-center justify-between gap-3">
-                <button
-                  type="button"
-                  onClick={() => setMilestoneDateViewMonth((current) => shiftCalendarMonth(current, -1))}
-                  className="theme-text-muted rounded-full border border-[rgb(var(--theme-border-subtle-rgb))] px-2.5 py-1.5 text-xs transition hover:border-[rgb(var(--theme-border-strong-rgb))] hover:text-[rgb(var(--theme-text-primary-rgb))]"
-                >
-                  Prev
-                </button>
-                <p className="theme-text-primary text-sm font-medium">{formatCalendarMonthLabel(milestoneDateViewMonth)}</p>
-                <button
-                  type="button"
-                  onClick={() => setMilestoneDateViewMonth((current) => shiftCalendarMonth(current, 1))}
-                  className="theme-text-muted rounded-full border border-[rgb(var(--theme-border-subtle-rgb))] px-2.5 py-1.5 text-xs transition hover:border-[rgb(var(--theme-border-strong-rgb))] hover:text-[rgb(var(--theme-text-primary-rgb))]"
-                >
-                  Next
-                </button>
-              </div>
-
-              <div className="mt-3 grid grid-cols-7 gap-1.5">
-                {LIFE_GOAL_WEEKDAY_LABELS.map((day) => (
-                  <div key={day} className="theme-text-faint px-1 py-1 text-center text-[11px] uppercase tracking-[0.12em]">
-                    {day}
-                  </div>
-                ))}
-              </div>
-
-              <div className="mt-1 grid grid-cols-7 gap-1.5">
-                {getCalendarDays(milestoneDateViewMonth).map((day) => {
-                  const dayValue = formatCalendarDayValue(day)
-                  const inCurrentMonth = day.getUTCMonth() === milestoneDateViewMonth.getUTCMonth()
-                  const activeDateValue = milestoneDateTarget.targetDate ?? ''
-                  const isSelected = dayValue === activeDateValue
-                  const isToday = dayValue === getTodayIsoDate()
-
-                  return (
-                    <button
-                      key={dayValue}
-                      type="button"
-                      onClick={() => applySelectedMilestoneDate(dayValue)}
-                      className={`rounded-2xl border px-0 py-2 text-center text-sm transition ${
-                        isSelected
-                          ? 'border-[rgb(var(--theme-info-rgb)/0.28)] bg-[rgb(var(--theme-info-rgb)/0.12)] text-[rgb(var(--theme-text-primary-rgb))]'
-                          : isToday
-                            ? 'border-[rgb(var(--theme-border-strong-rgb))] bg-[rgb(var(--theme-surface-soft-rgb))] text-[rgb(var(--theme-text-primary-rgb))] hover:border-[rgb(var(--theme-border-strong-rgb))] hover:bg-[rgb(var(--theme-surface-elevated-rgb))]'
-                            : inCurrentMonth
-                              ? 'border-[rgb(var(--theme-border-subtle-rgb)/0.75)] bg-transparent text-[rgb(var(--theme-text-secondary-rgb))] hover:border-[rgb(var(--theme-border-strong-rgb))] hover:bg-[rgb(var(--theme-surface-soft-rgb))] hover:text-[rgb(var(--theme-text-primary-rgb))]'
-                              : 'border-transparent bg-transparent text-[rgb(var(--theme-text-faint-rgb))] hover:border-[rgb(var(--theme-border-subtle-rgb)/0.55)] hover:bg-[rgb(var(--theme-surface-soft-rgb)/0.6)]'
-                      }`}
-                    >
-                      {day.getUTCDate()}
-                    </button>
-                  )
-                })}
-              </div>
-
-              <div className="mt-3 flex items-center justify-between gap-2 border-t border-[rgb(var(--theme-border-subtle-rgb)/0.7)] pt-3">
-                <button
-                  type="button"
-                  onClick={() => applySelectedMilestoneDate(getTodayIsoDate())}
-                  className="theme-text-muted rounded-full px-2 py-1 text-xs transition hover:text-[rgb(var(--theme-text-primary-rgb))]"
-                >
-                  Today
-                </button>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => applySelectedMilestoneDate('')}
-                    className="theme-text-muted rounded-full px-2 py-1 text-xs transition hover:text-[rgb(var(--theme-text-primary-rgb))]"
-                  >
-                    Clear
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMilestoneDatePickerMilestoneId(null)
-                      setMilestoneDatePanelPosition(null)
-                    }}
-                    className="theme-text-muted rounded-full px-2 py-1 text-xs transition hover:text-[rgb(var(--theme-text-primary-rgb))]"
-                  >
-                    Done
-                  </button>
-                </div>
-              </div>
-            </div>,
-            document.body,
-          )
-        : null
-    const directionalActivitySection = (
-      <div className="rounded-[24px] border border-white/[0.05] bg-white/[0.018] px-4 py-4">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.16em] text-mist/50">Activity</p>
-            <p className="mt-1 text-sm text-mist">Linked global tasks supporting this direction.</p>
-            <p className="mt-1 text-[12px] text-mist/52">Linked tasks are managed from the Dashboard task list.</p>
-          </div>
-        </div>
-
-        <div className="mt-4 space-y-2.5">
-          {visibleDirectionalTasks.length > 0 ? (
-            <>
-              {visibleDirectionalTasks.map((task) => (
-                (() => {
-                  const dueMeta = task.dueDate ? getRelativeDueMeta(task.dueDate) : null
-                  return (
-                    <button
-                      key={`direction-task-${task.id}`}
-                      type="button"
-                      onClick={onOpenGlobalTasks}
-                      className="flex w-full items-start justify-between gap-3 rounded-[18px] border border-white/[0.05] bg-white/[0.018] px-4 py-3 text-left transition hover:border-white/[0.08] hover:bg-white/[0.026]"
-                      title="Open in global tasks"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <p className={`text-sm leading-6 ${task.completed ? 'text-white/52 line-through' : 'text-white/78'}`}>
-                          {task.text}
-                        </p>
-                        {task.dueDate ? (
-                          <p className="mt-1 text-[12px] text-mist/54">
-                            {dueMeta ? `${dueMeta.compactLabel} · ${formatTaskDueDate(task.dueDate)}` : formatTaskDueDate(task.dueDate)}
-                          </p>
-                        ) : null}
-                      </div>
-                      <div className="flex shrink-0 items-center gap-2 pt-0.5">
-                        {task.important ? (
-                          <span className="inline-flex items-center rounded-full border border-[#A94D45]/28 bg-[#2A1615]/30 px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-[#D58A82]">
-                            Important
-                          </span>
-                        ) : null}
-                      </div>
-                    </button>
-                  )
-                })()
-              ))}
-              {hiddenDirectionalTasksCount > 0 ? (
-                <div className="rounded-[18px] border border-white/[0.05] bg-white/[0.018] px-4 py-3 text-sm text-mist">
-                  +{hiddenDirectionalTasksCount} more
-                </div>
-              ) : null}
-            </>
-          ) : (
-            <div className="rounded-[18px] border border-white/[0.05] bg-white/[0.018] px-4 py-4">
-              <p className="text-sm text-white/68">No linked tasks yet</p>
-              <p className="mt-1 text-sm text-mist">Linked tasks will appear here when they support this direction.</p>
-              <p className="mt-1 text-[12px] text-mist/52">Create and edit linked tasks from the Dashboard.</p>
-            </div>
-          )}
-        </div>
-      </div>
-    )
-    const tasksTabContent = (
-      <div className="rounded-[24px] border border-white/[0.05] bg-white/[0.018] px-4 py-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-mist/68">Tasks</p>
-            <p className="mt-1 text-sm text-mist">Keep the next steps visible and mark them honestly.</p>
-          </div>
-          {renderTaskSortControl()}
-        </div>
-
-        <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,0.92fr)]">
-          <div className="space-y-2">
-            <p className="text-xs uppercase tracking-[0.16em] text-mist/62">Upcoming tasks</p>
-            {sortedPlannedTasks.length > 0 ? (
-              sortedPlannedTasks.map((task, index) => {
-                const dueMeta = task.dueDate ? getRelativeDueMeta(task.dueDate) : null
-                const visualState = getRoadmapTaskVisualState(task, index === 0 ? 'current' : 'upcoming', false)
-                return (
-                  <div
-                    key={task.id}
-                    className={`rounded-2xl border px-3.5 py-2.5 ${
-                      index === 0
-                        ? 'border-white/[0.16] bg-white/[0.045]'
-                        : 'border-white/[0.06] bg-white/[0.02]'
-                    }`}
-                    style={{ ...visualState.rowStyle, opacity: visualState.opacity }}
-                  >
-                    <button
-                      type="button"
-                      onClick={(event) => openTaskPeek(task.id, event.currentTarget)}
-                      className="flex w-full items-start justify-between gap-3 text-left transition"
-                    >
-                      <div className="min-w-0">
-                        {index === 0 ? (
-                          <span className="inline-flex items-center rounded-full border border-white/[0.08] bg-white/[0.045] px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-white/60">
-                            Next
-                          </span>
-                        ) : null}
-                        <span className={`mt-1 block leading-6 ${index === 0 ? 'text-[15px] font-medium' : 'text-sm'} ${visualState.titleClassName}`}>{task.text}</span>
-                        <div className="mt-1 flex flex-wrap items-center gap-1.5">{renderTaskTags(task)}</div>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-3 pl-2">
-                        {renderSubtaskProgressDots(task.subtasks)}
-                        <div className="flex items-center gap-2">
-                          {task.dueDate ? (
-                            <span className={`text-xs ${dueMeta?.toneClassName ?? visualState.metaClassName}`}>
-                              {dueMeta ? `${dueMeta.compactLabel} · ${formatTaskDueDate(task.dueDate)}` : formatTaskDueDate(task.dueDate)}
-                            </span>
-                          ) : null}
-                          {renderPriorityChip(task)}
-                        </div>
-                      </div>
-                    </button>
-                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setHabitDraftByTaskId((current) => ({
-                          ...current,
-                          [task.id]: current[task.id] ?? task.text,
-                        }))
-                      }
-                      className="text-xs uppercase tracking-[0.16em] text-white/46 transition hover:text-white/72"
-                    >
-                      Make this a habit
-                    </button>
-                  </div>
-                  {habitDraftByTaskId[task.id] !== undefined ? (
-                    <div className="mt-3 rounded-2xl border border-white/[0.06] bg-white/[0.018] px-3 py-3">
-                      <input
-                        value={habitDraftByTaskId[task.id]}
-                        onChange={(event) =>
-                          setHabitDraftByTaskId((current) => ({
-                            ...current,
-                            [task.id]: event.target.value,
-                          }))
-                        }
-                        spellCheck={true}
-                        className="w-full bg-transparent text-sm text-white outline-none placeholder:text-white/26"
-                        placeholder="Habit name"
-                      />
-                      <div className="mt-3 flex justify-end gap-2">
-                        <Button
-                          variant="ghost"
-                          onClick={() =>
-                            setHabitDraftByTaskId((current) => {
-                              const next = { ...current }
-                              delete next[task.id]
-                              return next
-                            })
-                          }
-                        >
-                          Cancel
-                        </Button>
-                        <Button variant="soft" onClick={() => createHabitFromTask(selectedLifeGoal, task)}>
-                          Create and link habit
-                        </Button>
-                      </div>
-                    </div>
-                  ) : null}
-                  </div>
-                )
-              })
-            ) : (
-              <p className="rounded-2xl border border-white/[0.06] bg-white/[0.02] px-3.5 py-3 text-sm text-mist">
-                No upcoming tasks yet. Add the next concrete step.
-              </p>
-            )}
-
-            <div className="pt-1">
-              <button
-                type="button"
-                onClick={(event) => openNewTaskPeek(event.currentTarget)}
-                className="inline-flex items-center rounded-full border border-white/[0.07] bg-white/[0.025] px-3 py-1.5 text-xs uppercase tracking-[0.16em] text-white/62 transition hover:border-white/[0.12] hover:text-white/82"
-              >
-                + Add task
-              </button>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <p className="text-xs uppercase tracking-[0.16em] text-mist/62">Completed tasks</p>
-            {sortedCompletedTasks.length > 0 ? (
-              sortedCompletedTasks.map((task) => (
-                <div
-                  key={task.id}
-                  className="flex items-start justify-between gap-3 rounded-2xl border border-white/[0.08] bg-white/[0.03] px-3.5 py-2.5"
-                >
-                  <div className="min-w-0">
-                    <button
-                      type="button"
-                      onClick={(event) => openTaskPeek(task.id, event.currentTarget)}
-                      className="text-left"
-                    >
-                      <span className="text-sm leading-6 text-white/62 line-through">{task.text}</span>
-                    </button>
-                    <div className="mt-1 flex flex-wrap items-center gap-1.5">{renderTaskTags(task)}</div>
-                  </div>
-                  <div className="shrink-0 text-right">
-                    {task.subtasks.length > 0 ? <div className="mb-1 flex justify-end">{renderSubtaskProgressDots(task.subtasks, 'completed')}</div> : null}
-                    {task.dueDate ? (
-                      <p className={`text-xs ${getRelativeDueMeta(task.dueDate)?.toneClassName ?? 'text-mist/62'}`}>
-                        {(() => {
-                          const dueMeta = getRelativeDueMeta(task.dueDate)
-                          return dueMeta ? `${dueMeta.compactLabel} · ${formatTaskDueDate(task.dueDate)}` : formatTaskDueDate(task.dueDate)
-                        })()}
-                      </p>
-                    ) : null}
-                    <p className="mt-0.5 text-xs uppercase tracking-[0.16em] text-mist/72">
-                      {task.completedAt ? formatDate(task.completedAt.slice(0, 10)) : 'Done'}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => restoreTask(selectedLifeGoal.id, task.id)}
-                      className="mt-1 text-[11px] uppercase tracking-[0.14em] text-[rgb(var(--theme-info-rgb)/0.66)] transition hover:text-[rgb(var(--theme-info-rgb)/0.9)]"
-                    >
-                      Restore
-                    </button>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <p className="rounded-2xl border border-white/[0.06] bg-white/[0.02] px-3.5 py-3 text-sm text-mist">
-                Completed tasks will collect here as proof of progress.
-              </p>
-            )}
-          </div>
-        </div>
-      </div>
-    )
-
-    const roadmapTabContent = (
-      <div
-        className="rounded-[24px] border border-white/[0.05] bg-white/[0.018] px-5 py-5"
-        tabIndex={0}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' && event.shiftKey) {
-            event.preventDefault()
-            openNewTaskPeek(event.currentTarget as HTMLElement)
-          }
-        }}
-      >
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-mist/68">Roadmap</p>
-            <p className="mt-1 text-sm text-mist">A clean view of the path from the current task to the goal.</p>
-          </div>
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <div className="flex flex-wrap items-center gap-1.5">
-              {renderTaskSortControl()}
-            {roadmapHasTaggedTasks ? (
-              <button
-                type="button"
-                onClick={() => setRoadmapOrganizationMode((current) => (current === 'default' ? 'tag' : 'default'))}
-                className={`${
-                  roadmapOrganizationMode === 'tag'
-                    ? roadmapHeaderControlActiveClass
-                    : roadmapHeaderControlBaseClass
-                }`}
-              >
-                {roadmapOrganizationMode === 'tag' ? 'View · By tag' : 'View · Default'}
-              </button>
-            ) : null}
-            </div>
-            <div className="flex flex-wrap items-center gap-1.5">
-            {roadmapHasHighPriorityTasks ? (
-              <button
-                type="button"
-                onClick={() => setRoadmapHighPriorityFocus((current) => !current)}
-                className={`${
-                  roadmapHighPriorityFocus
-                    ? 'inline-flex items-center rounded-full border border-[rgb(var(--theme-accent-rgb)/0.12)] bg-[rgb(var(--theme-accent-rgb)/0.06)] px-2.5 py-[5px] text-[10px] uppercase tracking-[0.14em] text-[rgb(var(--theme-accent-rgb)/0.72)] transition hover:border-[rgb(var(--theme-accent-rgb)/0.16)] hover:text-[rgb(var(--theme-accent-rgb)/0.82)]'
-                    : roadmapHeaderControlBaseClass
-                }`}
-              >
-                Focus · High priority
-              </button>
-            ) : null}
-            </div>
-            <p className="text-[11px] uppercase tracking-[0.16em] text-mist/54">
-              {selectedLifeGoalProgress.completedTaskItems.length} completed
-              <span className="px-1.5 text-white/24">·</span>
-              {roadmapRemainingCount} remaining
-            </p>
-          </div>
-        </div>
-
-        {selectedLifeGoal.tasks.length > 0 ? (
-          <div className="relative mt-5">
-            <span
-              aria-hidden="true"
-              className="pointer-events-none absolute bottom-0 top-0 z-[1] w-px"
-              style={{
-                ...roadmapRailLeftStyle,
-                backgroundColor:
-                  roadmapSections.current
-                    ? roadmapLineColor
-                    : 'rgb(var(--theme-border-subtle-rgb) / 0.16)',
-                width: `${roadmapLineWidth}px`,
-              }}
-            />
-
-            <div className="space-y-7">
-              {roadmapSections.completed.length > 0 ? (
-                <section>
-                  <button
-                    type="button"
-                    onClick={() => setRoadmapCompletedOpen((current) => !current)}
-                    className="flex w-full items-center justify-between gap-3 pb-3 text-left text-[11px] uppercase tracking-[0.18em] text-mist/52 transition hover:text-white/66"
-                    style={roadmapContentInsetStyle}
-                  >
-                    <span>Completed ({roadmapSections.completed.length})</span>
-                    <span className="text-white/34">{roadmapCompletedOpen ? '−' : '+'}</span>
-                  </button>
-                  {roadmapCompletedOpen ? renderRoadmapTaskGroups(sortedCompletedTasks, 'completed', { groupedByTag: roadmapOrganizationMode === 'tag' }, (task) => {
-                    const dueMeta = task.dueDate ? getRelativeDueMeta(task.dueDate) : null
-                    const visualState = getRoadmapTaskVisualState(task, 'completed', roadmapHighPriorityFocus)
-                    const isCompressed = roadmapHighPriorityFocus && getPriorityScore(task) !== 3
-                    return (
-                      <div
-                        key={task.id}
-                        className={`grid grid-cols-[24px_minmax(0,1fr)_auto] items-start gap-x-3 border-b border-white/[0.035] transition-all duration-200 ease-out last:border-b-0 ${
-                          isCompressed ? 'gap-y-0 py-1.5' : 'gap-y-1 py-2.5'
-                        } ${
-                          selectedRoadmapTaskId === task.id ? 'bg-white/[0.012]' : ''
-                        }`}
-                        style={{ opacity: visualState.opacity }}
-                      >
-                        <span aria-hidden="true" className={`pt-0.5 text-[16px] leading-none ${visualState.markerClassName}`}>
-                          ●
-                        </span>
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            setSelectedRoadmapTaskId(task.id)
-                            openTaskPeek(task.id, event.currentTarget)
-                          }}
-                          className="relative min-w-0 text-left"
-                        >
-                          <p className={`${isCompressed ? 'text-[14px] leading-5' : 'text-[15px]'} ${visualState.titleClassName} transition-all duration-200 ease-out`}>{task.text}</p>
-                            <div className={`flex items-end justify-between gap-3 pr-8 transition-all duration-200 ease-out ${isCompressed ? 'mt-0.5 min-h-[14px]' : 'mt-1 min-h-[18px]'}`}>
-                              <div className="min-w-0 text-left pb-[2px]">
-                                <div className={`flex flex-wrap items-center transition-all duration-200 ease-out ${isCompressed ? 'gap-1.5' : 'gap-2'}`}>
-                                  <p className={`text-[12px] ${task.dueDate ? dueMeta?.toneClassName ?? visualState.metaClassName : visualState.metaClassName}`}>
-                                    {task.dueDate ? (dueMeta ? `${dueMeta.compactLabel} · ${formatTaskDueDate(task.dueDate)}` : formatTaskDueDate(task.dueDate)) : 'Completed'}
-                                  </p>
-                                  {!isCompressed ? renderPriorityChip(task) : null}
-                                  {!isCompressed ? renderTaskTags(task) : null}
-                                </div>
-                              </div>
-                              {task.completedAt ? (
-                                <span className="shrink-0 text-[12px] text-mist/56">{formatDate(task.completedAt.slice(0, 10))}</span>
-                              ) : null}
-                            </div>
-                          {task.subtasks.length > 0 ? (
-                            <div className="pointer-events-none absolute bottom-[8px] right-2.5 flex items-center justify-end">
-                              {renderSubtaskProgressDots(task.subtasks, 'completed')}
-                            </div>
-                          ) : null}
-                        </button>
-                        <div className="flex justify-end pt-0.5">
-                          <button
-                            type="button"
-                            onClick={() => restoreTask(selectedLifeGoal.id, task.id)}
-                            className="text-[11px] uppercase tracking-[0.14em] text-[rgb(var(--theme-info-rgb)/0.66)] transition hover:text-[rgb(var(--theme-info-rgb)/0.9)]"
-                          >
-                            Restore
-                          </button>
-                        </div>
-                      </div>
-                    )
-                  }) : null}
-                </section>
-              ) : null}
-
-              {roadmapSections.current ? (
-                <section>
-                  <p className="pb-3 text-[11px] uppercase tracking-[0.18em] text-mist/56" style={roadmapContentInsetStyle}>Current</p>
-                  {renderRoadmapTaskGroups([roadmapSections.current], 'current', undefined, (task) => {
-                    const dueMeta = task.dueDate ? getRelativeDueMeta(task.dueDate) : null
-                    const isSelected = selectedRoadmapTaskId === task.id
-                    const visualState = getRoadmapTaskVisualState(task, 'current', roadmapHighPriorityFocus)
-                    return (
-                      <div key={task.id}>
-                        <p className="pb-2 text-[10px] font-medium uppercase tracking-[0.18em] text-[rgb(var(--theme-accent-rgb)/0.74)]" style={roadmapContentInsetStyle}>
-                          You are here
-                        </p>
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            setSelectedRoadmapTaskId(task.id)
-                            openTaskPeek(task.id, event.currentTarget)
-                          }}
-                          onKeyDown={(event) => handleTaskRowKeyDown(event, task.id)}
-                          draggable
-                          onDragStart={() => setDraggedTaskId(task.id)}
-                          onDragOver={(event) => {
-                            event.preventDefault()
-                            if (dragOverTaskId !== task.id) setDragOverTaskId(task.id)
-                          }}
-                          onDrop={(event) => {
-                            event.preventDefault()
-                            if (draggedTaskId) {
-                              reorderGoalTask(selectedLifeGoal.id, draggedTaskId, task.id)
-                            }
-                            setDraggedTaskId(null)
-                            setDragOverTaskId(null)
-                          }}
-                          onDragEnd={() => {
-                            setDraggedTaskId(null)
-                            setDragOverTaskId(null)
-                          }}
-                          className={`relative grid w-full items-start gap-x-3 gap-y-1 border-b border-white/[0.04] py-[18px] text-left transition hover:border-white/[0.07] ${
-                            isSelected ? 'bg-white/[0.018]' : 'bg-white/[0.012]'
-                          } ${
-                            dragOverTaskId === task.id && draggedTaskId && draggedTaskId !== task.id ? 'bg-white/[0.03]' : ''
-                          }`}
-                          style={{ ...visualState.rowStyle, opacity: visualState.opacity, gridTemplateColumns: roadmapNodeGridTemplate }}
-                        >
-                          <span aria-hidden="true" className={`pt-0.5 text-[18px] leading-none ${visualState.markerClassName}`}>
-                            ◎
-                          </span>
-                          <div className="min-w-0 pr-8">
-                            <p className={`text-[15px] font-medium ${visualState.titleClassName}`}>{task.text}</p>
-                            <div className="mt-1 flex min-h-[18px] items-end justify-between gap-3">
-                              <div className="min-w-0 text-left pb-[2px]">
-                                <div className="flex flex-wrap items-center gap-2">
-                                  {task.dueDate ? (
-                                    <p className={`text-[12px] ${dueMeta?.toneClassName ?? visualState.metaClassName}`}>
-                                      {dueMeta ? `${dueMeta.compactLabel} · ${formatTaskDueDate(task.dueDate)}` : formatTaskDueDate(task.dueDate)}
-                                    </p>
-                                  ) : null}
-                                  {renderPriorityChip(task)}
-                                  {renderTaskTags(task)}
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                          {task.subtasks.length > 0 ? (
-                            <div className="pointer-events-none absolute bottom-3 right-2.5 flex items-center justify-end">
-                              {renderSubtaskProgressDots(task.subtasks)}
-                            </div>
-                          ) : null}
-                        </button>
-                      </div>
-                    )
-                  })}
-                </section>
-              ) : null}
-
-              {roadmapSections.upcoming.length > 0 ? (
-                <section>
-                  <p className="pb-3 text-[11px] uppercase tracking-[0.18em] text-mist/56" style={roadmapContentInsetStyle}>Upcoming</p>
-                  {renderRoadmapTaskGroups(sortedUpcomingTasks, 'upcoming', { groupedByTag: roadmapOrganizationMode === 'tag' }, (task) => {
-                    const dueMeta = task.dueDate ? getRelativeDueMeta(task.dueDate) : null
-                    const isSelected = selectedRoadmapTaskId === task.id
-                    const visualState = getRoadmapTaskVisualState(task, 'upcoming', roadmapHighPriorityFocus)
-                    const isCompressed = roadmapHighPriorityFocus && getPriorityScore(task) !== 3
-                    return (
-                      <button
-                        key={task.id}
-                        type="button"
-                        onClick={(event) => {
-                          setSelectedRoadmapTaskId(task.id)
-                          openTaskPeek(task.id, event.currentTarget)
-                        }}
-                        onKeyDown={(event) => handleTaskRowKeyDown(event, task.id)}
-                        draggable
-                        onDragStart={() => setDraggedTaskId(task.id)}
-                        onDragOver={(event) => {
-                          event.preventDefault()
-                          if (dragOverTaskId !== task.id) setDragOverTaskId(task.id)
-                        }}
-                        onDrop={(event) => {
-                          event.preventDefault()
-                          if (draggedTaskId) {
-                            reorderGoalTask(selectedLifeGoal.id, draggedTaskId, task.id)
-                          }
-                          setDraggedTaskId(null)
-                          setDragOverTaskId(null)
-                        }}
-                        onDragEnd={() => {
-                          setDraggedTaskId(null)
-                          setDragOverTaskId(null)
-                        }}
-                        className={`relative grid w-full items-start gap-x-3 border-b border-white/[0.035] text-left transition-all duration-200 ease-out last:border-b-0 hover:border-white/[0.07] ${
-                          isCompressed ? 'gap-y-0 py-1.5' : 'gap-y-1 py-3'
-                        } ${
-                          isSelected ? 'bg-white/[0.012]' : ''
-                        } ${
-                          dragOverTaskId === task.id && draggedTaskId && draggedTaskId !== task.id ? 'bg-white/[0.03]' : ''
-                        }`}
-                        style={{ ...visualState.rowStyle, opacity: visualState.opacity, gridTemplateColumns: roadmapNodeGridTemplate }}
-                      >
-                        <span aria-hidden="true" className={`pt-0.5 text-[16px] leading-none ${visualState.markerClassName}`}>
-                          ○
-                        </span>
-                        <div className="min-w-0 pr-8">
-                          <p className={`${isCompressed ? 'text-[14px] leading-5' : 'text-[15px]'} ${visualState.titleClassName} transition-all duration-200 ease-out`}>{task.text}</p>
-                          <div className={`flex items-end justify-between gap-3 transition-all duration-200 ease-out ${isCompressed ? 'mt-0.5 min-h-[14px]' : 'mt-1 min-h-[18px]'}`}>
-                            <div className="min-w-0 text-left pb-[2px]">
-                              <div className={`flex flex-wrap items-center transition-all duration-200 ease-out ${isCompressed ? 'gap-1.5' : 'gap-2'}`}>
-                                {task.dueDate ? (
-                                  <p className={`text-[12px] ${dueMeta?.toneClassName ?? visualState.metaClassName}`}>
-                                    {dueMeta ? `${dueMeta.compactLabel} · ${formatTaskDueDate(task.dueDate)}` : formatTaskDueDate(task.dueDate)}
-                                  </p>
-                                ) : null}
-                                {!isCompressed ? renderPriorityChip(task) : null}
-                                {!isCompressed ? renderTaskTags(task) : null}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                        {task.subtasks.length > 0 ? (
-                          <div className="pointer-events-none absolute bottom-[17px] right-4 flex items-center justify-end">
-                            {renderSubtaskProgressDots(task.subtasks)}
-                          </div>
-                        ) : null}
-                      </button>
-                    )
-                  })}
-                </section>
-              ) : null}
-
-              <section>
-                <p className="pb-3 text-[11px] uppercase tracking-[0.18em] text-mist/56" style={roadmapContentInsetStyle}>Goal</p>
-                <div className="grid items-start gap-x-3 border-b border-white/[0.035] py-3" style={{ gridTemplateColumns: roadmapNodeGridTemplate }}>
-                  <span aria-hidden="true" className="pt-0.5 text-[16px] leading-none text-white/84">
-                    ◉
-                  </span>
-                  <div className="min-w-0">
-                    <p className="text-[15px] font-medium text-white/88">Goal</p>
-                    <p className="mt-1 text-[12px] text-mist/58">Completion point</p>
-                  </div>
-                </div>
-              </section>
-            </div>
-
-            <div className="border-t border-white/[0.05] pt-3">
-              <button
-                type="button"
-                onClick={(event) => openNewTaskPeek(event.currentTarget)}
-                className="text-sm text-white/62 transition hover:text-white/84"
-              >
-                + Add task
-              </button>
-            </div>
-          </div>
-        ) : (
-          <p className="mt-4 text-sm text-mist">No tasks yet. Add the first concrete step to build the roadmap.</p>
-        )}
-      </div>
-    )
-
-    if (isRoadmapMode) {
-      return (
-        <motion.div
-          key={`${selectedLifeGoal.id}-${lifeGoalDetailTab}`}
-          className="w-full space-y-4"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: prefersReducedMotion ? 0 : 0.2, ease: 'easeOut' }}
-        >
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <button
-              type="button"
-              onClick={() => setLifeGoalDetailTab('focus')}
-              className="theme-text-muted text-sm transition hover:text-[rgb(var(--theme-text-primary-rgb))]"
-            >
-              ← Back to Goal
-            </button>
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              {detailHeaderRelationshipChips}
-              <Button
-                variant="ghost"
-                onClick={(event) => openEditLifeGoalComposer(selectedLifeGoal, event.currentTarget)}
-              >
-                Edit Goal
-              </Button>
-            </div>
-          </div>
-
-          <div className="rounded-[24px] border border-white/[0.06] bg-white/[0.02] px-5 py-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="theme-page-title min-w-0 flex-1">
-                    {inlineLifeGoalEditingField === 'title' ? inlineEditableTitle : inlineTitleDisplay}
-                  </h3>
-                  {showDetailCategory && selectedGoalCategory ? (
-                    <span
-                      className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.16em] leading-none text-white/70"
-                      style={getLifeGoalCategoryChipStyle(selectedGoalCategoryColor)}
-                    >
-                      <span className="h-1.5 w-1.5 rounded-full" style={getLifeGoalCategoryDotStyle(selectedGoalCategoryColor)} />
-                      {selectedGoalCategory}
-                    </span>
-                  ) : null}
-                  {renderParentGoalChips()}
-                </div>
-                {showDetailWhy && inlineLifeGoalEditingField === 'why' ? (
-                  <div className="mt-3 max-w-[44rem]">{inlineEditableWhy}</div>
-                ) : showDetailWhy ? (
-                  <div className="mt-3 max-w-[44rem]">{inlineWhyDisplay}</div>
-                ) : null}
-              </div>
-              <div className="theme-surface-soft inline-flex rounded-full border p-1">
-                {([
-                  ['tasks', 'Tasks'],
-                  ['roadmap', 'Roadmap'],
-                ] as Array<[LifeGoalDetailTab, string]>).map(([tabId, label]) => (
-                  <button
-                    key={tabId}
-                    type="button"
-                    onClick={() => setLifeGoalDetailTab(tabId)}
-                    className={`rounded-full px-4 py-2 text-sm font-medium transition ${
-                      lifeGoalDetailTab === tabId
-                        ? 'theme-button-secondary'
-                        : 'theme-text-muted hover:text-[rgb(var(--theme-text-primary-rgb))]'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {lifeGoalDetailTab === 'tasks' ? tasksTabContent : roadmapTabContent}
-        </motion.div>
-      )
-    }
-
-    return (
-      <motion.div
-        key={selectedLifeGoal.id}
-        className="w-full space-y-4"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: prefersReducedMotion ? 0 : 0.2, ease: 'easeOut' }}
-      >
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <button
-            type="button"
-            onClick={() => onChangeGoalsView('life-overview')}
-            className="theme-text-muted text-sm transition hover:text-[rgb(var(--theme-text-primary-rgb))]"
-          >
-            ← Back to Life Goals
-          </button>
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            {detailHeaderRelationshipChips}
-            <Button
-              variant="ghost"
-              onClick={(event) => openEditLifeGoalComposer(selectedLifeGoal, event.currentTarget)}
-            >
-              Edit Goal
-            </Button>
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.22fr)_minmax(0,1fr)]">
-            <div
-              className={`space-y-3 self-start xl:flex xl:flex-col xl:space-y-0 xl:gap-3 ${
-                selectedLifeGoalVisionEditorOpen ? '' : 'xl:h-[78vh]'
-              }`}
-            >
-              {isDirectionalGoal ? (
-                directionalAnchorCard
-              ) : (
-                <LifeGoalFocusCard
-                  title={inlineLifeGoalEditingField === 'title' ? inlineEditableTitle : inlineTitleDisplay}
-                  categoryChip={
-                    <>
-                      {showDetailCategory && selectedGoalCategory ? (
-                        <span
-                          className={`${goalHeaderChipClassName} gap-1.5 text-white/70`}
-                          style={getLifeGoalCategoryChipStyle(selectedGoalCategoryColor)}
-                        >
-                          <span className="h-1.5 w-1.5 rounded-full" style={getLifeGoalCategoryDotStyle(selectedGoalCategoryColor)} />
-                          {selectedGoalCategory}
-                        </span>
-                      ) : null}
-                    </>
-                  }
-                  primaryChip={null}
-                  statusChip={
-                    showDetailStatus ? (
-                      <span
-                        className={`${goalHeaderChipClassName} ${
-                          getLifeGoalStatusMeta(selectedLifeGoal.status, selectedLifeGoal.startDate).badgeClassName
-                        }`}
-                      >
-                        {isLifeGoalScheduled(selectedLifeGoal.status, selectedLifeGoal.startDate)
-                          ? 'Scheduled'
-                          : getLifeGoalStatusMeta(selectedLifeGoal.status, selectedLifeGoal.startDate).label}
-                      </span>
-                    ) : null
-                  }
-                  whyContent={showDetailWhy ? (inlineLifeGoalEditingField === 'why' ? inlineEditableWhy : inlineWhyDisplay) : null}
-                  nextTaskText={
-                    selectedLifeGoal.status === 'complete'
-                      ? 'You finished every step in this goal.'
-                      : goalReadyToComplete
-                        ? 'Everything is complete. Mark the goal finished when you are ready.'
-                        : selectedLifeGoalProgress.nextTask?.text ?? 'No next task currently planned.'
-                  }
-                  actionFeedback={lifeGoalActionFeedback}
-                  primaryActionLabel={goalReadyToComplete ? 'Complete goal' : selectedLifeGoalProgress.nextTask ? 'Done — continue' : undefined}
-                  completeNextVisualState={completeNextVisualState}
-                  nextTaskVisualState={nextTaskVisualState}
-                  onPrimaryAction={goalReadyToComplete ? () => completeLifeGoal(selectedLifeGoal.id) : selectedLifeGoalProgress.nextTask ? handleCompleteNextWithFeedback : undefined}
-                  onFocusToday={() => {
-                    onSetLifeGoalAsTodayTask(selectedLifeGoal)
-                    setLifeGoalActionFeedback('Focused for today.')
-                  }}
-                  showExecutionSection={!isDirectionalGoal}
-                />
-              )}
-
-              {showDetailVision ? (
-                <LifeGoalVisionCard
-                  isCollapsed={selectedLifeGoalVisionCollapsed}
-                  isEditing={selectedLifeGoalShowVisionEditUI}
-                  isEditorOpen={selectedLifeGoalVisionEditorOpen}
-                  editMode={selectedLifeGoalVisionEditMode}
-                  canUploadImages={selectedLifeGoalCanUploadVisionImages}
-                  visionDropActive={visionDropActive}
-                  visionStatementLength={selectedLifeGoal.visionStatement.length}
-                  uploadInputRef={visionUploadInputRef}
-                  onOpenEditor={openSelectedLifeGoalVisionEditor}
-                  onSelectEditMode={setSelectedLifeGoalVisionEditMode}
-                  onVisionFilesSelected={appendSelectedLifeGoalVisionImages}
-                  onUploadClick={() => {
-                    if (!selectedLifeGoalCanUploadVisionImages) return
-                    visionUploadInputRef.current?.click()
-                  }}
-                  onDropActiveChange={setVisionDropActive}
-                  onDropFiles={appendSelectedLifeGoalVisionImages}
-                  onVisionStatementChange={updateSelectedLifeGoalVisionStatement}
-                  onApplyEditMode={applySelectedLifeGoalVisionEditMode}
-                  editImagesContent={visionEditImagesContent}
-                  displayContent={visionDisplayContent}
-                  showEditImages={selectedLifeGoalVisionEditShowsImages}
-                  showEditStatement={selectedLifeGoalVisionEditShowsStatement}
-                  visionStatement={selectedLifeGoal.visionStatement}
-                />
-              ) : null}
-
-            </div>
-
-            {!isDirectionalGoal ? <LifeGoalRoadmapPanel
-              data={{
-                plannedTaskCount: selectedLifeGoalProgress.plannedTasks.length,
-                completedCount: selectedLifeGoalProgress.completedTaskItems.length,
-                remainingCount: roadmapRemainingCount,
-                lastCompletedText: selectedLifeGoalProgress.lastCompletedTask?.text ?? null,
-                roadmapLineColor,
-                roadmapLineWidth,
-                roadmapTimelineX: roadmapGeometry.timelineX,
-                roadmapContentInset: roadmapGeometry.contentInset,
-                milestoneSummaryText:
-                  goalMilestones.length > 0
-                    ? `${completedMilestoneCount}/${goalMilestones.length} milestones complete`
-                    : 'Milestones enabled',
-                notesContent: roadmapNotesContent,
-                sortControl: renderTaskSortControl(),
-                emptyMessage: roadmapSections.completed.length > 0 ? 'All roadmap tasks are complete.' : 'No upcoming tasks yet. Add the next concrete step.',
-                milestoneContent: outcomeMilestoneContent,
-                completedContent: roadmapSections.completed.length > 0 ? (
-                  <div className="pb-4">
-                    {renderRoadmapTaskGroups(sortedCompletedTasks, 'completed', { groupedByTag: roadmapOrganizationMode === 'tag' }, (task) => {
-                      const dueMeta = task.dueDate ? getRelativeDueMeta(task.dueDate) : null
-                      const visualState = getRoadmapTaskVisualState(task, 'completed', roadmapHighPriorityFocus)
-                      const isCompressed = roadmapHighPriorityFocus && getPriorityScore(task) !== 3
-                      return (
-                        <button
-                          key={task.id}
-                          ref={(element) => {
-                            roadmapTaskRowRefs.current[task.id] = element
-                          }}
-                          data-goal-task-id={task.id}
-                          type="button"
-                          onClick={(event) => openTaskPeek(task.id, event.currentTarget)}
-                          onKeyDown={(event) => handleTaskRowKeyDown(event, task.id)}
-                          className={`group grid w-full items-start gap-x-3 rounded-[12px] text-left transition-all duration-200 ease-out hover:bg-white/[0.014] ${
-                            isCompressed ? 'gap-y-0 py-[1px]' : 'gap-y-1 py-[10px]'
-                          } ${
-                            visibleGoalStartCueTaskId === task.id ? 'goal-start-highlight' : ''
-                          } ${
-                            taskMomentumTransition?.completedTaskId === task.id ? 'goal-task-complete-flash' : ''
-                          }`}
-                          style={{
-                            gridTemplateColumns: roadmapNodeGridTemplate,
-                            opacity:
-                              visualState.opacity *
-                              (roadmapArrivalCueActive ? 0.78 : 1) *
-                              (taskMomentumTransition?.completedTaskId === task.id ? 0.75 : 1),
-                          }}
-                        >
-                          <span aria-hidden="true" className="relative z-[3] mt-[2px] flex h-4 w-4 items-center justify-center justify-self-center">
-                            {renderRoadmapNodeCutout(roadmapSmallNodeDiameter)}
-                            <span className="h-2 w-2 rounded-full bg-[rgb(var(--theme-accent-rgb)/0.5)] transition-transform duration-200 ease-out group-hover:scale-110" />
-                          </span>
-                          <div className={`min-w-0 border-b border-white/[0.02] pr-8 transition-all duration-200 ease-out ${isCompressed ? 'pb-0' : 'pb-[10px]'}`}>
-                            <AnimatePresence initial={false}>
-                              {visibleGoalStartCueTaskId === task.id ? (
-                                <motion.p
-                                  className="mb-1 text-[10px] uppercase tracking-[0.14em] text-white/64"
-                                  initial={{ opacity: 0, y: 4 }}
-                                  animate={{ opacity: 1, y: 0 }}
-                                  exit={{ opacity: 0, y: -4 }}
-                                  transition={{ duration: 0.18, ease: 'easeOut' }}
-                                >
-                                  Goal started • 1 step ready
-                                </motion.p>
-                              ) : null}
-                            </AnimatePresence>
-                            <p className={`${isCompressed ? 'text-[13px] leading-5' : 'text-[14px]'} ${visualState.titleClassName} transition-all duration-200 ease-out`}>{task.text}</p>
-                            <div className={`flex items-end justify-between gap-3 transition-all duration-200 ease-out ${isCompressed ? 'mt-0.5 min-h-[14px]' : 'mt-1 min-h-[18px]'}`}>
-                              <div className="min-w-0 text-left pb-[2px]">
-                                <div className={`flex flex-wrap items-center transition-all duration-200 ease-out ${isCompressed ? 'gap-1.5' : 'gap-2'}`}>
-                                  {task.dueDate ? (
-                                    <p className={`text-[12px] ${dueMeta?.toneClassName ?? visualState.metaClassName}`}>
-                                      {dueMeta ? `${dueMeta.compactLabel} · ${formatTaskDueDate(task.dueDate)}` : formatTaskDueDate(task.dueDate)}
-                                    </p>
-                                  ) : null}
-                                  {!isCompressed ? renderPriorityChip(task) : null}
-                                  {!isCompressed ? renderTaskTags(task) : null}
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                          {task.subtasks.length > 0 ? (
-                            <div className="pointer-events-none absolute bottom-[16px] right-4 flex items-center justify-end">
-                              {renderSubtaskProgressDots(task.subtasks, 'completed')}
-                            </div>
-                          ) : null}
-                        </button>
-                      )
-                    })}
-                  </div>
-                ) : null,
-                currentContent: roadmapMilestoneStructuredContent ? (
-                  roadmapMilestoneStructuredContent
-                ) : roadmapSections.current ? (
-                  <div className="pb-4">
-                    {renderRoadmapTaskGroups([roadmapSections.current], 'panel-current', undefined, (task) => {
-                      const dueMeta = task.dueDate ? getRelativeDueMeta(task.dueDate) : null
-                      const visualState = getRoadmapTaskVisualState(task, 'current', roadmapHighPriorityFocus)
-                      return (
-                        <div key={task.id}>
-                          <p className="pb-2 text-[10px] font-medium uppercase tracking-[0.18em] text-[rgb(var(--theme-accent-rgb)/0.96)] [text-shadow:0_0_10px_rgb(var(--theme-accent-rgb)/0.42),0_0_18px_rgb(var(--theme-accent-rgb)/0.18)]" style={roadmapContentInsetStyle}>
-                            You are here
-                          </p>
-                          <button
-                            ref={(element) => {
-                              roadmapTaskRowRefs.current[task.id] = element
-                            }}
-                            data-goal-task-id={task.id}
-                            type="button"
-                            onClick={(event) => openTaskPeek(task.id, event.currentTarget)}
-                            onKeyDown={(event) => handleTaskRowKeyDown(event, task.id)}
-                            draggable
-                            onDragStart={() => setDraggedTaskId(task.id)}
-                            onDragOver={(event) => {
-                              event.preventDefault()
-                              if (dragOverTaskId !== task.id) setDragOverTaskId(task.id)
-                            }}
-                            onDrop={(event) => {
-                              event.preventDefault()
-                              if (draggedTaskId) reorderGoalTask(selectedLifeGoal.id, draggedTaskId, task.id)
-                              setDraggedTaskId(null)
-                              setDragOverTaskId(null)
-                            }}
-                            onDragEnd={() => {
-                              setDraggedTaskId(null)
-                              setDragOverTaskId(null)
-                            }}
-                            className={`group relative grid w-full items-start gap-x-3 gap-y-1 rounded-none border border-[rgb(var(--theme-accent-rgb)/0.14)] bg-white/[0.014] py-[18px] text-left transition duration-200 ease-out hover:bg-white/[0.022] hover:border-[rgb(var(--theme-accent-rgb)/0.18)] ${
-                              dragOverTaskId === task.id && draggedTaskId && draggedTaskId !== task.id
-                                ? 'bg-white/[0.03]'
-                                : ''
-                            } ${visibleGoalStartCueTaskId === task.id ? 'goal-start-highlight' : ''} ${
-                              roadmapArrivalCueActive ? 'goal-current-arrival' : ''
-                            } ${taskMomentumTransition?.nextTaskId === task.id ? 'goal-next-task-activate' : ''} ${
-                              taskMomentumTransition?.completedTaskId === task.id ? 'goal-task-complete-flash' : ''
-                            }`}
-                            style={{ ...visualState.rowStyle, opacity: visualState.opacity, gridTemplateColumns: roadmapNodeGridTemplate }}
-                          >
-                            <span aria-hidden="true" className="relative z-[3] mt-[2px] flex h-[18px] w-[18px] items-center justify-center justify-self-center">
-                              {renderRoadmapNodeCutout(roadmapCurrentNodeDiameter)}
-                              <span className="roadmap-current-node-pulse absolute h-[20px] w-[20px] rounded-full bg-[rgb(var(--theme-accent-rgb)/0.22)] blur-[6px]" />
-                              <span
-                                className={`relative flex items-center justify-center rounded-full border transition-transform duration-200 ease-out group-hover:scale-110 ${
-                                  getPriorityScore(task) === 3
-                                    ? 'h-[14px] w-[14px] border-[rgb(var(--theme-accent-rgb)/0.92)] shadow-[0_0_8px_rgb(var(--theme-accent-rgb)/0.1)]'
-                                    : 'h-[14px] w-[14px] border-[rgb(var(--theme-accent-rgb)/0.84)] shadow-[0_0_6px_rgb(var(--theme-accent-rgb)/0.08)]'
-                                }`}
-                              >
-                                <span
-                                  className={`rounded-full border ${
-                                    getPriorityScore(task) === 3
-                                      ? 'h-[8px] w-[8px] border-[rgb(var(--theme-accent-rgb)/0.96)]'
-                                      : 'h-[8px] w-[8px] border-[rgb(var(--theme-accent-rgb)/0.88)]'
-                                  }`}
-                                />
-                              </span>
-                            </span>
-                            <div className="min-w-0 px-1 pb-4 pr-10 pt-0.5">
-                              <div className="min-w-0">
-                                <AnimatePresence initial={false}>
-                                  {roadmapArrivalCueActive ? (
-                                    <motion.p
-                                      className="mb-1 text-[10px] uppercase tracking-[0.14em] text-white/56"
-                                      initial={{ opacity: 0, y: 3 }}
-                                      animate={{ opacity: 1, y: 0 }}
-                                      exit={{ opacity: 0, y: -3 }}
-                                      transition={{ duration: 0.18, ease: 'easeOut' }}
-                                    >
-                                      Start here
-                                    </motion.p>
-                                  ) : null}
-                                </AnimatePresence>
-                                <AnimatePresence initial={false}>
-                                  {taskMomentumTransition?.nextTaskId === task.id ? (
-                                    <motion.p
-                                      className="mb-1 text-[10px] uppercase tracking-[0.14em] text-white/62"
-                                      initial={{ opacity: 0, y: 4 }}
-                                      animate={{ opacity: 1, y: 0 }}
-                                      exit={{ opacity: 0, y: -4 }}
-                                      transition={{ duration: 0.2, ease: 'easeOut' }}
-                                    >
-                                      Next step ready
-                                    </motion.p>
-                                  ) : null}
-                                </AnimatePresence>
-                                <AnimatePresence initial={false}>
-                                  {visibleGoalStartCueTaskId === task.id ? (
-                                    <motion.p
-                                      className="mb-1 text-[10px] uppercase tracking-[0.14em] text-white/64"
-                                      initial={{ opacity: 0, y: 4 }}
-                                      animate={{ opacity: 1, y: 0 }}
-                                      exit={{ opacity: 0, y: -4 }}
-                                      transition={{ duration: 0.18, ease: 'easeOut' }}
-                                    >
-                                      Goal started • 1 step ready
-                                    </motion.p>
-                                  ) : null}
-                                </AnimatePresence>
-                                <p className={`text-[15px] font-medium ${visualState.titleClassName}`}>{task.text}</p>
-                                <div className="mt-1 flex min-h-[18px] items-end justify-between gap-3">
-                                  <div className="min-w-0 text-left pb-[2px]">
-                                    <div className="flex flex-wrap items-center gap-2">
-                                      {task.dueDate ? (
-                                        <p className={`text-[12px] ${dueMeta?.toneClassName ?? visualState.metaClassName}`}>
-                                          {dueMeta ? `${dueMeta.compactLabel} · ${formatTaskDueDate(task.dueDate)}` : formatTaskDueDate(task.dueDate)}
-                                        </p>
-                                      ) : null}
-                                      {renderPriorityChip(task)}
-                                      {renderTaskTags(task)}
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                            {task.subtasks.length > 0 ? (
-                              <div className="pointer-events-none absolute bottom-4 right-3.5 flex items-center justify-end">
-                                {renderSubtaskProgressDots(task.subtasks)}
-                              </div>
-                            ) : null}
-                          </button>
-                        </div>
-                      )
-                    })}
-                  </div>
-                ) : null,
-                upcomingContent: roadmapMilestoneStructuredContent ? null : roadmapSections.upcoming.length > 0 ? (
-                  <div>
-                    <p className="pb-2 text-[11px] uppercase tracking-[0.16em] text-mist/56" style={roadmapContentInsetStyle}>Next · {roadmapSections.upcoming.length}</p>
-                    {renderRoadmapTaskGroups(sortedUpcomingTasks, 'panel-upcoming', { groupedByTag: roadmapOrganizationMode === 'tag' }, (task) => {
-                      const dueMeta = task.dueDate ? getRelativeDueMeta(task.dueDate) : null
-                      const visualState = getRoadmapTaskVisualState(task, 'upcoming', roadmapHighPriorityFocus)
-                      const isCompressed = roadmapHighPriorityFocus && getPriorityScore(task) !== 3
-                      return (
-                        <button
-                          key={task.id}
-                          ref={(element) => {
-                            roadmapTaskRowRefs.current[task.id] = element
-                          }}
-                          data-goal-task-id={task.id}
-                          type="button"
-                          onClick={(event) => openTaskPeek(task.id, event.currentTarget)}
-                          onKeyDown={(event) => handleTaskRowKeyDown(event, task.id)}
-                          draggable
-                          onDragStart={() => setDraggedTaskId(task.id)}
-                          onDragOver={(event) => {
-                            event.preventDefault()
-                            if (dragOverTaskId !== task.id) setDragOverTaskId(task.id)
-                          }}
-                          onDrop={(event) => {
-                            event.preventDefault()
-                            if (draggedTaskId) reorderGoalTask(selectedLifeGoal.id, draggedTaskId, task.id)
-                            setDraggedTaskId(null)
-                            setDragOverTaskId(null)
-                          }}
-                          onDragEnd={() => {
-                            setDraggedTaskId(null)
-                            setDragOverTaskId(null)
-                          }}
-                          className={`group relative grid w-full items-start gap-x-3 rounded-[14px] text-left transition-all duration-200 ease-out hover:bg-white/[0.015] ${
-                            isCompressed ? 'gap-y-0 py-[1px]' : 'gap-y-1 py-[10px]'
-                          } ${
-                            dragOverTaskId === task.id && draggedTaskId && draggedTaskId !== task.id ? 'bg-white/[0.028]' : ''
-                          } ${visibleGoalStartCueTaskId === task.id ? 'goal-start-highlight' : ''} ${
-                            taskMomentumTransition?.nextTaskId === task.id ? 'goal-next-task-activate' : ''
-                          } ${taskMomentumTransition?.completedTaskId === task.id ? 'goal-task-complete-flash' : ''}`}
-                          style={{
-                            ...visualState.rowStyle,
-                            gridTemplateColumns: roadmapNodeGridTemplate,
-                            opacity:
-                              visualState.opacity *
-                              (roadmapArrivalCueActive ? 0.78 : 1) *
-                              (taskMomentumTransition?.completedTaskId === task.id ? 0.75 : 1),
-                          }}
-                        >
-                          <span aria-hidden="true" className="relative z-[3] justify-self-center mt-[2px] flex h-4 w-4 items-center justify-center">
-                            {renderRoadmapNodeCutout(roadmapSmallNodeDiameter)}
-                            <span className={`h-2 w-2 rounded-full border border-white/[0.26] bg-transparent transition-transform duration-200 ease-out group-hover:scale-110 ${getPriorityScore(task) === 3 ? 'shadow-[0_0_0_1px_rgb(var(--theme-accent-rgb)/0.08)]' : ''}`} />
-                          </span>
-                          <div className={`min-w-0 border-b border-white/[0.02] pr-8 transition-all duration-200 ease-out ${isCompressed ? 'pb-0' : 'pb-[10px]'}`}>
-                            <div className="min-w-0">
-                              <AnimatePresence initial={false}>
-                                {taskMomentumTransition?.nextTaskId === task.id ? (
-                                  <motion.p
-                                    className="mb-1 text-[10px] uppercase tracking-[0.14em] text-white/62"
-                                    initial={{ opacity: 0, y: 4 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    exit={{ opacity: 0, y: -4 }}
-                                    transition={{ duration: 0.2, ease: 'easeOut' }}
-                                  >
-                                    Next step ready
-                                  </motion.p>
-                                ) : null}
-                              </AnimatePresence>
-                              <AnimatePresence initial={false}>
-                                {visibleGoalStartCueTaskId === task.id ? (
-                                  <motion.p
-                                    className="mb-1 text-[10px] uppercase tracking-[0.14em] text-white/64"
-                                    initial={{ opacity: 0, y: 4 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    exit={{ opacity: 0, y: -4 }}
-                                    transition={{ duration: 0.18, ease: 'easeOut' }}
-                                  >
-                                    Goal started • 1 step ready
-                                  </motion.p>
-                                ) : null}
-                              </AnimatePresence>
-                              <p className={`${isCompressed ? 'text-[14px] leading-5' : 'text-[15px]'} ${visualState.titleClassName} transition-all duration-200 ease-out`}>{task.text}</p>
-                              <div className={`flex items-end justify-between gap-3 transition-all duration-200 ease-out ${isCompressed ? 'mt-0.5 min-h-[14px]' : 'mt-1 min-h-[18px]'}`}>
-                                <div className="min-w-0 text-left pb-[2px]">
-                                  <div className={`flex flex-wrap items-center transition-all duration-200 ease-out ${isCompressed ? 'gap-1.5' : 'gap-2'}`}>
-                                    {task.dueDate ? (
-                                      <p className={`text-[12px] ${dueMeta?.toneClassName ?? visualState.metaClassName}`}>
-                                        {dueMeta ? `${dueMeta.compactLabel} · ${formatTaskDueDate(task.dueDate)}` : formatTaskDueDate(task.dueDate)}
-                                      </p>
-                                    ) : null}
-                                    {!isCompressed ? renderPriorityChip(task) : null}
-                                    {!isCompressed ? renderTaskTags(task) : null}
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                          {task.subtasks.length > 0 ? (
-                            <div className="pointer-events-none absolute bottom-[16px] right-4 flex items-center justify-end">
-                              {renderSubtaskProgressDots(task.subtasks)}
-                            </div>
-                          ) : null}
-                        </button>
-                      )
-                    })}
-                  </div>
-                ) : null,
-              }}
-              actions={{
-                onToggleHighPriorityFocus: () => setRoadmapHighPriorityFocus((current) => !current),
-                onToggleOrganizationMode: () =>
-                  setRoadmapOrganizationMode((current) => (current === 'default' ? 'tag' : 'default')),
-                onSetProgressView: (view) =>
-                  setRoadmapPanelViewByGoal((current) => ({
-                    ...current,
-                    [selectedLifeGoal.id]: view,
-                  })),
-                onOpenRoadmap: () => setLifeGoalDetailTab('roadmap'),
-                onRoadmapKeyDown: (event) => {
-                  if (event.key === 'Enter' && event.shiftKey) {
-                    event.preventDefault()
-                    openNewTaskPeek(event.currentTarget)
-                  }
-                },
-                onAddTask: (trigger) => openNewTaskPeek(trigger),
-                onToggleCompleted: () => setRoadmapCompletedOpen((current) => !current),
-              }}
-              uiState={{
-                roadmapHighPriorityFocus,
-                completedOpen: roadmapCompletedOpen,
-                showHighPriorityFocus: roadmapHasHighPriorityTasks,
-                progressView: showMilestoneProgressView ? roadmapPanelView : roadmapPanelView === 'notes' ? 'notes' : 'tasks',
-                showMilestonesView: showMilestoneProgressView,
-                showNotesView: true,
-                organizationMode: roadmapOrganizationMode,
-                showTagGrouping: roadmapHasTaggedTasks,
-              }}
-            /> : isDirectionalGoal ? (
-              <div className="space-y-4">
-                {relatedGoalsSection}
-                {directionalActivitySection}
-                {directionalReflectionsSection}
-              </div>
-            ) : relatedGoals.length > 0 ? (
-              linkedGoalsSection
-            ) : null}
-          </div>
-
-          {!isDirectionalGoal && supportingHabits.length > 0 ? supportingHabitsSection : null}
-
-          {isOutcomeGoal && showDetailMetrics ? <GoalProgressTimelineChart
-            tasks={selectedLifeGoal.tasks}
-            goalStartDate={selectedLifeGoal.startDate}
-            goalCreatedAt={selectedLifeGoal.createdAt}
-            goalTargetDate={selectedLifeGoal.targetDate}
-            showExpectedProgressDefault={selectedLifeGoal.showExpectedProgressLine !== false}
-            onShowExpectedProgressChange={(value) =>
-              onUpdateLifeGoal(selectedLifeGoal.id, (goal) => ({
-                ...goal,
-                showExpectedProgressLine: value,
-                updatedAt: new Date().toISOString(),
-              }))
-            }
-          /> : null}
-
-        </div>
-        {milestoneDatePicker}
-      </motion.div>
     )
   }
+
+  const renderLifeGoalDetailPage = () => (
+    <LifeGoalDetailPage
+      selectedLifeGoal={selectedLifeGoal}
+      lifeGoalCategories={lifeGoalCategories}
+      selectedLifeGoalProgress={selectedLifeGoalProgress}
+      selectedGoalAnchorText={selectedGoalAnchorText}
+      selectedGoalDetailContentVisibility={selectedGoalDetailContentVisibility}
+      selectedGoalIsOutcome={selectedGoalIsOutcome}
+      selectedGoalIsDirectional={selectedGoalIsDirectional}
+      selectedGoalMilestonesEnabled={selectedGoalMilestonesEnabled}
+      selectedLifeGoalMilestones={selectedLifeGoalMilestones}
+      selectedCurrentMilestone={selectedCurrentMilestone}
+      selectedCompletedMilestoneCount={selectedCompletedMilestoneCount}
+      selectedRoadmapPanelView={selectedRoadmapPanelView}
+      selectedShowMilestoneProgressView={selectedShowMilestoneProgressView}
+      selectedMilestoneOptions={selectedMilestoneOptions}
+      selectedMilestoneDateTarget={selectedMilestoneDateTarget}
+      selectedRoadmapSections={selectedRoadmapSections}
+      selectedGoalRoadmapDerived={selectedGoalRoadmapDerived}
+      selectedGoalRelatedGoals={selectedGoalRelatedGoals}
+      selectedGoalLinkedDirectionalTasks={selectedGoalLinkedDirectionalTasks}
+      selectedGoalSupportingHabits={selectedGoalSupportingHabits}
+      selectedGoalParentGoals={selectedGoalParentGoals}
+      selectedGoalDirectionalMetrics={selectedGoalDirectionalMetrics}
+      selectedGoalCategory={selectedGoalCategory}
+      selectedGoalCategoryColor={selectedGoalCategoryColor}
+      selectedGoalRuntimeTasks={selectedGoalTaskSource}
+      year={year}
+      selectedRoadmapPanelActions={selectedRoadmapPanelActions}
+      selectedRoadmapPanelUiState={selectedRoadmapPanelUiState}
+      selectedRoadmapTaskId={selectedRoadmapTaskId}
+      inlineLifeGoalEditingField={inlineLifeGoalEditingField}
+      lifeGoalDetailTab={lifeGoalDetailTab}
+      lifeGoalDraft={lifeGoalDraft}
+      lifeGoalIconFieldRef={lifeGoalIconFieldRef}
+      lifeGoalTitleInputRef={lifeGoalTitleInputRef}
+      lifeGoalWhyTextareaRef={lifeGoalWhyTextareaRef}
+      milestoneDatePanelPosition={milestoneDatePanelPosition}
+      milestoneDatePanelRef={milestoneDatePanelRef}
+      milestoneDatePickerMilestoneId={milestoneDatePickerMilestoneId}
+      completeNextVisualState={completeNextVisualState}
+      dragOverTaskId={dragOverTaskId}
+      draggedTaskId={draggedTaskId}
+      dragOverVisionImageIndex={dragOverVisionImageIndex}
+      draggedVisionImageIndex={draggedVisionImageIndex}
+      editGoalActionsButtonRef={editGoalActionsButtonRef}
+      editGoalActionsMenuOpen={editGoalActionsMenuOpen}
+      editGoalActionsMenuRef={editGoalActionsMenuRef}
+      habitDraftByTaskId={habitDraftByTaskId}
+      lifeGoalActionFeedback={lifeGoalActionFeedback}
+      nextTaskVisualState={nextTaskVisualState}
+      prefersReducedMotion={prefersReducedMotion}
+      roadmapArrivalCueActive={roadmapArrivalCueActive}
+      roadmapCompletedOpen={roadmapCompletedOpen}
+      roadmapHighPriorityFocus={roadmapHighPriorityFocus}
+      roadmapOrganizationMode={roadmapOrganizationMode}
+      roadmapTaskRowRefs={roadmapTaskRowRefs}
+      selectedLifeGoalCanUploadVisionImages={selectedLifeGoalCanUploadVisionImages}
+      selectedLifeGoalShowVisionEditUI={selectedLifeGoalShowVisionEditUI}
+      selectedLifeGoalVisionCollapsed={selectedLifeGoalVisionCollapsed}
+      selectedLifeGoalVisionEditMode={selectedLifeGoalVisionEditMode}
+      selectedLifeGoalVisionEditShowsImages={selectedLifeGoalVisionEditShowsImages}
+      selectedLifeGoalVisionEditShowsStatement={selectedLifeGoalVisionEditShowsStatement}
+      selectedLifeGoalVisionEditorOpen={selectedLifeGoalVisionEditorOpen}
+      selectedLifeGoalVisionMode={selectedLifeGoalVisionMode}
+      selectedLifeGoalVisionShowsImagesInDisplay={selectedLifeGoalVisionShowsImagesInDisplay}
+      selectedLifeGoalVisionShowsStatementInDisplay={selectedLifeGoalVisionShowsStatementInDisplay}
+      taskListSortMode={taskListSortMode}
+      taskMomentumTransition={taskMomentumTransition}
+      visibleGoalStartCueTaskId={visibleGoalStartCueTaskId}
+      visionDropActive={visionDropActive}
+      visionImageInteractiveOptions={visionImageInteractiveOptions}
+      visionUploadInputRef={visionUploadInputRef}
+      goalStatusChipClassName={goalStatusChipClassName}
+      LIFE_GOAL_ICON_MAP={LIFE_GOAL_ICON_MAP}
+      renderLifeGoalOverviewPage={renderLifeGoalOverviewPage}
+      onUpdateLifeGoal={onUpdateLifeGoal}
+      onArchiveLifeGoal={onArchiveLifeGoal}
+      onChangeGoalsView={onChangeGoalsView}
+      onSelectLifeGoal={onSelectLifeGoal}
+      onSetLifeGoalAsTodayTask={onSetLifeGoalAsTodayTask}
+      openEditLifeGoalComposer={openEditLifeGoalComposer}
+      openMilestonePeek={openMilestonePeek}
+      openNewTaskPeek={openNewTaskPeek}
+      openSelectedLifeGoalVisionEditor={openSelectedLifeGoalVisionEditor}
+      openTaskPeek={openTaskPeek}
+      requestDeleteLifeGoal={requestDeleteLifeGoal}
+      restoreTask={restoreTask}
+      updateSelectedLifeGoalNotes={updateSelectedLifeGoalNotes}
+      updateSelectedLifeGoalVisionStatement={updateSelectedLifeGoalVisionStatement}
+      commitInlineLifeGoalField={commitInlineLifeGoalField}
+      cancelInlineLifeGoalField={cancelInlineLifeGoalField}
+      primeInlineLifeGoalDraft={primeInlineLifeGoalDraft}
+      handleCompleteNextWithFeedback={handleCompleteNextWithFeedback}
+      handleTaskRowKeyDown={handleTaskRowKeyDown}
+      completeLifeGoal={completeLifeGoal}
+      createHabitFromTask={createHabitFromTask}
+      onOpenGlobalTasks={onOpenGlobalTasks}
+      onOpenHabitTracker={onOpenHabitTracker}
+      addSelectedLifeGoalMilestone={addSelectedLifeGoalMilestone}
+      applySelectedLifeGoalVisionEditMode={applySelectedLifeGoalVisionEditMode}
+      applySelectedMilestoneDate={applySelectedMilestoneDate}
+      appendSelectedLifeGoalVisionImages={appendSelectedLifeGoalVisionImages}
+      removeSelectedLifeGoalVisionImage={removeSelectedLifeGoalVisionImage}
+      renderSubtaskProgressDots={renderSubtaskProgressDots}
+      renderVisionImageLayout={renderVisionImageLayout}
+      reorderGoalTask={reorderGoalTask}
+      reorderSelectedLifeGoalVisionImages={reorderSelectedLifeGoalVisionImages}
+      setDragOverTaskId={setDragOverTaskId}
+      setDraggedTaskId={setDraggedTaskId}
+      setDragOverVisionImageIndex={setDragOverVisionImageIndex}
+      setDraggedVisionImageIndex={setDraggedVisionImageIndex}
+      setEditGoalActionsMenuOpen={setEditGoalActionsMenuOpen}
+      setHabitDraftByTaskId={setHabitDraftByTaskId}
+      setInlineLifeGoalEditingField={setInlineLifeGoalEditingField}
+      setInlineLifeGoalIconGoalId={setInlineLifeGoalIconGoalId}
+      setLifeGoalActionFeedback={setLifeGoalActionFeedback}
+      setLifeGoalDetailTab={setLifeGoalDetailTab}
+      setLifeGoalDraft={setLifeGoalDraft}
+      setLifeGoalIconPickerOpen={setLifeGoalIconPickerOpen}
+      setLifeGoalIconPickerQuery={setLifeGoalIconPickerQuery}
+      setLifeGoalIconPickerTab={setLifeGoalIconPickerTab}
+      setMilestoneDatePanelPosition={setMilestoneDatePanelPosition}
+      setMilestoneDatePickerMilestoneId={setMilestoneDatePickerMilestoneId}
+      setRoadmapCompletedOpen={setRoadmapCompletedOpen}
+      setRoadmapHighPriorityFocus={setRoadmapHighPriorityFocus}
+      setRoadmapOrganizationMode={setRoadmapOrganizationMode}
+      setSelectedLifeGoalVisionEditMode={setSelectedLifeGoalVisionEditMode}
+      setSelectedRoadmapTaskId={setSelectedRoadmapTaskId}
+      setTaskListSortMode={setTaskListSortMode}
+      setVisionDropActive={setVisionDropActive}
+      setVisionPreviewImage={setVisionPreviewImage}
+    />
+  )
 
   const renderHabitGoalsTab = () => (
     <div className="space-y-4">
@@ -10578,166 +6421,7 @@ const renderLifeGoalOverviewPage = () => {
         ) : null}
       </DetailDrawer>
 
-      <LifeGoalTaskPeek
-        data={{
-          task: selectedTaskPeek,
-          activeSubtasks: selectedTaskPeekActiveSubtasks,
-          completedSubtasks: selectedTaskPeekCompletedSubtasks,
-          datePanelPosition: taskPeekDatePanelPosition,
-          dateViewMonth: taskPeekDateViewMonth,
-          priorityOptions: taskPriorityOptions,
-          milestoneOptions:
-            selectedLifeGoal?.goalType === 'outcome' && selectedLifeGoal.milestonesEnabled
-              ? [
-                  { value: '', label: 'No milestone' },
-                  ...(selectedLifeGoal.milestones ?? [])
-                    .slice()
-                    .sort((left, right) => left.order - right.order)
-                    .map((milestone, index) => ({
-                      value: milestone.id,
-                      label: `${index + 1}. ${milestone.title.trim() || `Milestone ${index + 1}`}${
-                        ((selectedLifeGoal.milestones ?? [])
-                          .slice()
-                          .sort((left, right) => left.order - right.order)
-                          .find((candidate) => !candidate.completed) ??
-                          (() => {
-                            const orderedMilestones = (selectedLifeGoal.milestones ?? [])
-                              .slice()
-                              .sort((left, right) => left.order - right.order)
-                            return orderedMilestones.length > 0 ? orderedMilestones[orderedMilestones.length - 1] : null
-                          })())?.id === milestone.id
-                          ? ' — Current'
-                          : ''
-                      }`,
-                    })),
-                ]
-              : [],
-          showMilestoneField: Boolean(selectedLifeGoal?.goalType === 'outcome' && selectedLifeGoal?.milestonesEnabled),
-          lockedMilestoneLabel: taskPeekLockedMilestoneContext?.title ?? null,
-          relativeDueMeta: selectedTaskPeek?.dueDate ? getRelativeDueMeta(selectedTaskPeek.dueDate) : null,
-          weekdayLabels: LIFE_GOAL_WEEKDAY_LABELS,
-          todayIsoDate: getTodayIsoDate(),
-        }}
-        uiState={{
-          open: Boolean(selectedTaskPeek),
-          completedSubtasksOpen: taskPeekCompletedSubtasksOpen,
-          subtaskEntryOpen: taskPeekSubtaskEntryOpen,
-          subtaskDraft: taskPeekSubtaskDraft,
-          notesOpen: taskPeekNotesOpen,
-          datePickerOpen: taskPeekDatePickerOpen,
-          deleteConfirmation: taskPeekDeleteConfirmation,
-          canMarkAsNext: Boolean(
-            !selectedTaskPeek?.completed && selectedLifeGoal && selectedLifeGoalProgress && selectedLifeGoalProgress.nextTask?.id !== selectedTaskPeek?.id,
-          ),
-          draggedSubtaskId,
-          dragOverSubtaskId,
-        }}
-        refs={{
-          panelRef: taskPeekPanelRef,
-          titleRef: taskPeekTitleRef,
-          dateFieldRef: taskPeekDateFieldRef,
-          datePanelRef: taskPeekDatePanelRef,
-          subtaskDraftRef: taskPeekSubtaskDraftRef,
-          deleteDialogRef: taskPeekDeleteDialogRef,
-        }}
-        actions={{
-          setCompletedSubtasksOpen: setTaskPeekCompletedSubtasksOpen,
-          setSubtaskEntryOpen: setTaskPeekSubtaskEntryOpen,
-          setSubtaskDraft: setTaskPeekSubtaskDraft,
-          setNotesOpen: setTaskPeekNotesOpen,
-          setTaskDeleteConfirmation: setTaskPeekDeleteConfirmation,
-          onClose: closeTaskPeek,
-          onTitleChange: (value) => updateSelectedTaskPeek((task) => ({ ...task, text: value })),
-          onDescriptionChange: (value) => updateSelectedTaskPeek((task) => ({ ...task, description: value })),
-          onNotesChange: (value) => updateSelectedTaskPeek((task) => ({ ...task, notes: value })),
-          onMilestoneChange: (value) => updateSelectedTaskPeek((task) => ({ ...task, milestoneId: value })),
-          onPriorityChange: (value) => updateSelectedTaskPeek((task) => ({ ...task, priority: value })),
-          tagDraft: taskPeekTagDraft,
-          setTagDraft: setTaskPeekTagDraft,
-          onTagKeyDown: (event) => {
-            if (event.key === 'Enter' && !event.shiftKey && !event.metaKey && !event.ctrlKey) {
-              event.preventDefault()
-              addTagToSelectedTaskPeek()
-            }
-          },
-          onAddTag: addTagToSelectedTaskPeek,
-          onRemoveTag: removeTagFromSelectedTaskPeek,
-          onOpenDatePicker: () => {
-            if (taskPeekDatePickerOpen) {
-              setTaskPeekDatePickerOpen(false)
-              setTaskPeekDatePanelPosition(null)
-              return
-            }
-            openTaskPeekDatePicker()
-          },
-          onCloseDatePicker: () => {
-            setTaskPeekDatePickerOpen(false)
-            setTaskPeekDatePanelPosition(null)
-          },
-          onApplyDate: applyTaskPeekDate,
-          onShiftDateMonth: (delta) => setTaskPeekDateViewMonth((current) => shiftCalendarMonth(current, delta)),
-          getCalendarDays,
-          formatCalendarDayValue,
-          formatCalendarMonthLabel,
-          formatDate,
-          formatTaskDueDate,
-          formatTaskCompletedDate,
-          setSubtaskInputRef: (id, element) => {
-            taskPeekSubtaskInputRefs.current[id] = element
-          },
-          onSubtaskTextChange: (id, value) =>
-            updateSelectedTaskPeek((task) => ({
-              ...task,
-              subtasks: task.subtasks.map((item) => (item.id === id ? { ...item, text: value } : item)),
-            })),
-          onSubtaskKeyDown: (event, id) => {
-            if (event.key === 'Enter') {
-              event.preventDefault()
-              const currentIndex = selectedTaskPeekActiveSubtasks.findIndex((candidate) => candidate.id === id)
-              const nextSubtask = currentIndex >= 0 ? selectedTaskPeekActiveSubtasks[currentIndex + 1] ?? null : null
-              if (nextSubtask) {
-                setPendingSubtaskFocusId(nextSubtask.id)
-              } else {
-                setTaskPeekSubtaskEntryOpen(true)
-              }
-            }
-          },
-          onSubtaskToggle: toggleSelectedTaskPeekSubtaskCompletion,
-          onSubtaskRemoveRequest: (subtaskId, subtaskText) =>
-            setTaskPeekDeleteConfirmation({
-              kind: 'subtask',
-              taskId: selectedTaskPeek!.id,
-              subtaskId,
-              subtaskText,
-            }),
-          onSubtaskReorderStart: setDraggedSubtaskId,
-          onSubtaskReorderOver: (event, id) => {
-            event.preventDefault()
-            if (dragOverSubtaskId !== id) setDragOverSubtaskId(id)
-          },
-          onSubtaskReorderDrop: (event, id) => {
-            event.preventDefault()
-            if (draggedSubtaskId) reorderSelectedTaskPeekSubtasks(draggedSubtaskId, id)
-            setDraggedSubtaskId(null)
-            setDragOverSubtaskId(null)
-          },
-          onSubtaskReorderEnd: () => {
-            setDraggedSubtaskId(null)
-            setDragOverSubtaskId(null)
-          },
-          onAddSubtask: addSelectedTaskPeekSubtask,
-          onToggleDeleteConfirmation: () =>
-            setTaskPeekDeleteConfirmation({
-              kind: 'task',
-              taskId: selectedTaskPeek!.id,
-            }),
-          onSetAsNext: () => setTaskAsNext(selectedLifeGoal!.id, selectedTaskPeek!.id),
-          onRestoreTask: (source) => toggleSelectedTaskPeekCompletion(source),
-          onCompleteNext: (source) => completeTaskFromPeek('next', source),
-          onCompleteTask: (source) => completeTaskFromPeek('close', source),
-          onConfirmDelete: confirmTaskPeekDelete,
-        }}
-      />
+      <LifeGoalTaskPeek data={taskPeekData} uiState={taskPeekUiState} refs={taskPeekRefs} actions={taskPeekActions} />
 
       <AnimatePresence>
         {completionUndo ? (

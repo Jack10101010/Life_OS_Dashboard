@@ -1,8 +1,8 @@
-import { ReactNode } from 'react'
+import { memo, ReactNode } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Button } from '../../../components/ui/Button'
 
-export function LifeGoalFocusCard({
+export const LifeGoalFocusCard = memo(function LifeGoalFocusCard({
   title,
   categoryChip,
   primaryChip,
@@ -136,4 +136,4 @@ export function LifeGoalFocusCard({
       </div>
     </div>
   )
-}
+})

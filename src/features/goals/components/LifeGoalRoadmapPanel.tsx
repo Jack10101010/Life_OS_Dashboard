@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useRef, useState } from 'react'
+import { memo, ReactNode, useEffect, useRef, useState } from 'react'
 
 type LifeGoalRoadmapPanelProps = {
   data: {
@@ -40,7 +40,7 @@ type LifeGoalRoadmapPanelProps = {
   }
 }
 
-export function LifeGoalRoadmapPanel({
+export const LifeGoalRoadmapPanel = memo(function LifeGoalRoadmapPanel({
   data,
   actions,
   uiState,
@@ -305,4 +305,4 @@ export function LifeGoalRoadmapPanel({
       </div>
     </div>
   )
-}
+})
