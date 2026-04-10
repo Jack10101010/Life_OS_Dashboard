@@ -38,6 +38,7 @@ import { PlaceholderPage } from './features/placeholder/PlaceholderPage'
 import { SettingsPage } from './features/settings/SettingsPage'
 import { TrackerWorkspace } from './features/tracker/TrackerWorkspace'
 import { YourDaysPage } from './features/your-days/YourDaysPage'
+import { getLifeGoalRuntimeTasks } from './features/goals/goalUtils'
 import { LifeGoal, LifeGoalCategoryColor, LifeGoalCategoryDefinition, PageId } from './types'
 
 const DEV_NOTES_ENABLED_PAGES: PageId[] = ['tasks', 'notes', 'analytics', 'trade-log', 'settings']
@@ -1030,9 +1031,10 @@ export default function App() {
               )
             }
             onDeleteLifeGoal={(goalId) => setLifeGoals((current) => current.filter((goal) => goal.id !== goalId))}
-            onSetLifeGoalAsTodayTask={(goal) => {
+            onSetLifeGoalAsTodayTask={(goal, tasksOverride) => {
               const todayIso = new Date().toISOString().slice(0, 10)
-              const nextTask = goal.tasks.find((task) => !task.completed)?.text.trim() || goal.minimumVersion
+              const runtimeTasks = tasksOverride ?? getLifeGoalRuntimeTasks(goal, tasks)
+              const nextTask = runtimeTasks.find((task) => !task.completed)?.text.trim() || goal.minimumVersion
               updateDayByDate(todayIso, (day) => ({
                 ...day,
                 isLogged: true,

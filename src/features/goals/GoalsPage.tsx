@@ -89,9 +89,11 @@ import {
   getLifeGoalCategoryOptions,
   getLifeGoalEditSnapshot,
   getLifeGoalProgress,
+  getLifeGoalRuntimeTasks,
   getLifeGoalStatusMeta,
   getLifeSignalBucket,
   getMilestoneTaskProgress,
+  normalizeTaskRecordToLifeGoalTask,
   getSubtaskProgressDots,
   getSubtaskProgressSummary,
   getTaskPriorityOptions,
@@ -561,27 +563,7 @@ type OutcomeGoalTaskRecord = Task & {
 }
 
 function normalizeOutcomeGoalTaskRecord(task: Task): LifeGoalTask {
-  const taskRecord = task as OutcomeGoalTaskRecord
-  return {
-    id: task.id,
-    text: task.text,
-    milestoneId: taskRecord.milestoneId ?? null,
-    phase: normalizeLifeGoalPhaseValue(taskRecord.phase),
-    description: typeof taskRecord.description === 'string' ? taskRecord.description : '',
-    notes: typeof taskRecord.notes === 'string' ? taskRecord.notes : '',
-    dueDate: taskRecord.dueDate && isValidIsoDate(taskRecord.dueDate) ? taskRecord.dueDate : null,
-    priority: taskRecord.priority ?? (task.important ? 'high' : 'none'),
-    tags: normalizeTaskTags(Array.isArray(taskRecord.tags) ? taskRecord.tags : []),
-    subtasks: Array.isArray(taskRecord.subtasks)
-      ? taskRecord.subtasks.map((subtask) => ({
-          id: subtask.id,
-          text: subtask.text,
-          completed: subtask.completed,
-        }))
-      : [],
-    completed: task.completed,
-    completedAt: task.completed ? task.completedAt ?? null : null,
-  }
+  return normalizeTaskRecordToLifeGoalTask(task as OutcomeGoalTaskRecord)
 }
 
 function isLifeGoalTaskDraftEmpty(task: LifeGoalTask) {
@@ -740,7 +722,7 @@ function collapseCreateDraftTasks(tasks: LifeGoalDraftTask[]): LifeGoalDraftTask
   return [...nonEmptyTasks, emptyTask]
 }
 
-function createLifeGoalDraftFromGoal(goal: LifeGoal): LifeGoalDraft {
+function createLifeGoalDraftFromGoal(goal: LifeGoal, runtimeTasks: LifeGoalTask[] = goal.tasks): LifeGoalDraft {
   return {
     title: goal.title,
     icon: goal.icon ?? null,
@@ -765,8 +747,8 @@ function createLifeGoalDraftFromGoal(goal: LifeGoal): LifeGoalDraft {
       order: typeof milestone.order === 'number' ? milestone.order : index,
     })),
     tasks:
-      goal.tasks.length > 0
-        ? goal.tasks.map((task) => ({
+      runtimeTasks.length > 0
+        ? runtimeTasks.map((task) => ({
             id: task.id,
             text: task.text,
             milestoneId: task.milestoneId ?? null,
@@ -904,7 +886,7 @@ function createLifeGoalUpdateFromDraft(goal: LifeGoal, draft: LifeGoalDraft, rel
     targetDate: draft.targetDate,
     status: draft.status,
     milestones: draft.goalType === 'outcome' ? normalizeLifeGoalDraftMilestones(draft.milestones) : [],
-    tasks,
+    tasks: draft.goalType === 'outcome' ? goal.tasks : tasks,
   }
 }
 
@@ -1253,7 +1235,7 @@ export function GoalsPage({
   onSetLifeGoalCategoryColor: (name: string, color: LifeGoalCategoryColor) => void
   onArchiveLifeGoal: (goalId: string) => void
   onDeleteLifeGoal: (goalId: string) => void
-  onSetLifeGoalAsTodayTask: (goal: LifeGoal) => void
+  onSetLifeGoalAsTodayTask: (goal: LifeGoal, tasksOverride?: LifeGoalTask[]) => void
   onUpdateTasks: (updater: (tasks: Task[]) => Task[]) => void
   onOpenGlobalTasks: () => void
   onOpenHabitTracker: (trackerId: string) => void
@@ -1262,6 +1244,19 @@ export function GoalsPage({
   const safeLifeGoals = lifeGoals ?? []
   const safeLifeGoalCategories = lifeGoalCategories ?? []
   const safeTasks = tasks ?? []
+  const outcomeGoalRuntimeTaskMap = useMemo(
+    () =>
+      new Map(
+        safeLifeGoals
+          .filter((goal) => (goal.goalType ?? 'outcome') === 'outcome')
+          .map((goal) => [goal.id, getLifeGoalRuntimeTasks(goal, safeTasks)]),
+      ),
+    [safeLifeGoals, safeTasks],
+  )
+  const getRuntimeTasksForGoal = useCallback(
+    (goal: LifeGoal) => ((goal.goalType ?? 'outcome') === 'outcome' ? (outcomeGoalRuntimeTaskMap.get(goal.id) ?? []) : goal.tasks),
+    [outcomeGoalRuntimeTaskMap],
+  )
   const [selectedGoal, setSelectedGoal] = useState<GoalDetailItem | null>(null)
   const [lifeGoalDraft, setLifeGoalDraft] = useState<LifeGoalDraft>(() => createEmptyLifeGoalDraft())
   const [lifeGoalComposerMode, setLifeGoalComposerMode] = useState<LifeGoalComposerMode>('create')
@@ -1640,12 +1635,8 @@ export function GoalsPage({
     () =>
       !selectedLifeGoal || selectedLifeGoal.goalType !== 'outcome'
         ? []
-        : safeTasks
-            .filter((task) => task.linkedGoalId === selectedLifeGoal.id)
-            .slice()
-            .sort((left, right) => left.order - right.order)
-            .map((task) => normalizeOutcomeGoalTaskRecord(task)),
-    [safeTasks, selectedLifeGoal],
+        : outcomeGoalRuntimeTaskMap.get(selectedLifeGoal.id) ?? [],
+    [outcomeGoalRuntimeTaskMap, selectedLifeGoal],
   )
   const safeDraftRelatedGoalIds = lifeGoalDraft.relatedGoalIds ?? []
   const safeSelectedLifeGoalLinkedHabitIds = selectedLifeGoal?.linkedHabitIds ?? []
@@ -1723,17 +1714,6 @@ export function GoalsPage({
     [onUpdateTasks],
   )
 
-  const syncEmbeddedOutcomeGoalTasks = useCallback(
-    (goalId: string, nextTasks: LifeGoalTask[]) => {
-      onUpdateLifeGoal(goalId, (goal) => ({
-        ...goal,
-        tasks: nextTasks,
-        updatedAt: new Date().toISOString(),
-      }))
-    },
-    [onUpdateLifeGoal],
-  )
-
   const updateOutcomeGoalTask = useCallback(
     (taskId: string, updater: (task: LifeGoalTask) => LifeGoalTask) => {
       const goalId =
@@ -1751,9 +1731,8 @@ export function GoalsPage({
               .map((task) => normalizeOutcomeGoalTaskRecord(task))
       const nextTasks = currentTasks.map((task) => (task.id === taskId ? updater(task) : task))
       replaceOutcomeGoalTaskStore(goalId, nextTasks)
-      syncEmbeddedOutcomeGoalTasks(goalId, nextTasks)
     },
-    [replaceOutcomeGoalTaskStore, safeTasks, selectedLifeGoal, selectedOutcomeGoalTasks, syncEmbeddedOutcomeGoalTasks],
+    [replaceOutcomeGoalTaskStore, safeTasks, selectedLifeGoal, selectedOutcomeGoalTasks],
   )
 
   const createOutcomeGoalTask = useCallback(
@@ -1785,10 +1764,9 @@ export function GoalsPage({
       }
       const nextTasks = [...currentTasks, nextTask]
       replaceOutcomeGoalTaskStore(goalId, nextTasks)
-      syncEmbeddedOutcomeGoalTasks(goalId, nextTasks)
       return nextTask
     },
-    [replaceOutcomeGoalTaskStore, safeTasks, selectedLifeGoal, selectedOutcomeGoalTasks, syncEmbeddedOutcomeGoalTasks],
+    [replaceOutcomeGoalTaskStore, safeTasks, selectedLifeGoal, selectedOutcomeGoalTasks],
   )
 
   const deleteOutcomeGoalTask = useCallback(
@@ -1808,9 +1786,8 @@ export function GoalsPage({
               .map((task) => normalizeOutcomeGoalTaskRecord(task))
       const nextTasks = currentTasks.filter((task) => task.id !== taskId)
       replaceOutcomeGoalTaskStore(goalId, nextTasks)
-      syncEmbeddedOutcomeGoalTasks(goalId, nextTasks)
     },
-    [replaceOutcomeGoalTaskStore, safeTasks, selectedLifeGoal, selectedOutcomeGoalTasks, syncEmbeddedOutcomeGoalTasks],
+    [replaceOutcomeGoalTaskStore, safeTasks, selectedLifeGoal, selectedOutcomeGoalTasks],
   )
 
   const reorderOutcomeGoalTask = useCallback(
@@ -1831,9 +1808,8 @@ export function GoalsPage({
       const [movedTask] = reordered.splice(sourceIndex, 1)
       reordered.splice(targetIndex, 0, movedTask)
       replaceOutcomeGoalTaskStore(goalId, reordered)
-      syncEmbeddedOutcomeGoalTasks(goalId, reordered)
     },
-    [replaceOutcomeGoalTaskStore, safeTasks, selectedLifeGoal, selectedOutcomeGoalTasks, syncEmbeddedOutcomeGoalTasks],
+    [replaceOutcomeGoalTaskStore, safeTasks, selectedLifeGoal, selectedOutcomeGoalTasks],
   )
 
   const toggleOutcomeGoalTaskCompletion = useCallback(
@@ -1869,6 +1845,19 @@ export function GoalsPage({
           : selectedLifeGoal.tasks,
     [selectedLifeGoal, selectedOutcomeGoalTasks],
   )
+  useEffect(() => {
+    const isLocalDevHost =
+      typeof window !== 'undefined' &&
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+    if (!isLocalDevHost) return
+    if (!selectedLifeGoal || selectedLifeGoal.goalType !== 'outcome') return
+    if (selectedGoalTaskSource === selectedLifeGoal.tasks) {
+      console.warn('Outcome-goal runtime source unexpectedly fell back to embedded goal.tasks', {
+        goalId: selectedLifeGoal.id,
+        goalTitle: selectedLifeGoal.title,
+      })
+    }
+  }, [selectedGoalTaskSource, selectedLifeGoal])
 
   const selectedLifeGoalProgress = useMemo(
     () => (selectedLifeGoal ? getLifeGoalProgress(selectedLifeGoal, selectedGoalTaskSource) : null),
@@ -2854,12 +2843,15 @@ export function GoalsPage({
     [allowedDraftRelatedGoalIds, draftTasks, lifeGoalComposerMode, lifeGoalDraft, selectedLifeGoal],
   )
   const editDraftGoalSnapshot = useMemo(
-    () => (editDraftGoalPayload ? getLifeGoalEditSnapshot(editDraftGoalPayload) : null),
-    [editDraftGoalPayload],
+    () => (editDraftGoalPayload ? getLifeGoalEditSnapshot(editDraftGoalPayload, draftTasks) : null),
+    [draftTasks, editDraftGoalPayload],
   )
   const selectedLifeGoalEditSnapshot = useMemo(
-    () => (lifeGoalComposerMode === 'edit' && selectedLifeGoal ? getLifeGoalEditSnapshot(selectedLifeGoal) : null),
-    [lifeGoalComposerMode, selectedLifeGoal],
+    () =>
+      lifeGoalComposerMode === 'edit' && selectedLifeGoal
+        ? getLifeGoalEditSnapshot(selectedLifeGoal, getRuntimeTasksForGoal(selectedLifeGoal))
+        : null,
+    [getRuntimeTasksForGoal, lifeGoalComposerMode, selectedLifeGoal],
   )
   const relatedGoalCandidates = useMemo(
     () =>
@@ -3051,7 +3043,6 @@ export function GoalsPage({
       const [movedTask] = nextTasks.splice(fromIndex, 1)
       nextTasks.splice(firstIncompleteIndex, 0, movedTask)
       replaceOutcomeGoalTaskStore(goalId, nextTasks)
-      syncEmbeddedOutcomeGoalTasks(goalId, nextTasks)
       setSelectedRoadmapTaskId(taskId)
       return
     }
@@ -3107,7 +3098,6 @@ export function GoalsPage({
         return nextTask
       })
       replaceOutcomeGoalTaskStore(goalId, nextTasks)
-      syncEmbeddedOutcomeGoalTasks(goalId, nextTasks)
       setSelectedRoadmapTaskId(draggedTaskId)
       return
     }
@@ -3175,7 +3165,6 @@ export function GoalsPage({
       }
 
       replaceOutcomeGoalTaskStore(goalId, updatedTasks)
-      syncEmbeddedOutcomeGoalTasks(goalId, updatedTasks)
 
       if (!currentTask.completed) {
         setTaskMomentumTransition({ completedTaskId: taskId, nextTaskId })
@@ -5024,14 +5013,14 @@ export function GoalsPage({
     setEditingLifeGoalId(goal.id)
     setLifeGoalRelatedGoalsQuery('')
     setLifeGoalRelationIntent('')
-    setLifeGoalDraft(createLifeGoalDraftFromGoal(goal))
+    setLifeGoalDraft(createLifeGoalDraftFromGoal(goal, getRuntimeTasksForGoal(goal)))
     setLifeGoalComposerOpen(true)
   }
 
   const primeInlineLifeGoalDraft = (goal: LifeGoal) => {
     setLifeGoalComposerMode('edit')
     setEditingLifeGoalId(goal.id)
-    setLifeGoalDraft(createLifeGoalDraftFromGoal(goal))
+    setLifeGoalDraft(createLifeGoalDraftFromGoal(goal, getRuntimeTasksForGoal(goal)))
   }
 
   const commitInlineLifeGoalField = (goal: LifeGoal, field: 'title' | 'whyItMatters') => {
@@ -5778,6 +5767,7 @@ const renderLifeGoalOverviewPage = () => {
       selectedGoalCategory={selectedGoalCategory}
       selectedGoalCategoryColor={selectedGoalCategoryColor}
       selectedGoalRuntimeTasks={selectedGoalTaskSource}
+      outcomeGoalRuntimeTaskMap={outcomeGoalRuntimeTaskMap}
       year={year}
       selectedRoadmapPanelActions={selectedRoadmapPanelActions}
       selectedRoadmapPanelUiState={selectedRoadmapPanelUiState}

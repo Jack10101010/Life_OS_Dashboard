@@ -55,6 +55,7 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
     selectedGoalCategory,
     selectedGoalCategoryColor,
     selectedGoalRuntimeTasks,
+    outcomeGoalRuntimeTaskMap,
     year,
     selectedRoadmapPanelActions,
     selectedRoadmapPanelUiState,
@@ -164,6 +165,10 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
   const [directionalHeaderEditPanelOpen, setDirectionalHeaderEditPanelOpen] = React.useState(false)
   const directionalHeaderEditPanelRef = React.useRef<HTMLDivElement | null>(null)
   const directionalHeaderEditButtonRef = React.useRef<HTMLButtonElement | null>(null)
+  const getRuntimeTasksForGoal = React.useCallback(
+    (goal) => ((goal.goalType ?? 'outcome') === 'outcome' ? outcomeGoalRuntimeTaskMap?.get(goal.id) ?? [] : goal.tasks),
+    [outcomeGoalRuntimeTaskMap],
+  )
 
   React.useEffect(() => {
     if (!directionalHeaderEditPanelOpen) return
@@ -1290,9 +1295,9 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
     visionUploadInputRef.current?.click()
   }, [selectedLifeGoalCanUploadVisionImages, visionUploadInputRef])
   const handleFocusToday = React.useCallback(() => {
-    onSetLifeGoalAsTodayTask(selectedLifeGoal)
+    onSetLifeGoalAsTodayTask(selectedLifeGoal, selectedGoalRuntimeTasks)
     setLifeGoalActionFeedback('Focused for today.')
-  }, [onSetLifeGoalAsTodayTask, selectedLifeGoal, setLifeGoalActionFeedback])
+  }, [onSetLifeGoalAsTodayTask, selectedGoalRuntimeTasks, selectedLifeGoal, setLifeGoalActionFeedback])
   const handleCompleteGoal = React.useCallback(() => {
     completeLifeGoal(selectedLifeGoal.id)
   }, [completeLifeGoal, selectedLifeGoal.id])
@@ -1465,7 +1470,7 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
       if (task.completed && task.completedAt) activeDates.add(task.completedAt.slice(0, 10))
     }
     for (const goal of visibleRelatedGoals) {
-      for (const task of goal.tasks) {
+      for (const task of getRuntimeTasksForGoal(goal)) {
         if (task.completed && task.completedAt) activeDates.add(task.completedAt.slice(0, 10))
       }
     }
@@ -1568,6 +1573,7 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
     selectedGoalCategoryColor,
     selectedLifeGoal.tasks,
     showDetailCategory,
+    getRuntimeTasksForGoal,
     visibleRelatedGoals,
   ])
   const directionalCurrentFocusBlock = React.useMemo(() => {
@@ -1662,9 +1668,10 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
       <div className="mt-2 divide-y divide-white/[0.04] rounded-[16px] border border-white/[0.05] bg-white/[0.018]">
         {visibleRelatedGoals.length > 0 ? visibleRelatedGoals.map((goal) => {
           const isComplete = goal.status === 'complete'
-          const goalProgress = getLifeGoalProgress(goal, goal.tasks)
+          const runtimeTasks = getRuntimeTasksForGoal(goal)
+          const goalProgress = getLifeGoalProgress(goal, runtimeTasks)
           const percent = goalProgress.totalTasks > 0 ? Math.max(2, Math.min(100, Math.round((goalProgress.completedTasks / goalProgress.totalTasks) * 100))) : 0
-          const lastCompletedAt = goal.tasks
+          const lastCompletedAt = runtimeTasks
             .filter((t) => t.completed && t.completedAt)
             .map((t) => t.completedAt as string)
             .sort()
@@ -1739,6 +1746,7 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
       </div>
     </section>
   ), [
+    getRuntimeTasksForGoal,
     LIFE_GOAL_ICON_MAP,
     goalStatusChipClassName,
     onSelectLifeGoal,
@@ -1940,7 +1948,7 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
           <>
             {visibleRelatedGoals.map((goal) => {
               const dueMeta = goal.targetDate && isValidIsoDate(goal.targetDate) ? getRelativeDueMeta(goal.targetDate) : null
-              const goalProgress = getLifeGoalProgress(goal, goal.tasks)
+              const goalProgress = getLifeGoalProgress(goal, getRuntimeTasksForGoal(goal))
               return (
                 <button
                   key={goal.id}
@@ -1989,6 +1997,7 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
     </div>
   ) : null, [
     directionalSectionShellClassName,
+    getRuntimeTasksForGoal,
     goalStatusChipClassName,
     hiddenRelatedGoalsCount,
     isDirectionalGoal,

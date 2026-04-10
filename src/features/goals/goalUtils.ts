@@ -8,7 +8,19 @@ import type {
   LifeGoalTask,
   LifeGoalTaskPriority,
   LifeGoalType,
+  Task,
 } from '../../types'
+import { normalizeLifeGoalPhaseValue } from './lib/taskDerivations'
+
+type RuntimeTaskRecord = Task & {
+  milestoneId?: string | null
+  phase?: string | null
+  description?: string
+  notes?: string
+  priority?: LifeGoalTaskPriority
+  tags?: string[]
+  subtasks?: LifeGoalTask['subtasks']
+}
 
 export function canGoalTypeLinkToGoalType(sourceType: LifeGoalType, targetType: LifeGoalType) {
   if (sourceType === 'directional') {
@@ -217,6 +229,42 @@ export function getLifeGoalProgress(goal: LifeGoal, tasks: LifeGoalTask[] = goal
     percent,
     nextTask,
   }
+}
+
+export function normalizeTaskRecordToLifeGoalTask(task: Task): LifeGoalTask {
+  const runtimeTask = task as RuntimeTaskRecord
+  return {
+    id: task.id,
+    text: task.text,
+    milestoneId: runtimeTask.milestoneId ?? null,
+    phase: normalizeLifeGoalPhaseValue(runtimeTask.phase),
+    description: runtimeTask.description ?? '',
+    notes: runtimeTask.notes ?? '',
+    dueDate: task.dueDate ?? null,
+    priority: runtimeTask.priority ?? (task.important ? 'high' : 'none'),
+    tags: Array.isArray(runtimeTask.tags) ? runtimeTask.tags : [],
+    subtasks: Array.isArray(runtimeTask.subtasks)
+      ? runtimeTask.subtasks.map((subtask) => ({
+          id: subtask.id,
+          text: subtask.text,
+          completed: subtask.completed,
+        }))
+      : [],
+    completed: task.completed,
+    completedAt: task.completedAt,
+  }
+}
+
+export function getLifeGoalRuntimeTasks(goal: LifeGoal, tasks: Task[]): LifeGoalTask[] {
+  if ((goal.goalType ?? 'outcome') !== 'outcome') {
+    return goal.tasks
+  }
+
+  return tasks
+    .filter((task) => task.linkedGoalId === goal.id)
+    .slice()
+    .sort((left, right) => left.order - right.order)
+    .map((task) => normalizeTaskRecordToLifeGoalTask(task))
 }
 
 export function getLifeGoalFlowState(goal: LifeGoal, progress: ReturnType<typeof getLifeGoalProgress>) {
@@ -536,7 +584,7 @@ export function getGoalSubtaskProgress(tasks: LifeGoalTask[]) {
   return { total, completed }
 }
 
-export function getLifeGoalEditSnapshot(goal: LifeGoal) {
+export function getLifeGoalEditSnapshot(goal: LifeGoal, tasks: LifeGoalTask[] = goal.tasks) {
   return JSON.stringify({
     title: goal.title.trim(),
     icon: goal.icon ?? null,
@@ -552,7 +600,7 @@ export function getLifeGoalEditSnapshot(goal: LifeGoal) {
     targetDate: goal.targetDate,
     status: goal.status,
     milestones: goal.milestones ?? [],
-    tasks: goal.tasks,
+    tasks,
   })
 }
 

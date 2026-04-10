@@ -26,6 +26,7 @@ import {
   getLifeGoalCategoryColor,
   getLifeGoalCategoryDotStyle,
   getLifeGoalProgress,
+  getLifeGoalRuntimeTasks,
   getLifeGoalStatusMeta,
   getTodayIsoDate,
   isLifeGoalScheduled,
@@ -80,7 +81,7 @@ type LifeGoalOverviewPanelProps = {
   onUpdateLifeGoal: (goalId: string, updater: (goal: LifeGoal) => LifeGoal) => void
   onReorderLifeGoals: (updates: Array<{ goalId: string; order: number }>) => void
   onArchiveLifeGoal: (goalId: string) => void
-  onSetLifeGoalAsTodayTask: (goal: LifeGoal) => void
+  onSetLifeGoalAsTodayTask: (goal: LifeGoal, tasksOverride?: LifeGoalTask[]) => void
   onOpenComposer: (trigger?: HTMLElement | null) => void
   onCloseComposer: () => void
   onResetComposerDraft: () => void
@@ -129,7 +130,7 @@ function renderCalendarAddIcon(size = 18) {
 export function LifeGoalOverviewPanel({
   lifeGoals,
   categories,
-  tasks: _tasks,
+  tasks,
   selectedGoalId: _selectedGoalId,
   viewControls,
   onUpdateViewControls,
@@ -354,6 +355,17 @@ export function LifeGoalOverviewPanel({
   }, [goalOverviewActiveDateField])
 
   const allOverviewGoals = safeLifeGoals.filter((goal) => !goal.archivedAt)
+  const runtimeTasksByGoalId = useMemo(
+    () =>
+      new Map(
+        safeLifeGoals
+          .filter((goal) => (goal.goalType ?? 'outcome') === 'outcome')
+          .map((goal) => [goal.id, getLifeGoalRuntimeTasks(goal, tasks)]),
+      ),
+    [safeLifeGoals, tasks],
+  )
+  const getGoalRuntimeTasks = (goal: LifeGoal) =>
+    (goal.goalType ?? 'outcome') === 'outcome' ? (runtimeTasksByGoalId.get(goal.id) ?? []) : goal.tasks
   const pinnedGoalIds = new Set(rowActions.pinnedGoalIds)
   const pinnedGoalIndexById = new Map(rowActions.pinnedGoalIds.map((goalId, index) => [goalId, index]))
   const importantGoalIds = new Set(rowActions.highlightedGoalIds)
@@ -384,7 +396,8 @@ export function LifeGoalOverviewPanel({
     return `${parentDirections[0].title} +${parentDirections.length - 1}`
   }
 
-  const getGoalPriorityValue = (goal: LifeGoal) => goal.tasks.reduce((highest, task) => Math.max(highest, getPriorityScore(task)), 0)
+  const getGoalPriorityValue = (goal: LifeGoal) =>
+    getGoalRuntimeTasks(goal).reduce((highest, task) => Math.max(highest, getPriorityScore(task)), 0)
   const getGoalPriorityLabel = (goal: LifeGoal) => {
     const priority = getGoalPriorityValue(goal)
     const priorityMeta = getLifeGoalTaskPriorityMeta(priority >= 3 ? 'high' : priority === 2 ? 'medium' : priority === 1 ? 'low' : 'none')
@@ -733,7 +746,7 @@ export function LifeGoalOverviewPanel({
   }
 
   const renderCompletionIndicator = (goal: LifeGoal) => {
-    const progress = getLifeGoalProgress(goal, goal.tasks)
+    const progress = getLifeGoalProgress(goal, getGoalRuntimeTasks(goal))
     const segmentCount = 10
     const filledSegments = Math.round((progress.percent / 100) * segmentCount)
     const segmentStep = (Math.PI * 2) / segmentCount
@@ -944,7 +957,7 @@ export function LifeGoalOverviewPanel({
     ) : null
 
   const renderListRow = (goal: LifeGoal, rowIndex: number) => {
-    const progress = getLifeGoalProgress(goal, goal.tasks)
+    const progress = getLifeGoalProgress(goal, getGoalRuntimeTasks(goal))
     const isPinned = pinnedGoalIds.has(goal.id)
     const isImportant = importantGoalIds.has(goal.id)
     const milestoneCount = getOrderedGoalMilestones(goal).length
