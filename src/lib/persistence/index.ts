@@ -14,6 +14,7 @@ import {
   normalizePersistedAppState,
   PersistedAppState,
   repairOutcomeGoalTaskFieldsFromEmbedded,
+  stripLegacyEmbeddedGoalTasksFromState,
 } from './migrations'
 import {
   createPersistedAppStateSnapshot,
@@ -48,8 +49,8 @@ function logStartup(message: string, payload?: Record<string, unknown>) {
   console.info(`[app-startup] ${message}`, payload ?? {})
 }
 
-export function createPersistedAppStateBackupSnapshot<T>(state: T) {
-  return JSON.parse(JSON.stringify(state)) as T
+export function createPersistedAppStateBackupSnapshot<T extends { lifeGoals?: unknown }>(state: T) {
+  return JSON.parse(JSON.stringify(stripLegacyEmbeddedGoalTasksFromState(state))) as T
 }
 
 export function getPersistedAppStateBackupFilename(date = new Date()) {
@@ -183,7 +184,7 @@ export async function loadPersistedAppState(currentYear: number): Promise<Persis
 
 export async function savePersistedAppState(state: PersistedAppState) {
   try {
-    await writePersistedAppStateToIndexedDb(state)
+    await writePersistedAppStateToIndexedDb(stripLegacyEmbeddedGoalTasksFromState(state))
     return true
   } catch (error) {
     console.error('Failed to save live app state to IndexedDB.', error)
@@ -192,7 +193,7 @@ export async function savePersistedAppState(state: PersistedAppState) {
 }
 
 export function exportPersistedAppState(state: PersistedAppState) {
-  return JSON.stringify(state, null, 2)
+  return JSON.stringify(stripLegacyEmbeddedGoalTasksFromState(state), null, 2)
 }
 
 export function importPersistedAppState(raw: string, currentYear: number) {

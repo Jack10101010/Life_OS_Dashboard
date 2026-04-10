@@ -571,6 +571,19 @@ export interface PersistedAppState {
   moodShowHabitMarkers: boolean
 }
 
+export function stripLegacyEmbeddedGoalTasksFromState<T extends { lifeGoals?: unknown }>(state: T): T {
+  if (!state || !Array.isArray(state.lifeGoals)) return state
+
+  return {
+    ...state,
+    lifeGoals: state.lifeGoals.map((goal) => {
+      if (!goal || typeof goal !== 'object' || Array.isArray(goal)) return goal
+      const { tasks: _tasks, ...rest } = goal as Record<string, unknown> & { tasks?: unknown }
+      return rest
+    }),
+  }
+}
+
 export function getDefaultPersistedAppState(currentYear: number): PersistedAppState {
   return {
     dataByYear: getDefaultDataByYear(currentYear),
@@ -751,35 +764,7 @@ export function normalizePersistedAppState(parsed: Partial<PersistedAppState>, c
   const migratedBadHabitLogs = getMigratedBadHabitLogs(cleanedTagState.dataByYear, normalizedBadHabits, parsed.badHabitLogs)
 
   const preMigrationTasks = Array.isArray(parsed.tasks) ? parsed.tasks.map((task, index) => normalizeTask(task, index)).filter((task) => task.text) : defaults.tasks
-  const directionalGoalMap = new Map(cleanedLifeGoals.filter((goal) => goal.goalType === 'directional').map((goal) => [goal.id, goal]))
-  const migratedLifeGoals = cleanedLifeGoals.map((goal) => ({ ...goal, tasks: [...goal.tasks] }))
-  const migratedLifeGoalMap = new Map(migratedLifeGoals.map((goal) => [goal.id, goal]))
-  const remainingTasks: Task[] = []
-  for (const task of preMigrationTasks) {
-    if (!task.linkedDirectionId) {
-      remainingTasks.push(task)
-      continue
-    }
-    const linkedGoal = directionalGoalMap.get(task.linkedDirectionId)
-    if (!linkedGoal) {
-      remainingTasks.push(task)
-      continue
-    }
-    const migratedGoal = migratedLifeGoalMap.get(linkedGoal.id)!
-    migratedGoal.tasks.push({
-      id: task.id,
-      text: task.text,
-      dueDate: task.dueDate ?? null,
-      description: '',
-      notes: '',
-      priority: task.important ? 'high' : 'none',
-      tags: [],
-      subtasks: [],
-      completed: task.completed,
-      completedAt: task.completedAt ?? null,
-      milestoneId: null,
-    })
-  }
+  const remainingTasks: Task[] = preMigrationTasks
 
   return {
     ...defaults,
@@ -790,7 +775,7 @@ export function normalizePersistedAppState(parsed: Partial<PersistedAppState>, c
     badHabitLogs: migratedBadHabitLogs,
     tags: cleanedTagState.tags,
     tasks: remainingTasks,
-    lifeGoals: migratedLifeGoals,
+    lifeGoals: stripLegacyEmbeddedGoalTasksFromState({ lifeGoals: cleanedLifeGoals }).lifeGoals as LifeGoal[],
     lifeGoalCategories: normalizeLifeGoalCategories(parsed.lifeGoalCategories, cleanedLifeGoals),
     settings: parsed.settings
       ? {

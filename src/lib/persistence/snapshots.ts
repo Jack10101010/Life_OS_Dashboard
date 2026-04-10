@@ -1,4 +1,4 @@
-import type { PersistedAppState } from './migrations'
+import { stripLegacyEmbeddedGoalTasksFromState, type PersistedAppState } from './migrations'
 
 export type PersistedAppStateSnapshotType = 'auto' | 'manual' | 'pre_migration' | 'pre_import' | 'pre_restore'
 
@@ -20,7 +20,7 @@ const SNAPSHOT_DB_VERSION = 1
 export const APP_STATE_SNAPSHOT_SCHEMA_VERSION = 1
 
 function cloneSnapshotPayload(payload: Partial<PersistedAppState>) {
-  return JSON.parse(JSON.stringify(payload)) as Partial<PersistedAppState>
+  return JSON.parse(JSON.stringify(stripLegacyEmbeddedGoalTasksFromState(payload))) as Partial<PersistedAppState>
 }
 
 function createSnapshotId() {
