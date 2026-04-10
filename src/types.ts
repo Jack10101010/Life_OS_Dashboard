@@ -377,7 +377,6 @@ export interface LifeGoal {
   isPrimary: boolean
   order: number
   milestones: LifeGoalMilestone[]
-  tasks: LifeGoalTask[]
   linkedHabitIds: string[]
   archivedAt: string | null
   createdAt: string

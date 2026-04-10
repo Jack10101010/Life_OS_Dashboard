@@ -211,7 +211,7 @@ export function getLifeGoalSecondaryContext(goal: LifeGoal) {
   return null
 }
 
-export function getLifeGoalProgress(goal: LifeGoal, tasks: LifeGoalTask[] = goal.tasks) {
+export function getLifeGoalProgress(goal: LifeGoal, tasks: LifeGoalTask[]) {
   const totalTasks = tasks.length
   const completedTasks = tasks.filter((task) => task.completed).length
   const percent = goal.status === 'complete' ? 100 : totalTasks === 0 ? 0 : Math.round((completedTasks / totalTasks) * 100)
@@ -584,7 +584,7 @@ export function getGoalSubtaskProgress(tasks: LifeGoalTask[]) {
   return { total, completed }
 }
 
-export function getLifeGoalEditSnapshot(goal: LifeGoal, tasks: LifeGoalTask[] = goal.tasks) {
+export function getLifeGoalEditSnapshot(goal: LifeGoal, tasks: LifeGoalTask[]) {
   return JSON.stringify({
     title: goal.title.trim(),
     icon: goal.icon ?? null,

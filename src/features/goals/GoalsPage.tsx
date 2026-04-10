@@ -726,7 +726,7 @@ function collapseCreateDraftTasks(tasks: LifeGoalDraftTask[]): LifeGoalDraftTask
   return [...nonEmptyTasks, emptyTask]
 }
 
-function createLifeGoalDraftFromGoal(goal: LifeGoal, runtimeTasks: LifeGoalTask[] = goal.tasks): LifeGoalDraft {
+function createLifeGoalDraftFromGoal(goal: LifeGoal, runtimeTasks: LifeGoalTask[]): LifeGoalDraft {
   return {
     title: goal.title,
     icon: goal.icon ?? null,
@@ -829,18 +829,6 @@ function containScrollWithinElement(event: React.WheelEvent<HTMLDivElement>) {
 
 function createLifeGoalFromDraft(draft: LifeGoalDraft): LifeGoal {
   const timestamp = new Date().toISOString()
-  const tasks = normalizeLifeGoalDraftTasks(draft.tasks).map((task) => ({
-    ...task,
-    phase:
-      task.phase?.trim()
-        ? task.phase.trim()
-        : task.id.startsWith('life-goal-draft-task-')
-          ? suggestPhase(task.text) ?? undefined
-          : task.phase,
-    id: task.id.startsWith('life-goal-draft-task-')
-      ? `life-goal-task-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
-      : task.id,
-  }))
   return {
     id: `life-goal-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
     title: draft.title.trim(),
@@ -865,7 +853,6 @@ function createLifeGoalFromDraft(draft: LifeGoalDraft): LifeGoal {
     isPrimary: false,
     order: 0,
     milestones: draft.goalType === 'outcome' ? normalizeLifeGoalDraftMilestones(draft.milestones) : [],
-    tasks,
     linkedHabitIds: [],
     archivedAt: null,
     createdAt: timestamp,
@@ -873,7 +860,7 @@ function createLifeGoalFromDraft(draft: LifeGoalDraft): LifeGoal {
   }
 }
 
-function createLifeGoalUpdateFromDraft(goal: LifeGoal, draft: LifeGoalDraft, relatedGoalIds: string[], tasks: LifeGoalTask[]): LifeGoal {
+function createLifeGoalUpdateFromDraft(goal: LifeGoal, draft: LifeGoalDraft, relatedGoalIds: string[]): LifeGoal {
   return {
     ...goal,
     title: draft.title.trim(),
@@ -890,7 +877,6 @@ function createLifeGoalUpdateFromDraft(goal: LifeGoal, draft: LifeGoalDraft, rel
     targetDate: draft.targetDate,
     status: draft.status,
     milestones: draft.goalType === 'outcome' ? normalizeLifeGoalDraftMilestones(draft.milestones) : [],
-    tasks: goal.tasks,
   }
 }
 
@@ -1650,34 +1636,6 @@ export function GoalsPage({
   const safeDraftRelatedGoalIds = lifeGoalDraft.relatedGoalIds ?? []
   const safeSelectedLifeGoalLinkedHabitIds = selectedLifeGoal?.linkedHabitIds ?? []
 
-  useEffect(() => {
-    const isDevelopmentRuntime =
-      typeof window !== 'undefined' &&
-      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-    if (!isDevelopmentRuntime) return
-    if (!selectedLifeGoal) return
-    if (safeTasksForGoal.length !== (selectedLifeGoal.tasks?.length ?? 0)) {
-      console.warn('Phase 1 migration mismatch: global tasks vs embedded goal.tasks count differ', {
-        goalId: selectedLifeGoal.id,
-        globalTaskCount: safeTasksForGoal.length,
-        embeddedTaskCount: selectedLifeGoal.tasks?.length ?? 0,
-      })
-    }
-  }, [safeTasksForGoal.length, selectedLifeGoal])
-
-  useEffect(() => {
-    const isDevelopmentRuntime =
-      typeof window !== 'undefined' &&
-      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-    if (!isDevelopmentRuntime) return
-    if (!selectedLifeGoal || selectedLifeGoal.goalType !== 'outcome') return
-    console.log('Outcome-goal task prep', {
-      goalId: selectedLifeGoal.id,
-      globalTaskCount: selectedOutcomeGoalTasks.length,
-      embeddedTaskCount: selectedLifeGoal.tasks.length,
-    })
-  }, [selectedLifeGoal, selectedOutcomeGoalTasks.length])
-
   const replaceOutcomeGoalTaskStore = useCallback(
     (goalId: string, nextTasks: LifeGoalTask[]) => {
       onUpdateTasks((current) => {
@@ -1992,20 +1950,6 @@ export function GoalsPage({
           : selectedDirectionalGoalTasks,
     [selectedDirectionalGoalTasks, selectedLifeGoal, selectedOutcomeGoalTasks],
   )
-  useEffect(() => {
-    const isLocalDevHost =
-      typeof window !== 'undefined' &&
-      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-    if (!isLocalDevHost) return
-    if (!selectedLifeGoal) return
-    if (selectedGoalTaskSource === selectedLifeGoal.tasks) {
-      console.warn(`${selectedLifeGoal.goalType === 'directional' ? 'Directional' : 'Outcome'}-goal runtime source unexpectedly fell back to embedded goal.tasks`, {
-        goalId: selectedLifeGoal.id,
-        goalTitle: selectedLifeGoal.title,
-      })
-    }
-  }, [selectedGoalTaskSource, selectedLifeGoal])
-
   const selectedLifeGoalProgress = useMemo(
     () => (selectedLifeGoal ? getLifeGoalProgress(selectedLifeGoal, selectedGoalTaskSource) : null),
     [selectedGoalTaskSource, selectedLifeGoal],
@@ -2971,7 +2915,7 @@ export function GoalsPage({
   const editDraftGoalPayload = useMemo(
     () =>
       lifeGoalComposerMode === 'edit' && selectedLifeGoal
-        ? createLifeGoalUpdateFromDraft(selectedLifeGoal, lifeGoalDraft, allowedDraftRelatedGoalIds, draftTasks)
+        ? createLifeGoalUpdateFromDraft(selectedLifeGoal, lifeGoalDraft, allowedDraftRelatedGoalIds)
         : null,
     [allowedDraftRelatedGoalIds, draftTasks, lifeGoalComposerMode, lifeGoalDraft, selectedLifeGoal],
   )

@@ -356,16 +356,10 @@ export function LifeGoalOverviewPanel({
 
   const allOverviewGoals = safeLifeGoals.filter((goal) => !goal.archivedAt)
   const runtimeTasksByGoalId = useMemo(
-    () =>
-      new Map(
-        safeLifeGoals
-          .filter((goal) => (goal.goalType ?? 'outcome') === 'outcome')
-          .map((goal) => [goal.id, getLifeGoalRuntimeTasks(goal, tasks)]),
-      ),
+    () => new Map(safeLifeGoals.map((goal) => [goal.id, getLifeGoalRuntimeTasks(goal, tasks)])),
     [safeLifeGoals, tasks],
   )
-  const getGoalRuntimeTasks = (goal: LifeGoal) =>
-    (goal.goalType ?? 'outcome') === 'outcome' ? (runtimeTasksByGoalId.get(goal.id) ?? []) : goal.tasks
+  const getGoalRuntimeTasks = (goal: LifeGoal) => runtimeTasksByGoalId.get(goal.id) ?? []
   const pinnedGoalIds = new Set(rowActions.pinnedGoalIds)
   const pinnedGoalIndexById = new Map(rowActions.pinnedGoalIds.map((goalId, index) => [goalId, index]))
   const importantGoalIds = new Set(rowActions.highlightedGoalIds)

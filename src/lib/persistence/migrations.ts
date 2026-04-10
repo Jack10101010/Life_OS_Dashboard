@@ -53,6 +53,34 @@ type UnifiedTaskPhase1 = Omit<Task, 'dueDate'> & {
   updatedAt: string | null
 }
 
+type LegacyEmbeddedLifeGoalTask = {
+  id: string
+  text: string
+  milestoneId: string | null
+  phase?: string
+  description: string
+  notes: string
+  dueDate: string | null
+  priority: LifeGoalTaskPriority
+  tags: string[]
+  subtasks: Array<{
+    id: string
+    text: string
+    completed: boolean
+  }>
+  completed: boolean
+  completedAt: string | null
+}
+
+type LegacyPersistedLifeGoalRecord = Partial<LifeGoal> & {
+  tasks?: unknown[]
+  moves?: unknown[]
+}
+
+type LegacyNormalizedLifeGoal = LifeGoal & {
+  tasks: LegacyEmbeddedLifeGoalTask[]
+}
+
 function normalizeLifeGoalTaskPhase(phase: unknown) {
   const trimmed = typeof phase === 'string' ? phase.trim() : ''
   return LIFE_GOAL_PHASE_OPTIONS.has(trimmed) ? trimmed : null
@@ -603,7 +631,9 @@ export function getDefaultPersistedAppState(currentYear: number): PersistedAppSt
 
 export function normalizePersistedAppState(parsed: Partial<PersistedAppState>, currentYear: number): PersistedAppState {
   const defaults = getDefaultPersistedAppState(currentYear)
-  const rawLifeGoals = Array.isArray(parsed.lifeGoals) ? parsed.lifeGoals : defaults.lifeGoals
+  const rawLifeGoals: LegacyPersistedLifeGoalRecord[] = Array.isArray(parsed.lifeGoals)
+    ? (parsed.lifeGoals as LegacyPersistedLifeGoalRecord[])
+    : []
   const legacySystemGoalIds = new Set(
     (Array.isArray(parsed.lifeGoals) ? parsed.lifeGoals : [])
       .map((goal) => (goal && typeof goal === 'object' ? (goal as unknown as Record<string, unknown>) : {}))
@@ -617,7 +647,7 @@ export function normalizePersistedAppState(parsed: Partial<PersistedAppState>, c
     .filter((goal) => !legacySystemGoalIds.has(goal.id))
   const outcomeGoalIds = new Set(normalizedLifeGoals.filter((goal) => goal.goalType === 'outcome').map((goal) => goal.id))
   const directionalGoalIds = new Set(normalizedLifeGoals.filter((goal) => goal.goalType === 'directional').map((goal) => goal.id))
-  const cleanedLifeGoals = normalizedLifeGoals.map((goal) => ({
+  const cleanedLifeGoals: LegacyNormalizedLifeGoal[] = normalizedLifeGoals.map((goal) => ({
       ...goal,
       relatedGoalIds:
         goal.goalType === 'directional'
@@ -900,7 +930,7 @@ function ensureYearDataset(
   }
 }
 
-function normalizeLifeGoal(goal: Partial<LifeGoal>, index: number): LifeGoal {
+function normalizeLifeGoal(goal: LegacyPersistedLifeGoalRecord, index: number): LegacyNormalizedLifeGoal {
   const createdAt = typeof goal.createdAt === 'string' && goal.createdAt ? goal.createdAt : new Date().toISOString()
   const defaultStartDate = createdAt.slice(0, 10)
   const goalType: LifeGoalType =
@@ -1011,8 +1041,8 @@ function normalizeLifeGoal(goal: Partial<LifeGoal>, index: number): LifeGoal {
     isPrimary: typeof goal.isPrimary === 'boolean' ? goal.isPrimary : false,
     order: typeof goal.order === 'number' && Number.isFinite(goal.order) ? goal.order : index,
     milestones: goalType === 'outcome' ? milestones : [],
-    tasks: (Array.isArray(goal.tasks) ? goal.tasks : Array.isArray((goal as Partial<LifeGoal> & { moves?: unknown[] }).moves) ? (goal as Partial<LifeGoal> & { moves?: unknown[] }).moves! : [])
-      .map((task) => {
+    tasks: (Array.isArray(goal.tasks) ? goal.tasks : Array.isArray(goal.moves) ? goal.moves : [])
+      .map((task: unknown) => {
         const candidate = (task ?? {}) as {
           id?: unknown
           text?: unknown
@@ -1069,7 +1099,7 @@ function normalizeLifeGoal(goal: Partial<LifeGoal>, index: number): LifeGoal {
           completedAt: typeof candidate.completedAt === 'string' ? candidate.completedAt : null,
         }
       })
-      .filter((task) => task.text.length > 0),
+      .filter((task: LegacyEmbeddedLifeGoalTask) => task.text.length > 0),
     linkedHabitIds: Array.isArray(goal.linkedHabitIds)
       ? goal.linkedHabitIds.filter((id): id is string => typeof id === 'string' && id.length > 0)
       : [],
@@ -1093,7 +1123,7 @@ function normalizeLifeGoalCategoryColor(color: unknown): LifeGoalCategoryColor {
 
 function normalizeLifeGoalCategories(
   categories: unknown,
-  lifeGoals: Array<Partial<LifeGoal>>,
+  lifeGoals: Array<LegacyPersistedLifeGoalRecord | LegacyNormalizedLifeGoal>,
 ): LifeGoalCategoryDefinition[] {
   const definitions = new Map<string, LifeGoalCategoryDefinition>()
 
