@@ -1,6 +1,7 @@
 import { memo, ReactNode, useEffect, useRef, useState } from 'react'
 
 type LifeGoalRoadmapPanelProps = {
+  variant?: 'default' | 'embedded'
   data: {
     plannedTaskCount: number
     completedCount: number
@@ -41,14 +42,16 @@ type LifeGoalRoadmapPanelProps = {
 }
 
 export const LifeGoalRoadmapPanel = memo(function LifeGoalRoadmapPanel({
+  variant = 'default',
   data,
   actions,
   uiState,
 }: LifeGoalRoadmapPanelProps) {
   const [controlsOpen, setControlsOpen] = useState(false)
   const controlsRef = useRef<HTMLDivElement | null>(null)
-  const timelineX = data.roadmapTimelineX ?? 12
-  const contentInset = data.roadmapContentInset ?? 36
+  const isEmbedded = variant === 'embedded'
+  const timelineX = isEmbedded ? data.roadmapTimelineX ?? 10 : data.roadmapTimelineX ?? 12
+  const contentInset = isEmbedded ? data.roadmapContentInset ?? 28 : data.roadmapContentInset ?? 36
 
   useEffect(() => {
     if (!controlsOpen) return
@@ -64,7 +67,14 @@ export const LifeGoalRoadmapPanel = memo(function LifeGoalRoadmapPanel({
   }, [controlsOpen])
 
   return (
-    <div className="self-start rounded-[24px] border border-white/[0.045] bg-[rgb(var(--theme-surface-elevated-rgb)/0.72)] shadow-[inset_0_1px_0_rgba(255,255,255,0.02)] xl:flex xl:h-[78vh] xl:flex-col">
+    <div
+      className={`self-start xl:flex xl:flex-col ${
+        isEmbedded
+          ? 'w-full'
+          : 'rounded-[24px] border border-white/[0.045] bg-[rgb(var(--theme-surface-elevated-rgb)/0.72)] shadow-[inset_0_1px_0_rgba(255,255,255,0.02)] xl:h-[78vh]'
+      }`}
+    >
+      {!isEmbedded ? (
       <div className="px-4 pb-3 pt-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -220,13 +230,21 @@ export const LifeGoalRoadmapPanel = memo(function LifeGoalRoadmapPanel({
           </div>
         </div>
       </div>
+      ) : null}
 
       <div
-        className={`roadmap-scroll border-t border-white/[0.05] xl:min-h-0 xl:flex-1 xl:overscroll-contain ${
+        className={`roadmap-scroll xl:min-h-0 xl:flex-1 xl:overscroll-contain ${
           uiState.progressView === 'notes' ? 'xl:overflow-hidden' : 'xl:overflow-y-auto'
         } ${
-          uiState.progressView === 'notes' ? 'px-px pt-px' : 'px-4 pt-3'
+          uiState.progressView === 'notes'
+            ? isEmbedded
+              ? 'px-0 pt-0'
+              : 'px-px pt-px'
+            : isEmbedded
+              ? 'px-0 pt-1'
+              : 'border-t border-white/[0.05] px-4 pt-3'
         }`}
+        style={isEmbedded ? undefined : undefined}
         tabIndex={0}
         onKeyDown={uiState.progressView === 'tasks' ? actions.onRoadmapKeyDown : undefined}
       >
@@ -270,7 +288,7 @@ export const LifeGoalRoadmapPanel = memo(function LifeGoalRoadmapPanel({
         )}
       </div>
 
-      <div className="border-t border-white/[0.08] px-4 py-3">
+      <div className={`border-t border-white/[0.08] ${isEmbedded ? 'px-0 pb-0 pt-3' : 'px-4 py-3'}`}>
         {uiState.progressView === 'notes' ? (
           <div className="flex items-end justify-between gap-3">
             <div className="space-y-1 text-xs text-mist">

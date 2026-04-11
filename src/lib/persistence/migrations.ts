@@ -38,19 +38,6 @@ const UNIFIED_TASK_MIGRATION_EPOCH_ISO = new Date(0).toISOString()
 
 type UnifiedTaskPhase1 = Omit<Task, 'dueDate'> & {
   dueDate: string | null
-  description: string
-  notes: string
-  priority: LifeGoalTaskPriority
-  tags: string[]
-  subtasks: Array<{
-    id: string
-    text: string
-    completed: boolean
-  }>
-  milestoneId: string | null
-  phase: string | null
-  createdAt: string
-  updatedAt: string | null
 }
 
 type LegacyEmbeddedLifeGoalTask = {
@@ -159,6 +146,8 @@ function normalizeUnifiedTaskPhase1(
           : '',
     order,
     dueDate: typeof task.dueDate === 'string' && task.dueDate.trim().length > 0 ? task.dueDate.trim() : null,
+    dueTime: typeof task.dueTime === 'string' && task.dueTime.trim().length > 0 ? task.dueTime.trim() : null,
+    taskTag: typeof task.taskTag === 'string' && task.taskTag.trim().length > 0 ? task.taskTag.trim() : null,
     starred: options.starredOverride ?? (typeof task.starred === 'boolean' ? task.starred : false),
     important: typeof task.important === 'boolean' ? task.important : priority === 'high',
     linkedGoalId,
@@ -174,7 +163,7 @@ function normalizeUnifiedTaskPhase1(
     subtasks: Array.isArray(task.subtasks)
       ? task.subtasks
           .map((subtask, subtaskIndex) => {
-            const candidate = (subtask ?? {}) as Record<string, unknown>
+            const candidate = (subtask ?? {}) as unknown as Record<string, unknown>
             const text = typeof candidate.text === 'string' ? candidate.text.trim() : ''
             return {
               id:
@@ -1365,6 +1354,14 @@ function normalizeTask(task: Partial<Task>, index = 0): Task {
       typeof task.dueDate === 'string'
         ? task.dueDate.trim() || null
         : null,
+    dueTime:
+      typeof (task as Partial<Task> & { dueTime?: unknown }).dueTime === 'string'
+        ? (task as Partial<Task> & { dueTime: string }).dueTime.trim() || null
+        : null,
+    taskTag:
+      typeof (task as Partial<Task> & { taskTag?: unknown }).taskTag === 'string'
+        ? (task as Partial<Task> & { taskTag: string }).taskTag.trim() || null
+        : null,
     starred: (task as Partial<Task> & { starred?: boolean }).starred ?? task.important ?? false,
     important: (task as Partial<Task> & { important?: boolean }).important ?? false,
     linkedGoalId,
@@ -1380,7 +1377,7 @@ function normalizeTask(task: Partial<Task>, index = 0): Task {
     subtasks: Array.isArray((task as Partial<Task> & { subtasks?: unknown[] }).subtasks)
       ? (task as Partial<Task> & { subtasks: unknown[] }).subtasks
           .map((subtask, subtaskIndex) => {
-            const candidate = (subtask ?? {}) as Record<string, unknown>
+            const candidate = (subtask ?? {}) as unknown as Record<string, unknown>
             const text = typeof candidate.text === 'string' ? candidate.text.trim() : ''
             return {
               id:

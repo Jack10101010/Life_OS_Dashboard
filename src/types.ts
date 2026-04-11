@@ -244,13 +244,24 @@ export interface Task {
   id: string
   text: string
   order: number
-  dueDate: string
+  dueDate: string | null
+  dueTime: string | null
+  taskTag: string | null
   starred: boolean
   important: boolean
   linkedGoalId?: string | null
   linkedDirectionId?: string | null
   completed: boolean
   completedAt: string | null
+  description: string
+  notes: string
+  priority: LifeGoalTaskPriority
+  tags: string[]
+  subtasks: LifeGoalTaskSubtask[]
+  milestoneId?: string | null
+  phase?: string | null
+  createdAt: string
+  updatedAt: string | null
 }
 
 export interface Note {

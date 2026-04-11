@@ -7,9 +7,9 @@ export const DEFAULT_SIDEBAR_ITEMS: Array<{ id: PageId; label: string }> = [
   { id: 'your-days', label: 'Your Days' },
   { id: 'journal-recordings', label: 'Journal' },
   { id: 'goals', label: 'Goals' },
-  { id: 'tasks', label: 'Tasks' },
-  { id: 'notes', label: 'Notes' },
   { id: 'analytics', label: 'Analytics' },
+  { id: 'tasks', label: 'Priorities & Tasks' },
+  { id: 'notes', label: 'Notes & Reflections' },
   { id: 'trade-log', label: 'Trade Log' },
   { id: 'settings', label: 'Settings' },
 ]

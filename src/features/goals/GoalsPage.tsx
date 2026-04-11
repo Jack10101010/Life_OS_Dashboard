@@ -551,6 +551,8 @@ function createEmptyLifeGoalTask(): LifeGoalTask {
 
 type OutcomeGoalTaskRecord = Task & {
   dueDate: string | null
+  dueTime?: string | null
+  taskTag?: string | null
   description?: string
   notes?: string
   priority?: LifeGoalTaskPriority
@@ -1671,6 +1673,8 @@ export function GoalsPage({
             text: task.text,
             order: index,
             dueDate: task.dueDate ?? null,
+            dueTime: existing?.dueTime ?? null,
+            taskTag: existing?.taskTag ?? null,
             starred: existing?.starred ?? false,
             important: existing?.important ?? false,
             linkedGoalId: goalId,
@@ -1716,6 +1720,8 @@ export function GoalsPage({
             text: task.text,
             order: index,
             dueDate: task.dueDate ?? null,
+            dueTime: existing?.dueTime ?? null,
+            taskTag: existing?.taskTag ?? null,
             starred: existing?.starred ?? false,
             important: existing?.important ?? false,
             linkedGoalId: null,

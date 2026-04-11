@@ -65,13 +65,43 @@ export function Sidebar({
   const items = useMemo(() => {
     const byId = new Map(DEFAULT_SIDEBAR_ITEMS.map((item) => [item.id, item]))
     const mergedOrder = [...pageOrder, ...DEFAULT_SIDEBAR_ITEMS.map((item) => item.id).filter((id) => !pageOrder.includes(id))]
-    return mergedOrder
+    const orderedItems = mergedOrder
       .map((id) => byId.get(id))
       .filter((item): item is { id: PageId; label: string } => Boolean(item))
       .map((item) => ({
         ...item,
         label: pageLabels[item.id] ?? item.label,
       }))
+    const analyticsItem = orderedItems.find((item) => item.id === 'analytics') ?? null
+    const tasksItem = orderedItems.find((item) => item.id === 'tasks') ?? null
+    const notesItem = orderedItems.find((item) => item.id === 'notes') ?? null
+
+    const relabeledItems = orderedItems.map((item) =>
+      item.id === 'tasks'
+        ? { ...item, label: 'Priorities & Tasks' }
+        : item.id === 'notes'
+          ? { ...item, label: 'Notes & Reflections' }
+          : item,
+    )
+
+    if (!analyticsItem || !tasksItem || !notesItem) {
+      return relabeledItems
+    }
+
+    const withoutTaskBlock = relabeledItems.filter(
+      (item) => item.id !== 'analytics' && item.id !== 'tasks' && item.id !== 'notes',
+    )
+    const analyticsInsertionIndex = relabeledItems.findIndex((item) => item.id === 'analytics')
+    const nextItems = [...withoutTaskBlock]
+    nextItems.splice(
+      Math.max(0, analyticsInsertionIndex),
+      0,
+      analyticsItem,
+      { ...tasksItem, label: 'Priorities & Tasks' },
+      { ...notesItem, label: 'Notes & Reflections' },
+    )
+
+    return nextItems
   }, [pageLabels, pageOrder])
   const settingsItem = items.find((item) => item.id === 'settings') ?? null
   const primaryItems = items.filter((item) => item.id !== 'settings')

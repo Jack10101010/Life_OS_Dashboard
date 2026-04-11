@@ -55,10 +55,11 @@ export function TopBar({
   const [pushedToday, setPushedToday] = useState(false)
   const isGoalsPage = page === 'goals'
   const isGoalDetailPage = isGoalsPage && goalsView === 'life-detail'
+  const isTasksPage = page === 'tasks'
   const showDescription = !isGoalsPage
   const showTodayCard = !isGoalsPage
 
-  if (isGoalDetailPage) {
+  if (isGoalDetailPage || isTasksPage) {
     return null
   }
 

@@ -7,7 +7,6 @@ import { DayDrawer } from './components/tracker/DayDrawer'
 import { HabitTrackerEntryModal } from './components/tracker/HabitTrackerEntryModal'
 import { HabitTrackerGoalModal } from './components/tracker/HabitTrackerGoalModal'
 import { HabitTrackerSettingsModal } from './components/tracker/HabitTrackerSettingsModal'
-import { DevNotesCard } from './components/ui/DevNotesCard'
 import { ErrorBoundary } from './components/ui/ErrorBoundary'
 import { WeekDrawer } from './components/tracker/WeekDrawer'
 import {
@@ -36,15 +35,15 @@ import { HabitMapsPage } from './features/habit-maps/HabitMapsPage'
 import { JournalPage } from './features/journal/JournalPage'
 import { PlaceholderPage } from './features/placeholder/PlaceholderPage'
 import { SettingsPage } from './features/settings/SettingsPage'
+import { TaskSuperPage } from './features/tasks/TaskSuperPage'
 import { TrackerWorkspace } from './features/tracker/TrackerWorkspace'
 import { YourDaysPage } from './features/your-days/YourDaysPage'
 import { APP_STATE_STORAGE_KEY } from './lib/persistence/keys'
 import { repairDirectionalGoalTaskFieldsFromEmbedded } from './lib/persistence/migrations'
 import { readJsonStorage } from './lib/persistence/storage'
 import { getLifeGoalRuntimeTasks } from './features/goals/goalUtils'
-import { LifeGoal, LifeGoalCategoryColor, LifeGoalCategoryDefinition, PageId } from './types'
+import { LifeGoal, LifeGoalCategoryColor, LifeGoalCategoryDefinition, PageId, Task } from './types'
 
-const DEV_NOTES_ENABLED_PAGES: PageId[] = ['tasks', 'notes', 'analytics', 'trade-log', 'settings']
 type GoalsView = 'life-overview' | 'directional-overview' | 'life-detail' | 'habit-goals'
 type AppHistoryState = {
   __appNavigation: true
@@ -743,6 +742,24 @@ export default function App() {
     await refreshSnapshots()
   }, [refreshSnapshots])
 
+  const handleAddCurrentFocusToTodayLog = useCallback((task: Task) => {
+    const todayIso = new Date().toISOString().slice(0, 10)
+    updateDayByDate(todayIso, (day) => {
+      const trimmedText = task.text.trim()
+      if (!trimmedText) return day
+      const existingEntries = day.bigWin
+        .split('\n')
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+      if (existingEntries.includes(trimmedText)) return day
+      return {
+        ...day,
+        isLogged: true,
+        bigWin: [...existingEntries, trimmedText].join('\n'),
+      }
+    })
+  }, [updateDayByDate])
+
   const renderPage = () => {
     if (page === 'dashboard') {
       return (
@@ -765,12 +782,23 @@ export default function App() {
                   text: text.trim(),
                   order: current.length,
                   dueDate: new Date().toISOString().slice(0, 10),
+                  dueTime: null,
+                  taskTag: null,
                   starred: false,
                   important: false,
                   linkedGoalId: null,
                   linkedDirectionId: null,
                   completed: false,
                   completedAt: null,
+                  description: '',
+                  notes: '',
+                  priority: 'none',
+                  tags: [],
+                  subtasks: [],
+                  milestoneId: null,
+                  phase: null,
+                  createdAt: new Date().toISOString(),
+                  updatedAt: new Date().toISOString(),
                 },
                 ...current,
               ])
@@ -1023,6 +1051,20 @@ export default function App() {
       )
     }
 
+    if (page === 'tasks') {
+      return (
+        <ErrorBoundary title="Tasks unavailable" description="The task workspace could not be displayed right now.">
+          <TaskSuperPage
+            tasks={tasks}
+            lifeGoals={lifeGoals}
+            lifeGoalCategories={lifeGoalCategories}
+            onUpdateTasks={(updater) => setTasks((current) => updater(current))}
+            onAddCurrentFocusToTodayLog={handleAddCurrentFocusToTodayLog}
+          />
+        </ErrorBoundary>
+      )
+    }
+
     if (page === 'goals') {
       return (
         <ErrorBoundary title="Goals unavailable" description="The goals workspace could not be displayed right now.">
@@ -1133,7 +1175,7 @@ export default function App() {
               }))
             }}
             onUpdateTasks={(updater) => setTasks((current) => updater(current))}
-            onOpenGlobalTasks={() => setPage('dashboard')}
+            onOpenGlobalTasks={() => setPage('tasks')}
             onOpenHabitTracker={(trackerId) => {
               const tracker = habitTrackers.find((item) => item.id === trackerId)
               if (!tracker) return
@@ -1146,14 +1188,9 @@ export default function App() {
     }
 
     const placeholderMap: Record<
-      Exclude<PageId, 'dashboard' | 'tracker' | 'habit-maps' | 'your-days' | 'settings' | 'journal-recordings' | 'gratitude' | 'vision-board' | 'goals'>,
+      Exclude<PageId, 'dashboard' | 'tracker' | 'habit-maps' | 'your-days' | 'settings' | 'journal-recordings' | 'gratitude' | 'vision-board' | 'goals' | 'tasks'>,
       { title: string; description: string; highlights: string[] }
     > = {
-      tasks: {
-        title: 'Tasks',
-        description: 'Task capture and execution will eventually connect daily action with the mood and habit layer without crowding this first release.',
-        highlights: ['Today / upcoming views', 'Energy-aware planning', 'Task completion correlations'],
-      },
       notes: {
         title: 'Notes',
         description: 'Notes will become the flexible writing layer for journal entries, references, and reflections linked back to weeks and tags.',
@@ -1172,7 +1209,7 @@ export default function App() {
     }
 
     const placeholder = placeholderMap[
-      page as Exclude<PageId, 'dashboard' | 'tracker' | 'habit-maps' | 'your-days' | 'settings' | 'journal-recordings' | 'gratitude' | 'vision-board' | 'goals'>
+      page as Exclude<PageId, 'dashboard' | 'tracker' | 'habit-maps' | 'your-days' | 'settings' | 'journal-recordings' | 'gratitude' | 'vision-board' | 'goals' | 'tasks'>
     ]
     return <PlaceholderPage {...placeholder} />
   }
@@ -1226,19 +1263,7 @@ export default function App() {
           <main className="py-5 sm:py-6">
             <PageContainer width="wide" className={sidebarCollapsed ? 'lg:pl-16' : ''}>
               <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.28 }}>
-              {DEV_NOTES_ENABLED_PAGES.includes(page) ? (
-                <DevNotesCard
-                  page={page}
-                  value={pageDevNotes[page] ?? ''}
-                  onChange={(value) =>
-                    setPageDevNotes((current) => ({
-                      ...current,
-                      [page]: value,
-                    }))
-                  }
-                />
-              ) : null}
-              {renderPage()}
+                {renderPage()}
               </motion.div>
             </PageContainer>
           </main>
