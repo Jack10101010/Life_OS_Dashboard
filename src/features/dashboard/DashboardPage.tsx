@@ -2612,6 +2612,7 @@ function getCurrentSignal(moodTrend: Array<{ name: string; am: number | null; pm
 
 function getSortedDashboardTasks(tasks: Task[]) {
   const todayIso = new Date().toISOString().slice(0, 10)
+  const getComparableString = (value: string | null | undefined) => value ?? ''
 
   return [...tasks].sort((left, right) => {
     if (left.starred !== right.starred) return left.starred ? -1 : 1
@@ -2621,15 +2622,21 @@ function getSortedDashboardTasks(tasks: Task[]) {
     if (leftPriority !== rightPriority) return leftPriority - rightPriority
     if (left.important !== right.important) return left.important ? -1 : 1
     if (left.completed !== right.completed) return left.completed ? 1 : -1
-    if (left.dueDate !== right.dueDate) return left.dueDate.localeCompare(right.dueDate)
-    if ((left.completedAt ?? '') !== (right.completedAt ?? '')) return (right.completedAt ?? '').localeCompare(left.completedAt ?? '')
-    return left.text.localeCompare(right.text)
+    const leftDueDate = getComparableString(left.dueDate)
+    const rightDueDate = getComparableString(right.dueDate)
+    if (leftDueDate !== rightDueDate) return leftDueDate.localeCompare(rightDueDate)
+    const leftCompletedAt = getComparableString(left.completedAt)
+    const rightCompletedAt = getComparableString(right.completedAt)
+    if (leftCompletedAt !== rightCompletedAt) return rightCompletedAt.localeCompare(leftCompletedAt)
+    return getComparableString(left.text).localeCompare(getComparableString(right.text))
   })
 }
 
 function getTaskPriority(task: Task, todayIso: string) {
-  if (task.dueDate < todayIso) return 0
-  if (task.dueDate === todayIso) return 1
+  const dueDate = task.dueDate ?? ''
+  if (!dueDate) return 2
+  if (dueDate < todayIso) return 0
+  if (dueDate === todayIso) return 1
   return 2
 }
 

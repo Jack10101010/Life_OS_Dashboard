@@ -1,13 +1,106 @@
 import { useMemo } from 'react'
-import { DayEntry, Tag, WeekEntry } from '../types'
+import { DashboardExecution, DashboardScratchpad, DayEntry, WeekEntry } from '../types'
+
+const EMPTY_DASHBOARD_EXECUTION: DashboardExecution = {
+  goal: '',
+  whyItMatters: '',
+  todayTask: '',
+  nextAction: '',
+  minimumVersion: '',
+  status: 'idle',
+  deepWorkDone: false,
+  movementDone: false,
+  nightResetReflection: '',
+  nightResetNextTask: '',
+}
+
+const EMPTY_DASHBOARD_SCRATCHPAD: DashboardScratchpad = {
+  mode: 'free',
+  text: '',
+  freeNotes: [],
+  activeFreeNoteId: null,
+  moneyIn: [],
+  moneyOut: [],
+  notes: '',
+  todoItems: [],
+  financeSheets: {},
+}
+
+function createFallbackDayEntry(date: string): DayEntry {
+  return {
+    id: `fallback-day-${date}`,
+    date,
+    isLogged: false,
+    cellColor: 'blank',
+    mood: null,
+    motivation: null,
+    clarity: null,
+    energy: null,
+    sleepQuality: null,
+    bedtime: '',
+    wakeTime: '',
+    wokeDuringNight: null,
+    sleepNote: '',
+    morningMood: 0,
+    eveningMood: 0,
+    moodNote: '',
+    eveningOutcome: null,
+    eveningUnstable: false,
+    eveningTrajectory: null,
+    eveningSelfInfluence: null,
+    habitsCompleted: 0,
+    habitsTotal: 0,
+    completedHabitIds: [],
+    drank: false,
+    bigWin: '',
+    journal: '',
+    dashboardQuickNote: '',
+    dashboardScratchpad: EMPTY_DASHBOARD_SCRATCHPAD,
+    dashboardExecution: EMPTY_DASHBOARD_EXECUTION,
+    dailyIntentCompleteOneTask: false,
+    morningIntention: '',
+    lowStateEntry: null,
+    medications: [],
+    tasks: [],
+    reminders: [],
+    dailyActions: [],
+    tags: [],
+    tagEntries: [],
+    score: 0,
+    updatedAt: null,
+    linkedWeek: `fallback-week-${date}`,
+  }
+}
+
+function createFallbackWeekEntry(date: string): WeekEntry {
+  return {
+    id: `fallback-week-${date}`,
+    weekNumber: 1,
+    year: Number(date.slice(0, 4)) || new Date().getUTCFullYear(),
+    startDate: date,
+    endDate: date,
+    loggedDaysCount: 0,
+    weeklyScore: 0,
+    habitCompletionPercent: 0,
+    moodAverage: 0,
+    drankThisWeek: false,
+    bigWin: '',
+    reflection: '',
+    whatWentWell: '',
+    whatSlipped: '',
+    tags: [],
+    linkedDays: [],
+  }
+}
 
 export function useDashboardState({ days, weeks }: { days: DayEntry[]; weeks: WeekEntry[] }) {
   const recentDays = days.slice(-14)
   const todayDate = new Date().toISOString().slice(0, 10)
-  const todayEntry = days.find((day) => day.date === todayDate) ?? days[days.length - 1]
+  const todayEntry = days.find((day) => day.date === todayDate) ?? days[days.length - 1] ?? createFallbackDayEntry(todayDate)
   const currentWeek =
     weeks.find((week) => todayDate >= week.startDate && todayDate <= week.endDate) ??
-    weeks[weeks.length - 1]
+    weeks[weeks.length - 1] ??
+    createFallbackWeekEntry(todayDate)
 
   const moodTrend = useMemo(
     () =>

@@ -880,6 +880,10 @@ function createLifeGoalUpdateFromDraft(goal: LifeGoal, draft: LifeGoalDraft, rel
   }
 }
 
+function getOverviewGoalsViewForGoal(goal: Pick<LifeGoal, 'goalType'> | null | undefined): GoalsView {
+  return (goal?.goalType ?? 'outcome') === 'directional' ? 'directional-overview' : 'life-overview'
+}
+
 function getRecentHabitSupportState(tracker: HabitTracker) {
   const today = new Date()
   const dates = Array.from({ length: 7 }, (_, index) => {
@@ -1190,6 +1194,8 @@ export function GoalsPage({
   badHabitDateMap,
   year,
   goalsView,
+  outcomeGoalCategoryFilter,
+  directionalGoalCategoryFilter,
   selectedLifeGoalId,
   onSelectLifeGoal,
   onChangeGoalsView,
@@ -1214,6 +1220,8 @@ export function GoalsPage({
   badHabitDateMap: Map<string, BadHabitDefinition[]>
   year: number
   goalsView: GoalsView
+  outcomeGoalCategoryFilter: string | null
+  directionalGoalCategoryFilter: string | null
   selectedLifeGoalId: string | null
   onSelectLifeGoal: (goalId: string | null) => void
   onChangeGoalsView: (view: GoalsView) => void
@@ -1499,11 +1507,20 @@ export function GoalsPage({
     () =>
       safeLifeGoals.filter((goal) => {
         if (goal.archivedAt) return false
-        if (goalsView === 'directional-overview') return (goal.goalType ?? 'outcome') === 'directional'
-        if (goalsView === 'life-overview') return (goal.goalType ?? 'outcome') === 'outcome'
+        const normalizedCategory = goal.category.trim().toLowerCase()
+        if (goalsView === 'directional-overview') {
+          if ((goal.goalType ?? 'outcome') !== 'directional') return false
+          if (!directionalGoalCategoryFilter) return true
+          return normalizedCategory === directionalGoalCategoryFilter.trim().toLowerCase()
+        }
+        if (goalsView === 'life-overview') {
+          if ((goal.goalType ?? 'outcome') !== 'outcome') return false
+          if (!outcomeGoalCategoryFilter) return true
+          return normalizedCategory === outcomeGoalCategoryFilter.trim().toLowerCase()
+        }
         return true
       }),
-    [goalsView, safeLifeGoals],
+    [directionalGoalCategoryFilter, goalsView, outcomeGoalCategoryFilter, safeLifeGoals],
   )
 
   useEffect(() => {
@@ -5091,9 +5108,10 @@ export function GoalsPage({
   const confirmDeleteLifeGoal = () => {
     if (!deleteGoalConfirmationTarget) return
     const { goalId, context } = deleteGoalConfirmationTarget
+    const deletedGoal = safeLifeGoals.find((goal) => goal.id === goalId) ?? null
     onDeleteLifeGoal(goalId)
     if (selectedLifeGoalId === goalId) {
-      onChangeGoalsView('life-overview')
+      onChangeGoalsView(getOverviewGoalsViewForGoal(deletedGoal))
     }
     if (context === 'edit') {
       closeLifeGoalComposer()
@@ -6214,9 +6232,10 @@ const renderLifeGoalOverviewPage = () => {
                         onClick={() => {
                           setEditGoalActionsMenuOpen(false)
                           if (!window.confirm('Archive this goal? It will be removed from the active Life Goals workspace.')) return
+                          const editingGoal = safeLifeGoals.find((goal) => goal.id === editingLifeGoalId) ?? null
                           onArchiveLifeGoal(editingLifeGoalId)
                           if (selectedLifeGoalId === editingLifeGoalId) {
-                            onChangeGoalsView('life-overview')
+                            onChangeGoalsView(getOverviewGoalsViewForGoal(editingGoal))
                           }
                           closeLifeGoalComposer()
                         }}

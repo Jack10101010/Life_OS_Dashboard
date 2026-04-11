@@ -1,16 +1,36 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import { BadHabitDefinition, PageId } from '../../types'
+import { BadHabitDefinition, LifeGoal, PageId } from '../../types'
 import { DEFAULT_SIDEBAR_ITEMS } from '../../lib/sidebar'
+
+type GoalSidebarSection =
+  | {
+      id: 'life-overview' | 'directional-overview'
+      label: string
+      selected: boolean
+      categoryType: 'outcome' | 'directional'
+      categories: string[]
+      categoriesExpanded: boolean
+    }
+  | {
+      id: 'habit-goals'
+      label: string
+      selected: boolean
+    }
 
 export function Sidebar({
   currentPage,
   collapsed,
   pageOrder,
   pageLabels,
+  lifeGoals,
   goalsView,
+  outcomeGoalCategoryFilter,
+  directionalGoalCategoryFilter,
   selectedGoalType,
   onNavigate,
   onSetGoalsView,
+  onSetOutcomeGoalCategoryFilter,
+  onSetDirectionalGoalCategoryFilter,
   onToggleCollapsed,
   onReorderPages,
   onRenamePage,
@@ -21,10 +41,15 @@ export function Sidebar({
   collapsed: boolean
   pageOrder: PageId[]
   pageLabels: Record<PageId, string>
+  lifeGoals: LifeGoal[]
   goalsView: 'life-overview' | 'directional-overview' | 'life-detail' | 'habit-goals'
+  outcomeGoalCategoryFilter: string | null
+  directionalGoalCategoryFilter: string | null
   selectedGoalType?: 'outcome' | 'directional' | null
   onNavigate: (page: PageId) => void
   onSetGoalsView: (view: 'life-overview' | 'directional-overview' | 'life-detail' | 'habit-goals') => void
+  onSetOutcomeGoalCategoryFilter: (category: string | null) => void
+  onSetDirectionalGoalCategoryFilter: (category: string | null) => void
   onToggleCollapsed: () => void
   onReorderPages: (nextOrder: PageId[]) => void
   onRenamePage: (page: PageId, label: string) => void
@@ -35,6 +60,8 @@ export function Sidebar({
   const [renamingPage, setRenamingPage] = useState<PageId | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [goalsExpanded, setGoalsExpanded] = useState(currentPage === 'goals')
+  const [outcomeCategoriesExpanded, setOutcomeCategoriesExpanded] = useState(true)
+  const [directionalCategoriesExpanded, setDirectionalCategoriesExpanded] = useState(true)
   const items = useMemo(() => {
     const byId = new Map(DEFAULT_SIDEBAR_ITEMS.map((item) => [item.id, item]))
     const mergedOrder = [...pageOrder, ...DEFAULT_SIDEBAR_ITEMS.map((item) => item.id).filter((id) => !pageOrder.includes(id))]
@@ -48,6 +75,43 @@ export function Sidebar({
   }, [pageLabels, pageOrder])
   const settingsItem = items.find((item) => item.id === 'settings') ?? null
   const primaryItems = items.filter((item) => item.id !== 'settings')
+  const goalCategoriesByType = useMemo(() => {
+    const collect = (goalType: 'outcome' | 'directional') =>
+      [...new Set(
+        lifeGoals
+          .filter((goal) => !goal.archivedAt && (goal.goalType ?? 'outcome') === goalType)
+          .map((goal) => goal.category.trim())
+          .filter(Boolean),
+      )].sort((left, right) => left.localeCompare(right))
+
+    return {
+      outcome: collect('outcome'),
+      directional: collect('directional'),
+    }
+  }, [lifeGoals])
+  const goalSections: GoalSidebarSection[] = [
+    {
+      id: 'life-overview',
+      label: 'Outcome Goals',
+      categoryType: 'outcome',
+      categories: goalCategoriesByType.outcome,
+      categoriesExpanded: outcomeCategoriesExpanded,
+      selected:
+        goalsView === 'life-overview' ||
+        (goalsView === 'life-detail' && (selectedGoalType ?? 'outcome') === 'outcome'),
+    },
+    {
+      id: 'directional-overview',
+      label: 'Directional Goals',
+      categoryType: 'directional',
+      categories: goalCategoriesByType.directional,
+      categoriesExpanded: directionalCategoriesExpanded,
+      selected:
+        goalsView === 'directional-overview' ||
+        (goalsView === 'life-detail' && selectedGoalType === 'directional'),
+    },
+    { id: 'habit-goals', label: 'Habit Goals', selected: goalsView === 'habit-goals' },
+  ]
 
   useEffect(() => {
     setGoalsExpanded(currentPage === 'goals')
@@ -155,42 +219,87 @@ export function Sidebar({
                   >
                     <div className="min-h-0">
                       <div className="space-y-0.5 pb-1 pl-6 pr-0.5">
-                        {[
-                          {
-                            id: 'life-overview',
-                            label: 'Outcome Goals',
-                            selected:
-                              goalsView === 'life-overview' ||
-                              (goalsView === 'life-detail' && (selectedGoalType ?? 'outcome') === 'outcome'),
-                          },
-                          {
-                            id: 'directional-overview',
-                            label: 'Directional Goals',
-                            selected:
-                              goalsView === 'directional-overview' ||
-                              (goalsView === 'life-detail' && selectedGoalType === 'directional'),
-                          },
-                          { id: 'habit-goals', label: 'Habit Goals', selected: goalsView === 'habit-goals' },
-                        ].map((goalSection) => {
+                        {goalSections.map((goalSection) => {
                           const selected = currentPage === 'goals' && goalSection.selected
                           return (
-                            <button
-                              key={goalSection.id}
-                              type="button"
-                              onClick={() => {
-                                onSetGoalsView(goalSection.id as 'life-overview' | 'directional-overview' | 'habit-goals')
-                                onNavigate('goals')
-                              }}
-                              className="theme-nav-item flex w-full min-w-0 items-center gap-2 rounded-xl border border-transparent px-2 py-1.5 text-left text-xs transition"
-                            >
-                              <span className={`mt-[1px] h-1.5 w-1.5 shrink-0 rounded-full ${selected ? 'bg-glow opacity-100' : 'bg-line opacity-35'}`} />
-                              <span
-                                className={`min-w-0 flex-1 truncate text-[13px] leading-5 ${selected ? 'theme-text-primary font-medium' : 'theme-text-muted'}`}
-                                title={goalSection.label}
-                              >
-                                {goalSection.label}
-                              </span>
-                            </button>
+                            <div key={goalSection.id} className="space-y-0.5">
+                              <div className="flex min-w-0 items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (goalSection.id === 'life-overview') onSetOutcomeGoalCategoryFilter(null)
+                                    if (goalSection.id === 'directional-overview') onSetDirectionalGoalCategoryFilter(null)
+                                    onSetGoalsView(goalSection.id as 'life-overview' | 'directional-overview' | 'habit-goals')
+                                    onNavigate('goals')
+                                  }}
+                                  className="theme-nav-item flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-transparent px-2 py-1.5 text-left text-xs transition"
+                                >
+                                  <span className={`mt-[1px] h-1.5 w-1.5 shrink-0 rounded-full ${selected ? 'bg-glow opacity-100' : 'bg-line opacity-35'}`} />
+                                  <span
+                                    className={`min-w-0 flex-1 truncate text-[13px] leading-5 ${selected ? 'theme-text-primary font-medium' : 'theme-text-muted'}`}
+                                    title={goalSection.label}
+                                  >
+                                    {goalSection.label}
+                                  </span>
+                                </button>
+                                {'categoryType' in goalSection && goalSection.categories.length > 0 ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (goalSection.categoryType === 'outcome') {
+                                        setOutcomeCategoriesExpanded((current) => !current)
+                                      } else {
+                                        setDirectionalCategoriesExpanded((current) => !current)
+                                      }
+                                    }}
+                                    className="theme-nav-item inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-transparent text-[11px] theme-text-muted transition"
+                                    aria-label={goalSection.categoriesExpanded ? 'Collapse categories' : 'Expand categories'}
+                                  >
+                                    <span className={`transition-transform duration-150 ${goalSection.categoriesExpanded ? 'rotate-90' : ''}`}>&gt;</span>
+                                  </button>
+                                ) : null}
+                              </div>
+
+                              {'categoryType' in goalSection && goalSection.categories.length > 0 ? (
+                                <div
+                                  className={`grid overflow-hidden transition-[grid-template-rows,opacity] duration-200 ease-out ${
+                                    goalSection.categoriesExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+                                  }`}
+                                >
+                                  <div className="min-h-0">
+                                    <div className="ml-3 border-l border-white/[0.05] pl-3">
+                                      {goalSection.categories.map((category) => {
+                                        const categorySelected =
+                                          goalSection.categoryType === 'outcome'
+                                            ? outcomeGoalCategoryFilter === category && goalsView === 'life-overview'
+                                            : directionalGoalCategoryFilter === category && goalsView === 'directional-overview'
+                                        return (
+                                          <button
+                                            key={`${goalSection.id}-${category}`}
+                                            type="button"
+                                            onClick={() => {
+                                              if (goalSection.categoryType === 'outcome') {
+                                                onSetOutcomeGoalCategoryFilter(category)
+                                              } else {
+                                                onSetDirectionalGoalCategoryFilter(category)
+                                              }
+                                              onSetGoalsView(goalSection.id as 'life-overview' | 'directional-overview')
+                                              onNavigate('goals')
+                                            }}
+                                            className="flex w-full min-w-0 items-center gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-white/[0.03]"
+                                          >
+                                            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${categorySelected ? 'bg-glow opacity-90' : 'bg-line opacity-30'}`} />
+                                            <span className={`min-w-0 truncate text-[12px] ${categorySelected ? 'theme-text-primary' : 'theme-text-muted'}`}>
+                                              {category}
+                                            </span>
+                                          </button>
+                                        )
+                                      })}
+                                    </div>
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
                           )
                         })}
                       </div>

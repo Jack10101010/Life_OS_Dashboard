@@ -38,6 +38,9 @@ import { PlaceholderPage } from './features/placeholder/PlaceholderPage'
 import { SettingsPage } from './features/settings/SettingsPage'
 import { TrackerWorkspace } from './features/tracker/TrackerWorkspace'
 import { YourDaysPage } from './features/your-days/YourDaysPage'
+import { APP_STATE_STORAGE_KEY } from './lib/persistence/keys'
+import { repairDirectionalGoalTaskFieldsFromEmbedded } from './lib/persistence/migrations'
+import { readJsonStorage } from './lib/persistence/storage'
 import { getLifeGoalRuntimeTasks } from './features/goals/goalUtils'
 import { LifeGoal, LifeGoalCategoryColor, LifeGoalCategoryDefinition, PageId } from './types'
 
@@ -91,11 +94,18 @@ function getInitialGoalUrlState(defaultSelectedLifeGoalId: string | null): {
   }
 
   const pathname = window.location.pathname.replace(/\/+$/, '') || '/'
+  const historyState = window.history.state
 
   if (pathname === GOALS_BASE_PATH) {
+    const persistedGoalsView =
+      isAppHistoryState(historyState) &&
+      historyState.page === 'goals' &&
+      historyState.goalsView !== 'life-detail'
+        ? historyState.goalsView
+        : 'life-overview'
     return {
       pageOverride: 'goals',
-      goalsViewOverride: 'life-overview',
+      goalsViewOverride: persistedGoalsView,
       selectedLifeGoalIdOverride: defaultSelectedLifeGoalId,
     }
   }
@@ -144,6 +154,8 @@ export default function App() {
   const [snapshotsLoading, setSnapshotsLoading] = useState(true)
   const [selectedLifeGoalId, setSelectedLifeGoalId] = useState<string | null>(initialGoalUrlState.selectedLifeGoalIdOverride)
   const [goalsView, setGoalsView] = useState<GoalsView>(initialGoalUrlState.goalsViewOverride ?? 'life-overview')
+  const [outcomeGoalCategoryFilter, setOutcomeGoalCategoryFilter] = useState<string | null>(null)
+  const [directionalGoalCategoryFilter, setDirectionalGoalCategoryFilter] = useState<string | null>(null)
   const isApplyingHistoryRef = useRef(false)
   const hasInitializedHistoryRef = useRef(false)
   const hasCreatedStartupSnapshotRef = useRef(false)
@@ -152,6 +164,7 @@ export default function App() {
   const latestAutoSnapshotFingerprintRef = useRef<string | null>(null)
   const pendingSnapshotFingerprintRef = useRef<string | null>(null)
   const hasCompletedStartupHydrationRef = useRef(false)
+  const hasAttemptedDirectionalLegacyRepairRef = useRef(false)
 
   const { settings, setSettings, hydrate: hydrateSettings } = settingsState
   const {
@@ -351,6 +364,67 @@ export default function App() {
   }, [persistedSnapshot, persistedSnapshotFingerprint])
 
   useEffect(() => {
+    if (!hasHydratedFromStorage || hasAttemptedDirectionalLegacyRepairRef.current) return
+    hasAttemptedDirectionalLegacyRepairRef.current = true
+
+    const directionalGoalIds = new Set(
+      lifeGoals
+        .filter((goal) => (goal.goalType ?? 'outcome') === 'directional')
+        .map((goal) => goal.id),
+    )
+    if (directionalGoalIds.size === 0) return
+
+    const hasLegacyDirectionalCandidates = tasks.some((task) =>
+      !task.linkedDirectionId &&
+      typeof task.linkedGoalId === 'string' &&
+      directionalGoalIds.has(task.linkedGoalId),
+    )
+    if (!hasLegacyDirectionalCandidates) return
+
+    const runtimeLegacySourceLifeGoals = lifeGoals as Array<LifeGoal & { tasks?: unknown[] }>
+    const hasEmbeddedDirectionalTasksInLoadedState = runtimeLegacySourceLifeGoals.some((goal) =>
+      (goal.goalType ?? 'outcome') === 'directional' &&
+      Array.isArray(goal.tasks) &&
+      goal.tasks.length > 0,
+    )
+
+    let legacySourceLifeGoals: unknown[] | null = hasEmbeddedDirectionalTasksInLoadedState ? runtimeLegacySourceLifeGoals : null
+
+    if (!legacySourceLifeGoals && typeof window !== 'undefined') {
+      const legacyState = readJsonStorage<Partial<PersistedAppState>>(APP_STATE_STORAGE_KEY)
+      if (legacyState && Array.isArray(legacyState.lifeGoals)) {
+        legacySourceLifeGoals = legacyState.lifeGoals
+      }
+    }
+
+    if (!legacySourceLifeGoals) return
+
+    const repaired = repairDirectionalGoalTaskFieldsFromEmbedded({
+      tasks,
+      lifeGoals: legacySourceLifeGoals,
+    })
+    if (!Array.isArray(repaired.tasks)) return
+
+    const nextTasks = repaired.tasks
+    const changed =
+      nextTasks.length !== tasks.length ||
+      nextTasks.some((task, index) => JSON.stringify(task) !== JSON.stringify(tasks[index]))
+
+    if (!changed) return
+
+    setTasks(nextTasks)
+
+    const isDevelopmentRuntime =
+      typeof window !== 'undefined' &&
+      (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+    if (isDevelopmentRuntime) {
+      console.info('[directional-task-repair] applied live-state repair', {
+        source: hasEmbeddedDirectionalTasksInLoadedState ? 'loaded-state' : 'legacy-localstorage',
+      })
+    }
+  }, [hasHydratedFromStorage, lifeGoals, tasks])
+
+  useEffect(() => {
     if (startupHydrationStatusRef.current === 'running' || startupHydrationStatusRef.current === 'done') return
     startupHydrationStatusRef.current = 'running'
 
@@ -467,8 +541,14 @@ export default function App() {
       isApplyingHistoryRef.current = true
 
       if (pathname === GOALS_BASE_PATH) {
+        const restoredGoalsView =
+          isAppHistoryState(historyState) &&
+          historyState.page === 'goals' &&
+          historyState.goalsView !== 'life-detail'
+            ? historyState.goalsView
+            : 'life-overview'
         setPage('goals')
-        setGoalsView('life-overview')
+        setGoalsView(restoredGoalsView)
         return
       }
 
@@ -666,96 +746,98 @@ export default function App() {
   const renderPage = () => {
     if (page === 'dashboard') {
       return (
-        <DashboardPage
-          weeks={computedWeeks}
-          days={dataset.days}
-          tags={tags}
-          tasks={tasks}
-          lifeGoals={lifeGoals}
-          habitTrackers={habitTrackers}
-          year={filters.year}
-          badHabitStreaks={visibleBadHabitStreaks}
-          showBadHabitTracking={settings.enableBadHabitTracking}
-          onUpdateDay={updateDay}
-          onAddTask={(text) =>
-            setTasks((current) => [
-              {
-                id: `task-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
-                text: text.trim(),
-                order: current.length,
-                dueDate: new Date().toISOString().slice(0, 10),
-                starred: false,
-                important: false,
-                linkedGoalId: null,
-                linkedDirectionId: null,
-                completed: false,
-                completedAt: null,
-              },
-              ...current,
-            ])
-          }
-          onToggleTaskStarred={(taskId) =>
-            setTasks((current) =>
-              current.map((task) =>
-                task.id === taskId
-                  ? {
-                      ...task,
-                      starred: !task.starred,
-                    }
-                  : task,
-              ),
-            )
-          }
-          onToggleTaskImportant={(taskId) =>
-            setTasks((current) =>
-              current.map((task) =>
-                task.id === taskId
-                  ? {
-                      ...task,
-                      important: !task.important,
-                    }
-                  : task,
-              ),
-            )
-          }
-          onToggleTask={(taskId) =>
-            setTasks((current) =>
-              current.map((task) =>
-                task.id === taskId
-                  ? {
-                      ...task,
-                      completed: !task.completed,
-                      completedAt: !task.completed ? new Date().toISOString() : null,
-                    }
-                  : task,
-              ),
-            )
-          }
-          onDeleteTask={(taskId) => setTasks((current) => current.filter((task) => task.id !== taskId))}
-          onUpdateTask={(taskId, updater) =>
-            setTasks((current) =>
-              current.map((task) => (task.id === taskId ? updater(task) : task)),
-            )
-          }
-          onOpenToday={() => openToday(false, setPage)}
-          onOpenFullNote={() => openToday(true, setPage)}
-          onOpenTracker={() => {
-            setPage('tracker')
-            setViewMode('days')
-          }}
-          onOpenGoals={() => setPage('goals')}
-          onOpenDay={(day) => openSpecificDay(Number(day.date.slice(0, 4)), day.id, day.linkedWeek)}
-          onOpenWeek={(week) => {
-            setSelectedWeekId(week.id)
-            setOpenDrawer('week')
-          }}
-          onGoToTrackerWeek={(week) => {
-            setPage('tracker')
-            setViewMode('weeks')
-            setSelectedWeekId(week.id)
-            setOpenDrawer('week')
-          }}
-        />
+        <ErrorBoundary title="Dashboard unavailable" description="The dashboard could not be displayed right now.">
+          <DashboardPage
+            weeks={computedWeeks}
+            days={dataset.days}
+            tags={tags}
+            tasks={tasks}
+            lifeGoals={lifeGoals}
+            habitTrackers={habitTrackers}
+            year={filters.year}
+            badHabitStreaks={visibleBadHabitStreaks}
+            showBadHabitTracking={settings.enableBadHabitTracking}
+            onUpdateDay={updateDay}
+            onAddTask={(text) =>
+              setTasks((current) => [
+                {
+                  id: `task-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+                  text: text.trim(),
+                  order: current.length,
+                  dueDate: new Date().toISOString().slice(0, 10),
+                  starred: false,
+                  important: false,
+                  linkedGoalId: null,
+                  linkedDirectionId: null,
+                  completed: false,
+                  completedAt: null,
+                },
+                ...current,
+              ])
+            }
+            onToggleTaskStarred={(taskId) =>
+              setTasks((current) =>
+                current.map((task) =>
+                  task.id === taskId
+                    ? {
+                        ...task,
+                        starred: !task.starred,
+                      }
+                    : task,
+                ),
+              )
+            }
+            onToggleTaskImportant={(taskId) =>
+              setTasks((current) =>
+                current.map((task) =>
+                  task.id === taskId
+                    ? {
+                        ...task,
+                        important: !task.important,
+                      }
+                    : task,
+                ),
+              )
+            }
+            onToggleTask={(taskId) =>
+              setTasks((current) =>
+                current.map((task) =>
+                  task.id === taskId
+                    ? {
+                        ...task,
+                        completed: !task.completed,
+                        completedAt: !task.completed ? new Date().toISOString() : null,
+                      }
+                    : task,
+                ),
+              )
+            }
+            onDeleteTask={(taskId) => setTasks((current) => current.filter((task) => task.id !== taskId))}
+            onUpdateTask={(taskId, updater) =>
+              setTasks((current) =>
+                current.map((task) => (task.id === taskId ? updater(task) : task)),
+              )
+            }
+            onOpenToday={() => openToday(false, setPage)}
+            onOpenFullNote={() => openToday(true, setPage)}
+            onOpenTracker={() => {
+              setPage('tracker')
+              setViewMode('days')
+            }}
+            onOpenGoals={() => setPage('goals')}
+            onOpenDay={(day) => openSpecificDay(Number(day.date.slice(0, 4)), day.id, day.linkedWeek)}
+            onOpenWeek={(week) => {
+              setSelectedWeekId(week.id)
+              setOpenDrawer('week')
+            }}
+            onGoToTrackerWeek={(week) => {
+              setPage('tracker')
+              setViewMode('weeks')
+              setSelectedWeekId(week.id)
+              setOpenDrawer('week')
+            }}
+          />
+        </ErrorBoundary>
       )
     }
 
@@ -953,6 +1035,8 @@ export default function App() {
             badHabitDateMap={badHabitDateMap}
             year={filters.year}
             goalsView={goalsView}
+            outcomeGoalCategoryFilter={outcomeGoalCategoryFilter}
+            directionalGoalCategoryFilter={directionalGoalCategoryFilter}
             selectedLifeGoalId={selectedLifeGoalId}
             onSelectLifeGoal={setSelectedLifeGoalId}
             onChangeGoalsView={setGoalsView}
@@ -1113,13 +1197,18 @@ export default function App() {
           collapsed={sidebarCollapsed}
           pageOrder={sidebarOrder}
           pageLabels={sidebarLabels}
+          lifeGoals={lifeGoals}
           goalsView={goalsView}
+          outcomeGoalCategoryFilter={outcomeGoalCategoryFilter}
+          directionalGoalCategoryFilter={directionalGoalCategoryFilter}
           selectedGoalType={lifeGoals.find((goal) => goal.id === selectedLifeGoalId)?.goalType ?? null}
           onNavigate={(nextPage) => {
             setPage(nextPage)
             setOpenDrawer(null)
           }}
           onSetGoalsView={setGoalsView}
+          onSetOutcomeGoalCategoryFilter={setOutcomeGoalCategoryFilter}
+          onSetDirectionalGoalCategoryFilter={setDirectionalGoalCategoryFilter}
           onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
           onReorderPages={setSidebarOrder}
           onRenamePage={(pageId, label) =>

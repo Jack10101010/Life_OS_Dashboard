@@ -410,6 +410,201 @@ export function repairOutcomeGoalTaskFieldsFromEmbedded<T extends Record<string,
   }
 }
 
+export function repairDirectionalGoalTaskFieldsFromEmbedded<T extends Record<string, any>>(state: T): T {
+  const rawState = state ?? ({} as T)
+  const rawTasks = Array.isArray(rawState.tasks) ? rawState.tasks : null
+  const rawLifeGoals = Array.isArray(rawState.lifeGoals) ? rawState.lifeGoals : null
+  if (!rawTasks || !rawLifeGoals) return rawState
+
+  const embeddedTasksByGoalId = new Map<
+    string,
+    Map<string, {
+      priority: LifeGoalTaskPriority
+      subtasks: Array<{ id: string; text: string; completed: boolean }>
+      description: string
+      notes: string
+      dueDate: string | null
+      tags: string[]
+      phase: string | null
+    }>
+  >()
+
+  rawLifeGoals.forEach((goal) => {
+    const goalCandidate = (goal ?? {}) as Record<string, unknown>
+    const goalId = typeof goalCandidate.id === 'string' && goalCandidate.id.trim().length > 0 ? goalCandidate.id.trim() : null
+    const goalType = goalCandidate.goalType === 'directional' ? 'directional' : 'outcome'
+    if (!goalId || goalType !== 'directional' || !Array.isArray(goalCandidate.tasks)) return
+
+    const taskMap = new Map<string, {
+      priority: LifeGoalTaskPriority
+      subtasks: Array<{ id: string; text: string; completed: boolean }>
+      description: string
+      notes: string
+      dueDate: string | null
+      tags: string[]
+      phase: string | null
+    }>()
+
+    goalCandidate.tasks.forEach((task) => {
+      const candidate = (task ?? {}) as Record<string, unknown>
+      const taskId = typeof candidate.id === 'string' && candidate.id.trim().length > 0 ? candidate.id.trim() : null
+      if (!taskId) return
+      const priority: LifeGoalTaskPriority =
+        candidate.priority === 'low' ||
+        candidate.priority === 'medium' ||
+        candidate.priority === 'high' ||
+        candidate.priority === 'none'
+          ? candidate.priority
+          : 'none'
+      const subtasks = Array.isArray(candidate.subtasks)
+        ? candidate.subtasks
+            .map((subtask) => {
+              const subtaskCandidate = (subtask ?? {}) as Record<string, unknown>
+              const text = typeof subtaskCandidate.text === 'string' ? subtaskCandidate.text.trim() : ''
+              return {
+                id:
+                  typeof subtaskCandidate.id === 'string' && subtaskCandidate.id.trim().length > 0
+                    ? subtaskCandidate.id.trim()
+                    : `repair-directional-subtask-${taskId}`,
+                text,
+                completed: Boolean(subtaskCandidate.completed),
+              }
+            })
+            .filter((subtask) => subtask.text.length > 0)
+        : []
+
+      taskMap.set(taskId, {
+        priority,
+        subtasks,
+        description: typeof candidate.description === 'string' ? candidate.description.trim() : '',
+        notes: typeof candidate.notes === 'string' ? candidate.notes : '',
+        dueDate:
+          typeof candidate.dueDate === 'string' && candidate.dueDate.trim().length > 0
+            ? candidate.dueDate.trim()
+            : null,
+        tags: Array.isArray(candidate.tags)
+          ? candidate.tags.filter((tag): tag is string => typeof tag === 'string').map((tag) => tag.trim()).filter(Boolean)
+          : [],
+        phase: normalizeLifeGoalTaskPhase(candidate.phase),
+      })
+    })
+
+    if (taskMap.size > 0) {
+      embeddedTasksByGoalId.set(goalId, taskMap)
+    }
+  })
+
+  if (embeddedTasksByGoalId.size === 0) return rawState
+
+  const repairCounts = {
+    notes: 0,
+    description: 0,
+    priority: 0,
+    dueDate: 0,
+    subtasks: 0,
+    tags: 0,
+    phase: 0,
+    linkage: 0,
+  }
+
+  const repairedTasks = rawTasks.map((task) => {
+    const candidate = (task ?? {}) as Record<string, unknown>
+    const linkedGoalId =
+      typeof candidate.linkedGoalId === 'string' && candidate.linkedGoalId.trim().length > 0
+        ? candidate.linkedGoalId.trim()
+        : null
+    const linkedDirectionId =
+      typeof candidate.linkedDirectionId === 'string' && candidate.linkedDirectionId.trim().length > 0
+        ? candidate.linkedDirectionId.trim()
+        : null
+    const taskId = typeof candidate.id === 'string' && candidate.id.trim().length > 0 ? candidate.id.trim() : null
+    if (!linkedGoalId || linkedDirectionId || !taskId) return task
+
+    const embeddedTask = embeddedTasksByGoalId.get(linkedGoalId)?.get(taskId)
+    if (!embeddedTask) return task
+
+    let changed = false
+    const nextTask = { ...candidate }
+
+    const topNotes = typeof candidate.notes === 'string' ? candidate.notes : ''
+    if (topNotes.trim().length === 0 && embeddedTask.notes.trim().length > 0) {
+      nextTask.notes = embeddedTask.notes
+      changed = true
+      repairCounts.notes += 1
+    }
+
+    const topDescription = typeof candidate.description === 'string' ? candidate.description.trim() : ''
+    if (topDescription.length === 0 && embeddedTask.description.length > 0) {
+      nextTask.description = embeddedTask.description
+      changed = true
+      repairCounts.description += 1
+    }
+
+    const topPriority: LifeGoalTaskPriority =
+      candidate.priority === 'low' ||
+      candidate.priority === 'medium' ||
+      candidate.priority === 'high' ||
+      candidate.priority === 'none'
+        ? candidate.priority
+        : 'none'
+    if (topPriority === 'none' && embeddedTask.priority !== 'none') {
+      nextTask.priority = embeddedTask.priority
+      changed = true
+      repairCounts.priority += 1
+    }
+
+    const topDueDate =
+      typeof candidate.dueDate === 'string' && candidate.dueDate.trim().length > 0
+        ? candidate.dueDate.trim()
+        : null
+    if (topDueDate == null && embeddedTask.dueDate) {
+      nextTask.dueDate = embeddedTask.dueDate
+      changed = true
+      repairCounts.dueDate += 1
+    }
+
+    const topSubtasks = Array.isArray(candidate.subtasks) ? candidate.subtasks : []
+    if (topSubtasks.length === 0 && embeddedTask.subtasks.length > 0) {
+      nextTask.subtasks = embeddedTask.subtasks.map((subtask) => ({ ...subtask }))
+      changed = true
+      repairCounts.subtasks += 1
+    }
+
+    const topTags = Array.isArray(candidate.tags) ? candidate.tags.filter((tag): tag is string => typeof tag === 'string' && tag.trim().length > 0) : []
+    if (topTags.length === 0 && embeddedTask.tags.length > 0) {
+      nextTask.tags = [...embeddedTask.tags]
+      changed = true
+      repairCounts.tags += 1
+    }
+
+    const topPhase = normalizeLifeGoalTaskPhase(candidate.phase)
+    if (topPhase == null && embeddedTask.phase != null) {
+      nextTask.phase = embeddedTask.phase
+      changed = true
+      repairCounts.phase += 1
+    }
+
+    nextTask.linkedDirectionId = linkedGoalId
+    nextTask.linkedGoalId = null
+    changed = true
+    repairCounts.linkage += 1
+
+    return changed ? nextTask : task
+  })
+
+  const isDevelopmentRuntime =
+    typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+  if (isDevelopmentRuntime) {
+    console.log('Directional-goal task repair summary', repairCounts)
+  }
+
+  return {
+    ...rawState,
+    tasks: repairedTasks,
+  }
+}
+
 export function logOutcomeGoalTaskRecoveryAudit(state: unknown) {
   const isDevelopmentRuntime =
     typeof window !== 'undefined' &&

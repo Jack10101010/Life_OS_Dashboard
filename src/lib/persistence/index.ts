@@ -13,6 +13,7 @@ import {
   migratePersistedStateUnifiedTasksPhase1,
   normalizePersistedAppState,
   PersistedAppState,
+  repairDirectionalGoalTaskFieldsFromEmbedded,
   repairOutcomeGoalTaskFieldsFromEmbedded,
   stripLegacyEmbeddedGoalTasksFromState,
 } from './migrations'
@@ -101,12 +102,19 @@ function runTaskRelatedStatePipeline(parsed: Partial<PersistedAppState>, current
       return migratedForStartup
     }
   })()
+  const repairedDirectionalForStartup = (() => {
+    try {
+      return repairDirectionalGoalTaskFieldsFromEmbedded(repairedForStartup)
+    } catch {
+      return repairedForStartup
+    }
+  })()
   try {
-    logOutcomeGoalTaskRecoveryAudit(repairedForStartup)
+    logOutcomeGoalTaskRecoveryAudit(repairedDirectionalForStartup)
   } catch {
     // Diagnostic logging must never affect startup.
   }
-  return normalizePersistedAppState(repairedForStartup, currentYear)
+  return normalizePersistedAppState(repairedDirectionalForStartup, currentYear)
 }
 
 export async function loadPersistedAppState(currentYear: number): Promise<PersistedAppStateLoadResult> {
