@@ -35,6 +35,7 @@ type LinkDescriptor = {
 }
 
 const DEFAULT_TASK_TAG_OPTIONS = ['buy', 'book', 'call', 'admin', 'reminder', 'someday'] as const
+const GOAL_OVERVIEW_ROW_ACTIONS_STORAGE_KEY = 'goals-overview-row-actions-v1'
 const SCOPE_OPTIONS: Array<{ id: TaskSuperScope; label: string }> = [
   { id: 'today', label: 'Today' },
   { id: 'upcoming', label: 'Upcoming' },
@@ -108,13 +109,38 @@ export function TaskSuperPage({
   } | null>(null)
 
   const goalById = useMemo(() => new Map(safeLifeGoals.map((goal) => [goal.id, goal])), [safeLifeGoals])
+  const pinnedGoalIds = useMemo(() => {
+    if (typeof window === 'undefined') return [] as string[]
+
+    try {
+      const rawValue = window.localStorage.getItem(GOAL_OVERVIEW_ROW_ACTIONS_STORAGE_KEY)
+      if (!rawValue) return [] as string[]
+      const parsed = JSON.parse(rawValue) as { pinnedGoalIds?: unknown }
+      return Array.isArray(parsed?.pinnedGoalIds)
+        ? parsed.pinnedGoalIds.filter((item): item is string => typeof item === 'string' && item.length > 0)
+        : []
+    } catch {
+      return [] as string[]
+    }
+  }, [])
   const outcomeGoals = useMemo(
     () => safeLifeGoals.filter((goal) => !goal.archivedAt && (goal.goalType ?? 'outcome') === 'outcome'),
     [safeLifeGoals],
   )
   const orderedOutcomeGoals = useMemo(
-    () => outcomeGoals.slice().sort((left, right) => left.order - right.order),
-    [outcomeGoals],
+    () => {
+      const manualOrderGoals = outcomeGoals.slice().sort((left, right) => left.order - right.order)
+      if (pinnedGoalIds.length === 0) return manualOrderGoals
+
+      const pinnedGoalIdSet = new Set(pinnedGoalIds)
+      const goalById = new Map(manualOrderGoals.map((goal) => [goal.id, goal]))
+      const pinnedGoals = pinnedGoalIds
+        .map((goalId) => goalById.get(goalId) ?? null)
+        .filter((goal): goal is LifeGoal => Boolean(goal))
+      const remainingGoals = manualOrderGoals.filter((goal) => !pinnedGoalIdSet.has(goal.id))
+      return [...pinnedGoals, ...remainingGoals]
+    },
+    [outcomeGoals, pinnedGoalIds],
   )
   const directionalGoals = useMemo(
     () => safeLifeGoals.filter((goal) => !goal.archivedAt && (goal.goalType ?? 'outcome') === 'directional'),
@@ -483,8 +509,10 @@ export function TaskSuperPage({
   }, [expandedOutcomeGoalId, filteredGoalSet])
 
   const scopedGoalGroups = useMemo(
-    () =>
-      filteredGoalSet
+    () => {
+      const goalOrderIndex = new Map(filteredGoalSet.map((goal, index) => [goal.id, index]))
+
+      return filteredGoalSet
         .map((goal) => {
           const scopedTasks = scopedActiveTasks
             .filter((task) => task.linkedGoalId === goal.id)
@@ -528,7 +556,9 @@ export function TaskSuperPage({
           completedTasks,
           nextTask: activeTasks[0] ?? scopedTasks[0] ?? null,
           kind: 'goal' as const,
-        })),
+        }))
+        .sort((left, right) => (goalOrderIndex.get(left.id) ?? 0) - (goalOrderIndex.get(right.id) ?? 0))
+    },
     [filteredGoalSet, goalsColumnPriorityFilter, safeTasks, scopedActiveTasks],
   )
 
@@ -1052,8 +1082,8 @@ export function TaskSuperPage({
             </div>
           </SectionCard>
         ) : (
-          <section className="grid gap-3.5 xl:grid-cols-3">
-            <SectionCard compact className="flex h-[560px] min-h-0 flex-col p-3.5 sm:p-4">
+          <section className="grid gap-3 xl:grid-cols-3">
+            <SectionCard compact className="flex h-[560px] min-h-0 flex-col border-white/[0.06] bg-white/[0.015] p-3.5 sm:p-4">
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
                   <p className="text-[11px] uppercase tracking-[0.22em] text-white/38">General Tasks</p>
@@ -1062,26 +1092,31 @@ export function TaskSuperPage({
                   </span>
                 </div>
               </div>
-              <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1">
+              <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
                 {scope === 'today' && scopedActiveTasks.length > 5 ? (
                   <div className="rounded-[16px] border border-[rgb(var(--theme-warning-rgb)/0.18)] bg-[rgb(var(--theme-warning-rgb)/0.08)] px-3 py-2 text-sm text-[rgb(var(--theme-warning-rgb)/0.88)]">
                     You&apos;ve got too much on today — trim this down
                   </div>
                 ) : null}
-                {scopedGeneralTasks.length > 0 ? scopedGeneralTasks.map((task) => (
-                  <CompactTaskRow
-                    key={task.id}
-                    task={task}
-                    lifeGoals={safeLifeGoals}
-                    lifeGoalCategories={lifeGoalCategories}
-                    allTasks={safeTasks}
-                    selected={selectedTaskId === task.id}
-                    rowRef={selectedTaskId === task.id ? selectedTaskRowRef : undefined}
-                    onOpen={() => setSelectedTaskId(task.id)}
-                    onToggleComplete={() => toggleTaskCompletion(task.id)}
-                    onFocus={() => focusTask(task.id)}
-                  />
-                )) : <p className="text-sm text-white/46">No general tasks in this scope.</p>}
+                {scopedGeneralTasks.length > 0 ? (
+                  <div className="divide-y divide-white/[0.05]">
+                    {scopedGeneralTasks.map((task) => (
+                      <CompactTaskRow
+                        key={task.id}
+                        task={task}
+                        lifeGoals={safeLifeGoals}
+                        lifeGoalCategories={lifeGoalCategories}
+                        allTasks={safeTasks}
+                        selected={selectedTaskId === task.id}
+                        rowRef={selectedTaskId === task.id ? selectedTaskRowRef : undefined}
+                        onOpen={() => setSelectedTaskId(task.id)}
+                        onToggleComplete={() => toggleTaskCompletion(task.id)}
+                        onFocus={() => focusTask(task.id)}
+                        list
+                      />
+                    ))}
+                  </div>
+                ) : <p className="text-sm text-white/46">No general tasks in this scope.</p>}
 
                 {scopedSomedayTasks.length > 0 ? (
                   <div className="pt-3">
@@ -1091,7 +1126,7 @@ export function TaskSuperPage({
                         {scopedSomedayTasks.length}
                       </span>
                     </div>
-                    <div className="space-y-1.5">
+                    <div className="divide-y divide-white/[0.05]">
                       {scopedSomedayTasks.map((task) => (
                         <CompactTaskRow
                           key={task.id}
@@ -1105,6 +1140,7 @@ export function TaskSuperPage({
                           onToggleComplete={() => toggleTaskCompletion(task.id)}
                           onFocus={() => focusTask(task.id)}
                           subdued
+                          list
                         />
                       ))}
                     </div>
@@ -1113,7 +1149,7 @@ export function TaskSuperPage({
               </div>
             </SectionCard>
 
-            <SectionCard compact className="flex h-[560px] min-h-0 flex-col border-[rgb(var(--theme-accent-rgb)/0.08)] bg-[linear-gradient(180deg,rgba(var(--theme-accent-rgb),0.03),rgba(255,255,255,0.01))] p-3.5 sm:p-4">
+            <SectionCard compact className="flex h-[560px] min-h-0 flex-col border-[rgb(var(--theme-accent-rgb)/0.08)] bg-[linear-gradient(180deg,rgba(var(--theme-accent-rgb),0.025),rgba(255,255,255,0.012))] p-3.5 sm:p-4">
               <div className="relative mb-3 space-y-2">
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
@@ -1125,19 +1161,11 @@ export function TaskSuperPage({
                   <button
                     type="button"
                     onClick={() => setGoalsPanelOpen((current) => !current)}
-                    className={`rounded-full border p-2 transition ${
-                      goalsPanelOpen
-                        ? 'border-[rgb(var(--theme-accent-rgb)/0.18)] bg-[rgb(var(--theme-accent-rgb)/0.12)] text-white'
-                        : 'border-white/[0.08] bg-white/[0.03] text-white/62 hover:bg-white/[0.05] hover:text-white'
-                    }`}
+                    className="p-1 text-zinc-600 transition-colors hover:text-zinc-400"
                     aria-label={goalsPanelOpen ? 'Close goals controls' : 'Open goals controls'}
                   >
                     <GoalsControlIcon />
                   </button>
-                </div>
-
-                <div className="flex items-center justify-between gap-3 text-[11px] text-white/46">
-                  <p className="min-w-0 truncate">{goalsColumnSummary || 'Execution-focused goal lens'}</p>
                 </div>
 
                 <AnimatePresence>
@@ -1218,68 +1246,112 @@ export function TaskSuperPage({
                 {scopedGoalGroups.length > 0 ? scopedGoalGroups.map((group) => {
                   const isExpanded = expandedOutcomeGoalId === group.id
                   const visibleTasks = goalsColumnMode === 'next-task' ? group.tasks.slice(0, 1) : group.tasks
-                  const groupAccentStyle = getGoalScannerRowStyle(group.goal, lifeGoalCategories)
+                  const goalColor = getLifeGoalCategoryColor(group.goal.category, lifeGoalCategories)
 
                   return (
                     <div
                       key={group.id}
-                      className="space-y-1.5 pl-2.5"
-                      style={isExpanded ? groupAccentStyle : undefined}
+                      className="rounded-lg border-l-2 border-transparent transition-all duration-200"
+                      style={{ borderLeftColor: goalColor }}
                     >
                       <button
                         type="button"
-                        onClick={() => setExpandedOutcomeGoalId((current) => (current === group.id ? null : group.id))}
-                        className={`w-full border border-white/[0.06] bg-white/[0.02] px-3 py-3 text-left transition hover:bg-white/[0.04] ${
-                          isExpanded ? 'rounded-[18px]' : 'rounded-[18px]'
-                        }`}
-                        style={!isExpanded ? groupAccentStyle : undefined}
+                        onClick={() => setExpandedOutcomeGoalId(isExpanded ? null : group.id)}
+                        className="w-full rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-zinc-800/40"
                       >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <p className="truncate text-[15px] font-medium text-white">{group.label}</p>
-                            {!isExpanded ? (
-                              <p className="mt-1 truncate text-[13px] text-white/56">
-                                {group.nextTask ? `→ ${group.nextTask.text}` : 'No open tasks'}
-                              </p>
-                            ) : null}
+                        <div className="flex items-center justify-between">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span
+                              className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full border-2 border-white/20"
+                            >
+                              <span
+                                className="h-2 w-2 rounded-full"
+                                style={{ backgroundColor: goalColor }}
+                              />
+                            </span>
+                            <span className="truncate text-[14px] font-medium text-zinc-100">
+                              {group.label}
+                            </span>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <span className="rounded-full border border-white/[0.08] bg-white/[0.03] px-2 py-0.5 text-[11px] text-white/52">
+
+                          <div className="ml-2 flex flex-shrink-0 items-center gap-2">
+                            <span className="rounded-full bg-zinc-800/80 px-1.5 py-0.5 text-[10px] text-zinc-600">
                               {group.tasks.length}
                             </span>
-                            <span className={`text-white/28 transition-transform ${isExpanded ? 'rotate-90' : ''}`}>›</span>
+                            <span className={`text-zinc-600 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}>
+                              ›
+                            </span>
                           </div>
                         </div>
+
+                        {!isExpanded ? (
+                          <p className="mt-1 truncate pl-[22px] text-[11px] text-zinc-500">
+                            {group.nextTask ? `Next: ${group.nextTask.text}` : 'No open tasks'}
+                          </p>
+                        ) : null}
                       </button>
 
                       {isExpanded ? (
-                        <div className="pl-3 pr-1">
+                        <div className="space-y-0.5 px-3 pb-2.5 animate-in fade-in slide-in-from-top-1 duration-150">
                           {visibleTasks.length > 0 ? (
-                            <div className="divide-y divide-white/[0.05]">
-                              {visibleTasks.map((task) => (
-                                <CompactTaskRow
+                            <div>
+                              {visibleTasks.map((task, index) => (
+                                <div
                                   key={task.id}
-                                  task={task}
-                                  lifeGoals={safeLifeGoals}
-                                  lifeGoalCategories={lifeGoalCategories}
-                                  allTasks={safeTasks}
-                                  selected={selectedTaskId === task.id}
-                                  rowRef={selectedTaskId === task.id ? selectedTaskRowRef : undefined}
-                                  onOpen={() => setSelectedTaskId(task.id)}
-                                  onToggleComplete={() => toggleTaskCompletion(task.id)}
-                                  onFocus={() => focusTask(task.id)}
-                                  prominent={task.id === group.tasks[0]?.id}
-                                  flat
-                                  hideFocusAction
-                                />
+                                  ref={selectedTaskId === task.id ? selectedTaskRowRef : undefined}
+                                  onClick={() => setSelectedTaskId(task.id)}
+                                  onKeyDown={(event) => {
+                                    if (event.key === 'Enter' || event.key === ' ') {
+                                      event.preventDefault()
+                                      setSelectedTaskId(task.id)
+                                    }
+                                  }}
+                                  role="button"
+                                  tabIndex={0}
+                                  className={`flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-zinc-800/30 ${
+                                    index < visibleTasks.length - 1 ? 'border-b border-white/[0.05]' : ''
+                                  }`}
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation()
+                                      toggleTaskCompletion(task.id)
+                                    }}
+                                    className={`flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded-full border ${
+                                      task.completed
+                                        ? 'border-emerald-500/50 bg-emerald-500/20'
+                                        : 'border-zinc-700'
+                                    }`}
+                                    aria-label={task.completed ? 'Mark incomplete' : 'Mark complete'}
+                                  >
+                                    {task.completed ? <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> : null}
+                                  </button>
+
+                                  <div className="min-w-0 flex-1">
+                                    <span
+                                      className={`block truncate text-[12px] ${
+                                        task.completed ? 'text-zinc-600 line-through' : 'text-[13px] text-zinc-300'
+                                      }`}
+                                    >
+                                      {task.text}
+                                    </span>
+
+                                    {task.dueDate ? (
+                                      <span className="mt-0.5 block text-[11px] text-zinc-500">
+                                        {formatDateContextual(task.dueDate)}
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                </div>
                               ))}
                             </div>
                           ) : (
-                            <p className="px-2 py-1 text-sm text-white/46">No active tasks for this goal.</p>
+                            <p className="px-2 py-2 text-sm text-zinc-500">No active tasks for this goal.</p>
                           )}
 
                           {group.completedTasks.length > 0 ? (
-                            <div className="pt-1.5">
+                            <div className="pt-2">
                               <button
                                 type="button"
                                 onClick={() => setGoalsColumnCompletedOpen((current) => !current)}
@@ -1289,24 +1361,47 @@ export function TaskSuperPage({
                                 <span className="text-[11px] text-white/46">{goalsColumnCompletedOpen ? 'Hide' : group.completedTasks.length}</span>
                               </button>
                               {goalsColumnCompletedOpen ? (
-                                <div className="mt-1 divide-y divide-white/[0.05]">
-                                  {group.completedTasks.map((task) => (
-                                    <CompactTaskRow
+                                <div className="mt-1">
+                                  {group.completedTasks.map((task, index) => (
+                                    <div
                                       key={task.id}
-                                      task={task}
-                                      lifeGoals={safeLifeGoals}
-                                      lifeGoalCategories={lifeGoalCategories}
-                                      allTasks={safeTasks}
-                                      selected={selectedTaskId === task.id}
-                                      rowRef={selectedTaskId === task.id ? selectedTaskRowRef : undefined}
-                                      onOpen={() => setSelectedTaskId(task.id)}
-                                      onToggleComplete={() => toggleTaskCompletion(task.id)}
-                                      onFocus={() => focusTask(task.id)}
-                                      completed
-                                      subdued
-                                      flat
-                                      hideFocusAction
-                                    />
+                                      ref={selectedTaskId === task.id ? selectedTaskRowRef : undefined}
+                                      onClick={() => setSelectedTaskId(task.id)}
+                                      onKeyDown={(event) => {
+                                        if (event.key === 'Enter' || event.key === ' ') {
+                                          event.preventDefault()
+                                          setSelectedTaskId(task.id)
+                                        }
+                                      }}
+                                      role="button"
+                                      tabIndex={0}
+                                      className={`flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-zinc-800/30 ${
+                                        index < group.completedTasks.length - 1 ? 'border-b border-white/[0.05]' : ''
+                                      }`}
+                                    >
+                                      <button
+                                        type="button"
+                                        onClick={(event) => {
+                                          event.stopPropagation()
+                                          toggleTaskCompletion(task.id)
+                                        }}
+                                        className="flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded-full border border-emerald-500/50 bg-emerald-500/20"
+                                        aria-label="Mark incomplete"
+                                      >
+                                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                                      </button>
+
+                                      <div className="min-w-0 flex-1">
+                                        <span className="block truncate text-[12px] text-zinc-600 line-through">
+                                          {task.text}
+                                        </span>
+                                        {task.completedAt ? (
+                                          <span className="mt-0.5 block text-[11px] text-zinc-500">
+                                            Completed {formatTaskCompletedDate(task.completedAt)}
+                                          </span>
+                                        ) : null}
+                                      </div>
+                                    </div>
                                   ))}
                                 </div>
                               ) : null}
@@ -1320,7 +1415,7 @@ export function TaskSuperPage({
               </div>
             </SectionCard>
 
-            <SectionCard compact className="flex h-[560px] min-h-0 flex-col p-3.5 sm:p-4">
+            <SectionCard compact className="flex h-[560px] min-h-0 flex-col border-white/[0.06] bg-white/[0.015] p-3.5 sm:p-4">
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
                   <p className="text-[11px] uppercase tracking-[0.22em] text-white/38">Directional Goals</p>
@@ -1332,9 +1427,9 @@ export function TaskSuperPage({
               <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
                 {scopedDirectionGroups.length > 0 ? scopedDirectionGroups.map((group) => (
                   <div key={group.goal.id} className="space-y-2">
-                    <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center justify-between gap-3 border-b border-white/[0.05] pb-2">
                       <span
-                        className="inline-flex items-center gap-1.5 text-[15px] font-medium"
+                        className="inline-flex items-center gap-1.5 text-[13px] font-medium uppercase tracking-[0.08em]"
                         style={{ color: getLifeGoalCategoryColor(group.goal.category, lifeGoalCategories) }}
                       >
                         <span
@@ -1347,7 +1442,7 @@ export function TaskSuperPage({
                         {group.tasks.length}
                       </span>
                     </div>
-                    <div className="space-y-1.5">
+                    <div className="divide-y divide-white/[0.05]">
                       {group.preview.map((task) => (
                         <CompactTaskRow
                           key={task.id}
@@ -1361,6 +1456,7 @@ export function TaskSuperPage({
                           onToggleComplete={() => toggleTaskCompletion(task.id)}
                           onFocus={() => focusTask(task.id)}
                           subdued
+                          list
                         />
                       ))}
                     </div>
@@ -1424,22 +1520,24 @@ export function TaskSuperPage({
                 Close
               </button>
             </div>
-            <TaskSidePanel
-              task={selectedTask}
-              lifeGoals={safeLifeGoals}
-              lifeGoalCategories={lifeGoalCategories}
-              allTasks={safeTasks}
-              preferredLinkMode={preferredPanelLinkMode}
-              onConsumedPreferredLinkMode={() => setPreferredPanelLinkMode(null)}
-              taskTagOptions={taskTagOptions}
-              onUpdateTask={updateTask}
-              onToggleComplete={() => toggleTaskCompletion(selectedTask.id)}
-              onDeleteTask={() => deleteTask(selectedTask.id)}
-              onFocusTask={() => focusTask(selectedTask.id)}
-              onRestoreTask={() => restoreTask(selectedTask.id)}
-              onRescheduleTomorrow={() => rescheduleTask(selectedTask.id, 1)}
-              onRescheduleNextWeek={() => rescheduleTask(selectedTask.id, 7)}
-            />
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+              <TaskSidePanel
+                task={selectedTask}
+                lifeGoals={safeLifeGoals}
+                lifeGoalCategories={lifeGoalCategories}
+                allTasks={safeTasks}
+                preferredLinkMode={preferredPanelLinkMode}
+                onConsumedPreferredLinkMode={() => setPreferredPanelLinkMode(null)}
+                taskTagOptions={taskTagOptions}
+                onUpdateTask={updateTask}
+                onToggleComplete={() => toggleTaskCompletion(selectedTask.id)}
+                onDeleteTask={() => deleteTask(selectedTask.id)}
+                onFocusTask={() => focusTask(selectedTask.id)}
+                onRestoreTask={() => restoreTask(selectedTask.id)}
+                onRescheduleTomorrow={() => rescheduleTask(selectedTask.id, 1)}
+                onRescheduleNextWeek={() => rescheduleTask(selectedTask.id, 7)}
+              />
+            </div>
           </aside>
         </>
       ) : null}
@@ -1956,6 +2054,7 @@ function CompactTaskRow({
   completed = false,
   subdued = false,
   flat = false,
+  list = false,
   hideFocusAction = false,
   rowRef,
   onOpen,
@@ -1971,6 +2070,7 @@ function CompactTaskRow({
   completed?: boolean
   subdued?: boolean
   flat?: boolean
+  list?: boolean
   hideFocusAction?: boolean
   rowRef?: RefObject<HTMLDivElement | null>
   onOpen: () => void
@@ -2000,6 +2100,14 @@ function CompactTaskRow({
           ? `border-none bg-transparent px-2 py-3 ${
               selected ? 'text-white' : 'hover:bg-white/[0.02]'
             }`
+          : list
+            ? `border-none bg-transparent px-1.5 py-3 ${
+                selected
+                  ? 'rounded-[12px] bg-white/[0.04]'
+                  : subdued
+                    ? 'hover:bg-white/[0.015]'
+                    : 'hover:bg-white/[0.02]'
+              }`
           : `rounded-[16px] border px-3 py-2.5 ${
               selected
                 ? 'border-[rgb(var(--theme-accent-rgb)/0.22)] bg-[rgb(var(--theme-accent-rgb)/0.08)]'
@@ -2022,7 +2130,11 @@ function CompactTaskRow({
           className={`mt-0.5 flex shrink-0 items-center justify-center rounded-full border text-[11px] ${
             'h-5 w-5'
           } ${
-            task.completed ? 'border-[rgb(var(--theme-accent-rgb)/0.32)] bg-[rgb(var(--theme-accent-rgb)/0.12)] text-white' : 'border-white/[0.14] text-white/38'
+            task.completed
+              ? 'border-[rgb(var(--theme-accent-rgb)/0.32)] bg-[rgb(var(--theme-accent-rgb)/0.12)] text-white'
+              : list
+                ? 'border-white/[0.12] text-white/32'
+                : 'border-white/[0.14] text-white/38'
           }`}
           aria-label={task.completed ? 'Mark incomplete' : 'Mark complete'}
         >
@@ -2037,10 +2149,10 @@ function CompactTaskRow({
               <div className="mt-1 flex flex-wrap items-center gap-2 text-[12px] text-white/46">
                 {task.dueDate ? <span>{formatDateContextual(task.dueDate)}</span> : null}
                 {task.taskTag ? <MetaChip label={task.taskTag} /> : null}
-                {!flat && linkDescriptor.label ? <span className="truncate text-white/42">{linkDescriptor.label}</span> : null}
+                {!flat && !list && linkDescriptor.label ? <span className="truncate text-white/42">{linkDescriptor.label}</span> : null}
               </div>
             </div>
-            {hideFocusAction ? null : (
+            {hideFocusAction || list ? null : (
               <button
                 type="button"
                 onClick={(event) => {
