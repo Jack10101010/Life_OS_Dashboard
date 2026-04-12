@@ -19,7 +19,10 @@ type TaskSuperScope = 'today' | 'upcoming' | 'all-active'
 type TaskTimeFilter = 'all' | 'today' | 'overdue' | 'no-date' | 'scheduled'
 type TaskStatusFilter = 'open' | 'completed' | 'all'
 type TaskLinkMode = 'none' | 'goal' | 'direction'
-type GoalsColumnMode = 'next-task' | 'all-tasks'
+type GoalsColumnMode = 'next-task' | 'next-and-high-priority' | 'all-tasks'
+type DirectionalPreviewMode = 'follow-scope' | 'all-active'
+type DirectionalFocusMode = 'off' | 'focus-only'
+type DirectionalSortMode = 'default' | 'most-active' | 'recently-updated'
 type CaptureScope =
   | { type: 'goal'; id: string; title: string }
   | { type: 'direction'; id: string; title: string }
@@ -36,6 +39,9 @@ type LinkDescriptor = {
 
 const DEFAULT_TASK_TAG_OPTIONS = ['buy', 'book', 'call', 'admin', 'reminder', 'someday'] as const
 const GOAL_OVERVIEW_ROW_ACTIONS_STORAGE_KEY = 'goals-overview-row-actions-v1'
+const TASK_SUPER_GENERAL_PANEL_STORAGE_KEY = 'task-super-general-panel-v1'
+const TASK_SUPER_GOALS_PANEL_STORAGE_KEY = 'task-super-goals-panel-v1'
+const TASK_SUPER_DIRECTIONS_PANEL_STORAGE_KEY = 'task-super-directions-panel-v1'
 const SCOPE_OPTIONS: Array<{ id: TaskSuperScope; label: string }> = [
   { id: 'today', label: 'Today' },
   { id: 'upcoming', label: 'Upcoming' },
@@ -79,6 +85,18 @@ export function TaskSuperPage({
   const quickCaptureInputRef = useRef<HTMLInputElement | null>(null)
   const quickCaptureDueDateRef = useRef<HTMLInputElement | null>(null)
   const selectedTaskRowRef = useRef<HTMLDivElement | null>(null)
+  const pageControlsPanelTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const pageControlsPanelRef = useRef<HTMLElement | null>(null)
+  const suppressNextPageControlsPanelOutsideClickRef = useRef(false)
+  const generalPanelTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const generalPanelRef = useRef<HTMLElement | null>(null)
+  const suppressNextGeneralPanelOutsideClickRef = useRef(false)
+  const goalsPanelTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const goalsPanelRef = useRef<HTMLElement | null>(null)
+  const suppressNextGoalsPanelOutsideClickRef = useRef(false)
+  const directionsPanelTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const directionsPanelRef = useRef<HTMLElement | null>(null)
+  const suppressNextDirectionsPanelOutsideClickRef = useRef(false)
   const [scope, setScope] = useState<TaskSuperScope>('today')
   const [executionMode, setExecutionMode] = useState(false)
   const [goalFilter, setGoalFilter] = useState<string>('all')
@@ -95,10 +113,40 @@ export function TaskSuperPage({
   const [focusPromptDraft, setFocusPromptDraft] = useState('')
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [preferredPanelLinkMode, setPreferredPanelLinkMode] = useState<TaskLinkMode | null>(null)
+  const [pageControlsPanelOpen, setPageControlsPanelOpen] = useState(false)
+  const [generalPanelOpen, setGeneralPanelOpen] = useState(false)
+  const [generalShowSomeday, setGeneralShowSomeday] = useState<boolean>(() =>
+    readTaskSuperPanelState(TASK_SUPER_GENERAL_PANEL_STORAGE_KEY).generalShowSomeday ?? true,
+  )
+  const [generalShowLoadWarning, setGeneralShowLoadWarning] = useState<boolean>(() =>
+    readTaskSuperPanelState(TASK_SUPER_GENERAL_PANEL_STORAGE_KEY).generalShowLoadWarning ?? true,
+  )
   const [goalsPanelOpen, setGoalsPanelOpen] = useState(false)
-  const [goalsColumnGoalFilter, setGoalsColumnGoalFilter] = useState<string>('all')
-  const [goalsColumnPriorityFilter, setGoalsColumnPriorityFilter] = useState<LifeGoalTaskPriority | 'all'>('all')
-  const [goalsColumnMode, setGoalsColumnMode] = useState<GoalsColumnMode>('next-task')
+  const [directionsPanelOpen, setDirectionsPanelOpen] = useState(false)
+  const [directionalPreviewMode, setDirectionalPreviewMode] = useState<DirectionalPreviewMode>(() =>
+    readTaskSuperPanelState(TASK_SUPER_DIRECTIONS_PANEL_STORAGE_KEY).directionalPreviewMode ?? 'all-active',
+  )
+  const [directionalFocusMode, setDirectionalFocusMode] = useState<DirectionalFocusMode>(() =>
+    readTaskSuperPanelState(TASK_SUPER_DIRECTIONS_PANEL_STORAGE_KEY).directionalFocusMode ?? 'off',
+  )
+  const [directionalSortMode, setDirectionalSortMode] = useState<DirectionalSortMode>(() =>
+    readTaskSuperPanelState(TASK_SUPER_DIRECTIONS_PANEL_STORAGE_KEY).directionalSortMode ?? 'default',
+  )
+  const [directionalHideEmpty, setDirectionalHideEmpty] = useState<boolean>(() =>
+    readTaskSuperPanelState(TASK_SUPER_DIRECTIONS_PANEL_STORAGE_KEY).directionalHideEmpty ?? false,
+  )
+  const [goalsColumnGoalFilter, setGoalsColumnGoalFilter] = useState<string>(() =>
+    readTaskSuperPanelState(TASK_SUPER_GOALS_PANEL_STORAGE_KEY).goalsColumnGoalFilter ?? 'all',
+  )
+  const [goalsColumnPriorityFilter, setGoalsColumnPriorityFilter] = useState<LifeGoalTaskPriority | 'all'>(() =>
+    readTaskSuperPanelState(TASK_SUPER_GOALS_PANEL_STORAGE_KEY).goalsColumnPriorityFilter ?? 'all',
+  )
+  const [goalsColumnMode, setGoalsColumnMode] = useState<GoalsColumnMode>(() =>
+    readTaskSuperPanelState(TASK_SUPER_GOALS_PANEL_STORAGE_KEY).goalsColumnMode ?? 'next-task',
+  )
+  const [goalsColumnHideEmpty, setGoalsColumnHideEmpty] = useState<boolean>(() =>
+    readTaskSuperPanelState(TASK_SUPER_GOALS_PANEL_STORAGE_KEY).goalsColumnHideEmpty ?? false,
+  )
   const [goalsColumnCompletedOpen, setGoalsColumnCompletedOpen] = useState(false)
   const [expandedOutcomeGoalId, setExpandedOutcomeGoalId] = useState<string | null>(null)
   const [comingUpSelectedDate, setComingUpSelectedDate] = useState<string | null>(null)
@@ -180,6 +228,17 @@ export function TaskSuperPage({
           preview: dayTasks.slice(0, 2),
         }
       }).filter((day) => day.count > 0),
+    [safeTasks, todayIso],
+  )
+
+  const comingUpStripTasks = useMemo(
+    () =>
+      safeTasks
+        .filter((task) => !task.completed && !isSomedayTask(task))
+        .filter((task) => Boolean(task.dueDate && task.dueDate >= todayIso))
+        .slice()
+        .sort(compareExecutionTasks(todayIso))
+        .slice(0, 6),
     [safeTasks, todayIso],
   )
 
@@ -277,6 +336,112 @@ export function TaskSuperPage({
     if (!selectedTask) return
     selectedTaskRowRef.current?.focus()
   }, [selectedTask?.id])
+
+  useEffect(() => {
+    writeTaskSuperPanelState(TASK_SUPER_GENERAL_PANEL_STORAGE_KEY, {
+      generalShowSomeday,
+      generalShowLoadWarning,
+    })
+  }, [generalShowLoadWarning, generalShowSomeday])
+
+  useEffect(() => {
+    writeTaskSuperPanelState(TASK_SUPER_GOALS_PANEL_STORAGE_KEY, {
+      goalsColumnGoalFilter,
+      goalsColumnPriorityFilter,
+      goalsColumnMode,
+      goalsColumnHideEmpty,
+    })
+  }, [goalsColumnGoalFilter, goalsColumnHideEmpty, goalsColumnMode, goalsColumnPriorityFilter])
+
+  useEffect(() => {
+    writeTaskSuperPanelState(TASK_SUPER_DIRECTIONS_PANEL_STORAGE_KEY, {
+      directionalPreviewMode,
+      directionalFocusMode,
+      directionalSortMode,
+      directionalHideEmpty,
+    })
+  }, [directionalFocusMode, directionalHideEmpty, directionalPreviewMode, directionalSortMode])
+
+  useEffect(() => {
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null
+      const isInsidePageControlsPanel = Boolean(
+        pageControlsPanelRef.current && target && pageControlsPanelRef.current.contains(target),
+      )
+      const isInsidePageControlsTrigger = Boolean(
+        pageControlsPanelTriggerRef.current && target && pageControlsPanelTriggerRef.current.contains(target),
+      )
+      const isInsideGeneralPanel = Boolean(generalPanelRef.current && target && generalPanelRef.current.contains(target))
+      const isInsideGeneralTrigger = Boolean(generalPanelTriggerRef.current && target && generalPanelTriggerRef.current.contains(target))
+      const isInsideGoalsPanel = Boolean(goalsPanelRef.current && target && goalsPanelRef.current.contains(target))
+      const isInsideGoalsTrigger = Boolean(goalsPanelTriggerRef.current && target && goalsPanelTriggerRef.current.contains(target))
+      const isInsideDirectionsPanel = Boolean(directionsPanelRef.current && target && directionsPanelRef.current.contains(target))
+      const isInsideDirectionsTrigger = Boolean(
+        directionsPanelTriggerRef.current && target && directionsPanelTriggerRef.current.contains(target),
+      )
+
+      if (pageControlsPanelOpen && target && !isInsidePageControlsPanel && !isInsidePageControlsTrigger) {
+        suppressNextPageControlsPanelOutsideClickRef.current = true
+        event.preventDefault()
+        event.stopPropagation()
+        event.stopImmediatePropagation?.()
+        setPageControlsPanelOpen(false)
+        return
+      }
+
+      if (generalPanelOpen && target && !isInsideGeneralPanel && !isInsideGeneralTrigger) {
+        suppressNextGeneralPanelOutsideClickRef.current = true
+        event.preventDefault()
+        event.stopPropagation()
+        event.stopImmediatePropagation?.()
+        setGeneralPanelOpen(false)
+        return
+      }
+
+      if (goalsPanelOpen && target && !isInsideGoalsPanel && !isInsideGoalsTrigger) {
+        suppressNextGoalsPanelOutsideClickRef.current = true
+        event.preventDefault()
+        event.stopPropagation()
+        event.stopImmediatePropagation?.()
+        setGoalsPanelOpen(false)
+        return
+      }
+
+      if (directionsPanelOpen && target && !isInsideDirectionsPanel && !isInsideDirectionsTrigger) {
+        suppressNextDirectionsPanelOutsideClickRef.current = true
+        event.preventDefault()
+        event.stopPropagation()
+        event.stopImmediatePropagation?.()
+        setDirectionsPanelOpen(false)
+        return
+      }
+    }
+
+    document.addEventListener('pointerdown', handlePointerDown, true)
+    return () => document.removeEventListener('pointerdown', handlePointerDown, true)
+  }, [directionsPanelOpen, generalPanelOpen, goalsPanelOpen, pageControlsPanelOpen])
+
+  useEffect(() => {
+    const handleClick = (event: MouseEvent) => {
+      if (!suppressNextPageControlsPanelOutsideClickRef.current
+        && !suppressNextGeneralPanelOutsideClickRef.current
+        && !suppressNextGoalsPanelOutsideClickRef.current
+        && !suppressNextDirectionsPanelOutsideClickRef.current) {
+        return
+      }
+
+      suppressNextPageControlsPanelOutsideClickRef.current = false
+      suppressNextGeneralPanelOutsideClickRef.current = false
+      suppressNextGoalsPanelOutsideClickRef.current = false
+      suppressNextDirectionsPanelOutsideClickRef.current = false
+      event.preventDefault()
+      event.stopPropagation()
+      event.stopImmediatePropagation?.()
+    }
+
+    document.addEventListener('click', handleClick, true)
+    return () => document.removeEventListener('click', handleClick, true)
+  }, [])
 
   const updateTask = useCallback(
     (taskId: string, updater: (task: Task) => Task) => {
@@ -484,8 +649,14 @@ export function TaskSuperPage({
   }, [comingUpSelectedDate, filteredTasks, scope, todayIso])
 
   const scopedGeneralTasks = useMemo(
-    () => scopedActiveTasks.filter((task) => !task.linkedGoalId && !task.linkedDirectionId),
-    [scopedActiveTasks],
+    () =>
+      safeTasks
+        .filter((task) => !task.completed)
+        .filter((task) => !isSomedayTask(task))
+        .filter((task) => !task.linkedGoalId && !task.linkedDirectionId)
+        .slice()
+        .sort(compareExecutionTasks(todayIso)),
+    [safeTasks, todayIso],
   )
 
   const isAllGoalsMode = goalsColumnGoalFilter === 'all'
@@ -532,6 +703,10 @@ export function TaskSuperPage({
             .filter((task) => matchesGoalsColumnPriorityFilter(task, goalsColumnPriorityFilter))
             .slice()
             .sort((left, right) => left.order - right.order)
+          const allDefinedTasks = safeTasks
+            .filter((task) => task.linkedGoalId === goal.id)
+            .slice()
+            .sort((left, right) => left.order - right.order)
           const completedTasks = safeTasks
             .filter((task) => task.completed)
             .filter((task) => !isSomedayTask(task))
@@ -539,63 +714,126 @@ export function TaskSuperPage({
             .filter((task) => matchesGoalsColumnPriorityFilter(task, goalsColumnPriorityFilter))
             .slice()
             .sort((left, right) => (right.completedAt ?? '').localeCompare(left.completedAt ?? ''))
+          const nextTask = activeTasks[0] ?? scopedTasks[0] ?? null
+          const highPriorityPreviewTasks = activeTasks
+            .filter((task) => task.priority === 'high')
+            .filter((task) => task.id !== nextTask?.id)
+            .slice(0, 2)
 
           return {
             goal,
             scopedTasks,
             activeTasks,
+            allDefinedTasks,
             completedTasks,
+            highPriorityPreviewTasks,
+            nextTask,
           }
         })
-        .map(({ goal, scopedTasks, activeTasks, completedTasks }) => ({
+        .filter(({ allDefinedTasks }) => (goalsColumnHideEmpty ? allDefinedTasks.length > 0 : true))
+        .map(({ goal, activeTasks, allDefinedTasks, completedTasks, highPriorityPreviewTasks, nextTask }) => ({
           id: goal.id,
           goal,
           label: goal.title,
           sublabel: `${activeTasks.length} active tasks`,
           tasks: activeTasks,
           completedTasks,
-          nextTask: activeTasks[0] ?? scopedTasks[0] ?? null,
+          allDefinedTaskCount: allDefinedTasks.length,
+          highPriorityPreviewTasks,
+          nextTask,
           kind: 'goal' as const,
         }))
         .sort((left, right) => (goalOrderIndex.get(left.id) ?? 0) - (goalOrderIndex.get(right.id) ?? 0))
     },
-    [filteredGoalSet, goalsColumnPriorityFilter, safeTasks, scopedActiveTasks],
+    [filteredGoalSet, goalsColumnHideEmpty, goalsColumnPriorityFilter, safeTasks, scopedActiveTasks],
   )
 
   const goalsColumnSummary = useMemo(() => {
     const segments: string[] = []
+    const modeLabel =
+      goalsColumnMode === 'next-task'
+        ? 'Next task'
+        : goalsColumnMode === 'next-and-high-priority'
+          ? 'Next + high priority'
+          : 'All tasks'
 
     if (isAllGoalsMode) {
       segments.push('All goals')
-      segments.push(goalsColumnMode === 'next-task' ? 'Next task' : 'All tasks')
+      segments.push(modeLabel)
     } else {
       if (selectedGoalForColumn) segments.push(selectedGoalForColumn.title)
-      segments.push(goalsColumnMode === 'next-task' ? 'Next task' : 'All tasks')
+      segments.push(modeLabel)
     }
 
     if (goalsColumnPriorityFilter !== 'all') {
       segments.push(`Priority: ${goalsColumnPriorityFilter === 'none' ? 'Low / None' : toLabel(goalsColumnPriorityFilter)}`)
     }
 
+    if (goalsColumnHideEmpty) {
+      segments.push('Hide empty')
+    }
+
     return segments.join(' · ')
-  }, [goalsColumnMode, goalsColumnPriorityFilter, isAllGoalsMode, selectedGoalForColumn])
+  }, [goalsColumnHideEmpty, goalsColumnMode, goalsColumnPriorityFilter, isAllGoalsMode, selectedGoalForColumn])
+
+  const openGeneralQuickCapture = useCallback(() => {
+    setCaptureScope(null)
+    setCaptureExpanded(true)
+    window.requestAnimationFrame(() => {
+      quickCaptureInputRef.current?.focus()
+    })
+  }, [])
 
   const scopedDirectionGroups = useMemo(
-    () =>
-      directionalGoals
+    () => {
+      const baseGoalOrder = new Map(directionalGoals.map((goal, index) => [goal.id, index]))
+      const sourceTasks = directionalPreviewMode === 'follow-scope' ? scopedActiveTasks : safeTasks
+
+      return directionalGoals
         .map((goal) => {
-          const directionTasks = scopedActiveTasks
-            .filter((task) => task.linkedDirectionId === goal.id)
+          const directionTasks = sourceTasks
+            .filter((task) => !task.completed)
+            .filter((task) => !isSomedayTask(task))
+            .filter((task) => task.linkedDirectionId === goal.id || (task.linkedDirectionId == null && task.linkedGoalId === goal.id))
             .slice()
             .sort((left, right) => left.order - right.order)
+
+          const hasFocusedTask = directionTasks.some((task) => task.starred)
+          const highestPriorityRank = directionTasks.reduce((highest, task) => Math.max(highest, getPriorityRank(task.priority)), 0)
+          const recentSignal = directionTasks
+            .map((task) => task.updatedAt ?? task.createdAt)
+            .filter((value): value is string => typeof value === 'string' && value.length > 0)
+            .sort((left, right) => right.localeCompare(left))[0] ?? null
+
           return {
             goal,
             tasks: directionTasks,
             preview: directionTasks.slice(0, 3),
+            hasFocusedTask,
+            highestPriorityRank,
+            recentSignal,
           }
         })
-        .filter((group) => group.tasks.length > 0),
-    [directionalGoals, scopedActiveTasks],
+        .filter((group) => {
+          if (directionalFocusMode === 'off') return true
+          return group.hasFocusedTask || group.highestPriorityRank > 0
+        })
+        .filter((group) => (directionalHideEmpty ? group.preview.length > 0 : true))
+        .sort((left, right) => {
+          if (directionalSortMode === 'most-active') return right.tasks.length - left.tasks.length
+          if (directionalSortMode === 'recently-updated') return (right.recentSignal ?? '').localeCompare(left.recentSignal ?? '')
+          return (baseGoalOrder.get(left.goal.id) ?? 0) - (baseGoalOrder.get(right.goal.id) ?? 0)
+        })
+    },
+    [
+      directionalFocusMode,
+      directionalGoals,
+      directionalHideEmpty,
+      directionalPreviewMode,
+      directionalSortMode,
+      safeTasks,
+      scopedActiveTasks,
+    ],
   )
 
   const scopedSomedayTasks = useMemo(
@@ -629,299 +867,193 @@ export function TaskSuperPage({
   return (
     <PageContainer width="page" className="-mx-2 pb-7 pt-2 sm:-mx-2 lg:-mx-3 2xl:-mx-4">
       <div className="mx-auto flex max-w-[1320px] flex-col gap-3.5">
-        <Card className="space-y-3 p-3.5 sm:p-4">
-          <div className="flex flex-col gap-2.5 xl:flex-row xl:items-center xl:justify-between">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-[22px] font-semibold tracking-[-0.02em] text-white">Priorities & Tasks</h1>
-                {activeFilterChips.length > 0 ? (
-                  <span className="rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 py-1 text-[11px] text-white/56">
-                    {activeFilterChips.join(' · ')}
-                  </span>
-                ) : null}
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-1.5">
-              {SCOPE_OPTIONS.map((option) => (
-                <button
-                  key={option.id}
-                  type="button"
-                  onClick={() => {
-                    setScope(option.id)
-                    if (option.id !== 'upcoming') setComingUpSelectedDate(null)
-                  }}
-                  className={`rounded-full border px-3 py-1.5 text-[13px] transition ${
-                    scope === option.id
-                      ? 'border-[rgb(var(--theme-accent-rgb)/0.18)] bg-[rgb(var(--theme-accent-rgb)/0.11)] text-white'
-                      : 'border-white/[0.08] bg-white/[0.03] text-white/66 hover:bg-white/[0.05] hover:text-white'
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))}
-              <button
-                type="button"
-                onClick={() => setExecutionMode((current) => !current)}
-                className={`rounded-full border px-3.5 py-1.5 text-[13px] transition ${
-                  executionMode
-                    ? 'border-[rgb(var(--theme-accent-rgb)/0.24)] bg-[rgb(var(--theme-accent-rgb)/0.12)] text-white'
-                    : 'border-white/[0.08] bg-white/[0.03] text-white/70 hover:bg-white/[0.05] hover:text-white'
-                }`}
-              >
-                Execution Mode {executionMode ? 'On' : 'Off'}
-              </button>
-            </div>
+        <div className="relative flex items-center justify-between gap-3 px-1">
+          <div className="min-w-0 flex items-center gap-2 text-sm">
+            <button
+              type="button"
+              onClick={() => {
+                if (typeof window !== 'undefined') window.history.back()
+              }}
+              className="truncate text-white/46 transition hover:text-white/72"
+            >
+              Life Dashboard
+            </button>
+            <span className="text-white/26">/</span>
+            <span className="truncate text-white/82">Priorities &amp; Tasks</span>
+            {activeFilterChips.length > 0 ? (
+              <span className="rounded-full border border-white/[0.08] bg-white/[0.03] px-2 py-0.5 text-[11px] text-white/52">
+                {activeFilterChips.join(' · ')}
+              </span>
+            ) : null}
           </div>
-
-            {!executionMode ? (
-              <>
-              <div className="grid gap-2.5 xl:grid-cols-[minmax(0,1.12fr)_minmax(320px,0.88fr)] xl:items-start">
-                <form onSubmit={submitQuickCapture} className="min-w-0 space-y-2">
-                  {captureScope ? (
-                    <button
-                      type="button"
-                      onClick={() => setCaptureScope(null)}
-                      className="inline-flex w-fit items-center gap-2 rounded-full border border-white/[0.08] bg-white/[0.04] px-2.5 py-1 text-xs text-white/66 transition hover:text-white"
-                    >
-                      Scoped to {captureScope.title}
-                      <span className="text-white/36">×</span>
-                    </button>
-                  ) : null}
-                  <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
-                    <input
-                      ref={quickCaptureInputRef}
-                      value={captureDraft.text}
-                      onChange={(event) => setCaptureDraft((current) => ({ ...current, text: event.target.value }))}
-                      onKeyDown={handleQuickCaptureKeyDown}
-                      placeholder="Capture the next task"
-                      className="min-w-0 flex-1 rounded-2xl border border-white/[0.08] bg-[#161616] px-3.5 py-2.5 text-sm text-white outline-none transition placeholder:text-white/26 focus:border-white/[0.14] focus:bg-[#1b1b1b]"
-                    />
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="submit"
-                        className="rounded-2xl border border-[rgb(var(--theme-accent-rgb)/0.18)] bg-[rgb(var(--theme-accent-rgb)/0.12)] px-4 py-2.5 text-sm font-medium text-white transition hover:bg-[rgb(var(--theme-accent-rgb)/0.18)]"
-                      >
-                        Add
-                      </button>
+          <button
+            ref={pageControlsPanelTriggerRef}
+            type="button"
+            onClick={() => setPageControlsPanelOpen((current) => !current)}
+            className="p-1 text-zinc-600 transition-colors hover:text-zinc-400"
+            aria-label={pageControlsPanelOpen ? 'Close page controls' : 'Open page controls'}
+          >
+            <GoalsControlIcon />
+          </button>
+          <AnimatePresence>
+            {pageControlsPanelOpen ? (
+              <motion.aside
+                ref={pageControlsPanelRef}
+                className={`absolute right-1 top-[calc(100%+10px)] z-[50] w-[min(720px,calc(100vw-32px))] ${TASK_GOALS_PANEL_SHELL_CLASSNAME}`}
+                initial={{ opacity: 0, x: 12, y: -6 }}
+                animate={{ opacity: 1, x: 0, y: 0 }}
+                exit={{ opacity: 0, x: 12, y: -6 }}
+                transition={{ duration: 0.16, ease: 'easeOut' }}
+              >
+                <div className="grid gap-3">
+                  <GoalsPanelSection title="View">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {SCOPE_OPTIONS.map((option) => (
+                        <button
+                          key={option.id}
+                          type="button"
+                          onClick={() => {
+                            setScope(option.id)
+                            if (option.id !== 'upcoming') setComingUpSelectedDate(null)
+                          }}
+                          className={`rounded-full border px-3 py-1.5 text-[13px] transition ${
+                            scope === option.id
+                              ? 'border-[rgb(var(--theme-accent-rgb)/0.18)] bg-[rgb(var(--theme-accent-rgb)/0.11)] text-white'
+                              : 'border-white/[0.08] bg-white/[0.03] text-white/66 hover:bg-white/[0.05] hover:text-white'
+                          }`}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
                       <button
                         type="button"
-                        onClick={() => setCaptureExpanded((current) => !current)}
-                        className="rounded-2xl border border-white/[0.08] bg-white/[0.03] px-4 py-2.5 text-sm text-white/68 transition hover:bg-white/[0.05] hover:text-white"
-                      >
-                        {captureExpanded ? 'Less' : 'More'}
-                      </button>
-                    </div>
-                  </div>
-                  {captureExpanded ? (
-                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
-                        <InlineField label="Due date">
-                          <input
-                            ref={quickCaptureDueDateRef}
-                            type="date"
-                            value={captureDraft.dueDate}
-                            onChange={(event) => setCaptureDraft((current) => ({ ...current, dueDate: event.target.value }))}
-                            className={fieldClassName}
-                          />
-                        </InlineField>
-                        <InlineField label="Due time">
-                          <input
-                            type="time"
-                            value={captureDraft.dueTime}
-                            onChange={(event) => setCaptureDraft((current) => ({ ...current, dueTime: event.target.value }))}
-                            className={fieldClassName}
-                          />
-                        </InlineField>
-                        <InlineField label="Priority">
-                          <select
-                            value={captureDraft.priority}
-                            onChange={(event) => setCaptureDraft((current) => ({ ...current, priority: event.target.value as LifeGoalTaskPriority }))}
-                            className={fieldClassName}
-                          >
-                            {PRIORITY_OPTIONS.map((option) => (
-                              <option key={option} value={option}>
-                                {toLabel(option)}
-                              </option>
-                            ))}
-                          </select>
-                        </InlineField>
-                        <InlineField label="Goal">
-                          <select
-                            value={captureDraft.linkedGoalId}
-                            onChange={(event) =>
-                              setCaptureDraft((current) => ({
-                                ...current,
-                                linkedGoalId: event.target.value,
-                                linkedDirectionId: event.target.value ? '' : current.linkedDirectionId,
-                              }))
-                            }
-                            className={fieldClassName}
-                          >
-                            <option value="">None</option>
-                            {outcomeGoals.map((goal) => (
-                              <option key={goal.id} value={goal.id}>
-                                {goal.title}
-                              </option>
-                            ))}
-                          </select>
-                        </InlineField>
-                        <InlineField label="Direction">
-                          <select
-                            value={captureDraft.linkedDirectionId}
-                            onChange={(event) =>
-                              setCaptureDraft((current) => ({
-                                ...current,
-                                linkedDirectionId: event.target.value,
-                                linkedGoalId: event.target.value ? '' : current.linkedGoalId,
-                              }))
-                            }
-                            className={fieldClassName}
-                          >
-                            <option value="">None</option>
-                            {directionalGoals.map((goal) => (
-                              <option key={goal.id} value={goal.id}>
-                                {goal.title}
-                              </option>
-                            ))}
-                          </select>
-                        </InlineField>
-                        <InlineField label="Tag">
-                          <input
-                            list="task-super-tags"
-                            value={captureDraft.taskTag}
-                            onChange={(event) => setCaptureDraft((current) => ({ ...current, taskTag: event.target.value }))}
-                            className={fieldClassName}
-                            placeholder="buy / call / someday"
-                          />
-                        </InlineField>
-                        <datalist id="task-super-tags">
-                          {taskTagOptions.map((option) => (
-                            <option key={option} value={option} />
-                          ))}
-                        </datalist>
-                      </div>
-                  ) : null}
-                </form>
-
-                  <div className="flex flex-col gap-2 xl:items-end">
-                  <div className="flex flex-wrap items-center gap-1.5 xl:justify-end">
-                    <FilterSelect label="Goal" value={goalFilter} onChange={setGoalFilter} options={[
-                      { value: 'all', label: 'All goals' },
-                      ...outcomeGoals.map((goal) => ({ value: goal.id, label: goal.title })),
-                    ]} />
-                    <FilterSelect label="Direction" value={directionFilter} onChange={setDirectionFilter} options={[
-                      { value: 'all', label: 'All directions' },
-                      ...directionalGoals.map((goal) => ({ value: goal.id, label: goal.title })),
-                    ]} />
-                    <FilterSelect
-                      label="Time"
-                      value={timeFilter}
-                      onChange={(value) => setTimeFilter(value as TaskTimeFilter)}
-                      options={[
-                        { value: 'all', label: 'Any time' },
-                        { value: 'today', label: 'Today' },
-                        { value: 'overdue', label: 'Overdue' },
-                        { value: 'no-date', label: 'No date' },
-                        { value: 'scheduled', label: 'Scheduled' },
-                      ]}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setMoreFiltersOpen((current) => !current)}
-                      className="rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-white/68 transition hover:bg-white/[0.05] hover:text-white"
-                    >
-                      More
-                    </button>
-                    <button
-                      type="button"
-                      onClick={clearFilters}
-                      className="rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-white/54 transition hover:bg-white/[0.05] hover:text-white"
-                    >
-                      Clear
-                    </button>
-                  </div>
-
-                  <div className="flex w-full flex-wrap items-stretch gap-1.5 xl:max-w-[500px] xl:justify-end">
-                    {comingUpDays.length > 0 ? comingUpDays.map((day) => (
-                      <button
-                        key={day.date}
-                        type="button"
-                        onClick={() => {
-                          setComingUpSelectedDate(day.date)
-                          setScope('upcoming')
-                        }}
-                        className={`min-w-[108px] flex-1 rounded-2xl border px-2.5 py-2 text-left transition xl:flex-none ${
-                          comingUpSelectedDate === day.date
-                            ? 'border-[rgb(var(--theme-accent-rgb)/0.2)] bg-[rgb(var(--theme-accent-rgb)/0.08)]'
-                            : 'border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.05]'
+                        onClick={() => setExecutionMode((current) => !current)}
+                        className={`rounded-full border px-3.5 py-1.5 text-[13px] transition ${
+                          executionMode
+                            ? 'border-[rgb(var(--theme-accent-rgb)/0.24)] bg-[rgb(var(--theme-accent-rgb)/0.12)] text-white'
+                            : 'border-white/[0.08] bg-white/[0.03] text-white/70 hover:bg-white/[0.05] hover:text-white'
                         }`}
                       >
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-[11px] uppercase tracking-[0.16em] text-white/42">{formatDateContextual(day.date)}</p>
-                          <span className="text-xs font-medium text-white/82">{day.count}</span>
-                        </div>
-                        <div className="mt-1 space-y-0.5 text-[11px] text-white/58">
-                          {day.preview.map((task) => (
-                            <p key={task.id} className="truncate">{task.text}</p>
-                          ))}
-                        </div>
+                        Execution Mode {executionMode ? 'On' : 'Off'}
                       </button>
-                    )) : (
-                      <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-white/46">
-                        Nothing scheduled in the next three days.
-                      </div>
-                    )}
-                    {comingUpSelectedDate ? (
+                    </div>
+                  </GoalsPanelSection>
+
+                  <GoalsPanelSection title="Filters">
+                    <div className="grid gap-2.5 md:grid-cols-3">
+                      <FilterSelect label="Goal" value={goalFilter} onChange={setGoalFilter} options={[
+                        { value: 'all', label: 'All goals' },
+                        ...outcomeGoals.map((goal) => ({ value: goal.id, label: goal.title })),
+                      ]} />
+                      <FilterSelect label="Direction" value={directionFilter} onChange={setDirectionFilter} options={[
+                        { value: 'all', label: 'All directions' },
+                        ...directionalGoals.map((goal) => ({ value: goal.id, label: goal.title })),
+                      ]} />
+                      <FilterSelect
+                        label="Time"
+                        value={timeFilter}
+                        onChange={(value) => setTimeFilter(value as TaskTimeFilter)}
+                        options={[
+                          { value: 'all', label: 'Any time' },
+                          { value: 'today', label: 'Today' },
+                          { value: 'overdue', label: 'Overdue' },
+                          { value: 'no-date', label: 'No date' },
+                          { value: 'scheduled', label: 'Scheduled' },
+                        ]}
+                      />
+                      <FilterSelect
+                        label="Priority"
+                        value={priorityFilter}
+                        onChange={(value) => setPriorityFilter(value as LifeGoalTaskPriority | 'all')}
+                        options={[
+                          { value: 'all', label: 'Any priority' },
+                          ...PRIORITY_OPTIONS.map((option) => ({ value: option, label: toLabel(option) })),
+                        ]}
+                      />
+                      <FilterSelect
+                        label="Tag"
+                        value={taskTagFilter}
+                        onChange={setTaskTagFilter}
+                        options={[
+                          { value: 'all', label: 'Any tag' },
+                          ...taskTagOptions.map((option) => ({ value: option, label: option })),
+                        ]}
+                      />
+                      <FilterSelect
+                        label="Status"
+                        value={statusFilter}
+                        onChange={(value) => setStatusFilter(value as TaskStatusFilter)}
+                        options={[
+                          { value: 'open', label: 'Open' },
+                          { value: 'completed', label: 'Completed' },
+                          { value: 'all', label: 'All' },
+                        ]}
+                      />
+                    </div>
+                  </GoalsPanelSection>
+
+                  <GoalsPanelSection title="Upcoming Days">
+                    <div className="flex flex-wrap items-stretch gap-1.5">
+                      {comingUpDays.length > 0 ? comingUpDays.map((day) => (
+                        <button
+                          key={day.date}
+                          type="button"
+                          onClick={() => {
+                            setComingUpSelectedDate(day.date)
+                            setScope('upcoming')
+                          }}
+                          className={`min-w-[108px] flex-1 rounded-2xl border px-2.5 py-2 text-left transition ${
+                            comingUpSelectedDate === day.date
+                              ? 'border-[rgb(var(--theme-accent-rgb)/0.2)] bg-[rgb(var(--theme-accent-rgb)/0.08)]'
+                              : 'border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.05]'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-[11px] uppercase tracking-[0.16em] text-white/42">{formatDateContextual(day.date)}</p>
+                            <span className="text-xs font-medium text-white/82">{day.count}</span>
+                          </div>
+                          <div className="mt-1 space-y-0.5 text-[11px] text-white/58">
+                            {day.preview.map((task) => (
+                              <p key={task.id} className="truncate">{task.text}</p>
+                            ))}
+                          </div>
+                        </button>
+                      )) : (
+                        <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-white/46">
+                          Nothing scheduled in the next three days.
+                        </div>
+                      )}
+                      {comingUpSelectedDate ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setComingUpSelectedDate(null)
+                            setScope('today')
+                          }}
+                          className="rounded-2xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-white/62 transition hover:bg-white/[0.05] hover:text-white"
+                        >
+                          Clear day
+                        </button>
+                      ) : null}
+                    </div>
+                  </GoalsPanelSection>
+
+                  <GoalsPanelSection title="Actions">
+                    <div className="flex flex-wrap items-center gap-2">
                       <button
                         type="button"
-                        onClick={() => {
-                          setComingUpSelectedDate(null)
-                          setScope('today')
-                        }}
-                        className="rounded-2xl border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-white/62 transition hover:bg-white/[0.05] hover:text-white"
+                        onClick={clearFilters}
+                        className="rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-sm text-white/54 transition hover:bg-white/[0.05] hover:text-white"
                       >
-                        Clear day
+                        Clear
                       </button>
-                    ) : null}
-                  </div>
+                    </div>
+                  </GoalsPanelSection>
                 </div>
-              </div>
-
-              {moreFiltersOpen ? (
-                <div className="grid gap-2.5 rounded-[24px] border border-white/[0.08] bg-white/[0.03] p-3.5 md:grid-cols-3">
-                  <FilterSelect
-                    label="Priority"
-                    value={priorityFilter}
-                    onChange={(value) => setPriorityFilter(value as LifeGoalTaskPriority | 'all')}
-                    options={[
-                      { value: 'all', label: 'Any priority' },
-                      ...PRIORITY_OPTIONS.map((option) => ({ value: option, label: toLabel(option) })),
-                    ]}
-                  />
-                  <FilterSelect
-                    label="Tag"
-                    value={taskTagFilter}
-                    onChange={setTaskTagFilter}
-                    options={[
-                      { value: 'all', label: 'Any tag' },
-                      ...taskTagOptions.map((option) => ({ value: option, label: option })),
-                    ]}
-                  />
-                  <FilterSelect
-                    label="Status"
-                    value={statusFilter}
-                    onChange={(value) => setStatusFilter(value as TaskStatusFilter)}
-                    options={[
-                      { value: 'open', label: 'Open' },
-                      { value: 'completed', label: 'Completed' },
-                      { value: 'all', label: 'All' },
-                    ]}
-                  />
-                </div>
-              ) : null}
-            </>
-          ) : null}
-        </Card>
+              </motion.aside>
+            ) : null}
+          </AnimatePresence>
+        </div>
 
         <Card className="overflow-hidden p-0" style={currentFocusLinkDescriptor?.rowStyle}>
           <div className="px-3.5 py-2.5 sm:px-4 sm:py-3">
@@ -1049,6 +1181,62 @@ export function TaskSuperPage({
           </div>
         </Card>
 
+        {!executionMode ? (
+          <SectionCard compact className="border-white/[0.06] bg-white/[0.015] p-3.5 sm:p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <ClockGlyph />
+                <p className="text-[11px] uppercase tracking-[0.22em] text-white/38">Coming Up</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setScope('upcoming')
+                  setComingUpSelectedDate(null)
+                }}
+                className="inline-flex items-center gap-1 text-[12px] text-white/46 transition hover:text-white/72"
+              >
+                <span>View all</span>
+                <ArrowRightGlyph />
+              </button>
+            </div>
+            <div className="mt-3 overflow-x-auto pb-1">
+              {comingUpStripTasks.length > 0 ? (
+                <div className="flex min-w-max gap-2">
+                  {comingUpStripTasks.map((task) => {
+                    const linkedEntity = goalById.get(task.linkedGoalId ?? task.linkedDirectionId ?? '') ?? null
+                    const dotColor = linkedEntity
+                      ? getLifeGoalCategoryColor(linkedEntity.category, lifeGoalCategories)
+                      : 'rgba(255,255,255,0.38)'
+                    const timingLabel = task.dueDate
+                      ? task.dueTime
+                        ? `${formatDateContextual(task.dueDate)}, ${formatDueTime(task.dueTime)}`
+                        : formatDateContextual(task.dueDate)
+                      : 'No date'
+
+                    return (
+                      <button
+                        key={task.id}
+                        type="button"
+                        onClick={() => setSelectedTaskId(task.id)}
+                        className="flex min-w-[220px] items-center gap-2.5 rounded-[16px] border border-white/[0.06] bg-white/[0.03] px-3 py-2 text-left transition hover:bg-white/[0.05]"
+                      >
+                        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: dotColor }} />
+                        <span className="min-w-0 flex-1 truncate text-[13px] text-white/74">{task.text}</span>
+                        <span className="shrink-0 rounded-full bg-white/[0.05] px-2 py-0.5 text-[11px] text-white/46">
+                          {timingLabel}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+              ) : (
+                <p className="text-sm text-white/42">Nothing coming up</p>
+              )}
+            </div>
+          </SectionCard>
+        ) : null}
+
         {executionMode ? (
           <SectionCard compact className="space-y-3 p-3.5 sm:p-4">
             <div className="flex items-center justify-between gap-3">
@@ -1084,16 +1272,92 @@ export function TaskSuperPage({
         ) : (
           <section className="grid gap-3 xl:grid-cols-3">
             <SectionCard compact className="flex h-[560px] min-h-0 flex-col border-white/[0.06] bg-white/[0.015] p-3.5 sm:p-4">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <p className="text-[11px] uppercase tracking-[0.22em] text-white/38">General Tasks</p>
-                  <span className="rounded-full border border-white/[0.08] bg-white/[0.03] px-2 py-0.5 text-[11px] text-white/52">
-                    {scopedGeneralTasks.length}
-                  </span>
+              <div className="relative mb-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <p className="text-[11px] uppercase tracking-[0.22em] text-white/38">General Tasks</p>
+                    <span className="rounded-full border border-white/[0.08] bg-white/[0.03] px-2 py-0.5 text-[11px] text-white/52">
+                      {scopedGeneralTasks.length}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={openGeneralQuickCapture}
+                      className="p-1 text-zinc-600 transition-colors hover:text-zinc-400"
+                      aria-label="Add general task"
+                    >
+                      <PlusIcon />
+                    </button>
+                    <button
+                      ref={generalPanelTriggerRef}
+                      type="button"
+                      onClick={() => setGeneralPanelOpen((current) => !current)}
+                      className="p-1 text-zinc-600 transition-colors hover:text-zinc-400"
+                      aria-label={generalPanelOpen ? 'Close general task controls' : 'Open general task controls'}
+                    >
+                      <GoalsControlIcon />
+                    </button>
+                  </div>
                 </div>
+                <AnimatePresence>
+                  {generalPanelOpen ? (
+                    <motion.aside
+                      ref={generalPanelRef}
+                      className={`absolute right-0 top-[calc(100%+10px)] z-[40] w-[300px] max-w-[calc(100vw-48px)] ${TASK_GOALS_PANEL_SHELL_CLASSNAME}`}
+                      initial={{ opacity: 0, x: 12, y: -6 }}
+                      animate={{ opacity: 1, x: 0, y: 0 }}
+                      exit={{ opacity: 0, x: 12, y: -6 }}
+                      transition={{ duration: 0.16, ease: 'easeOut' }}
+                    >
+                      <div className="grid gap-3">
+                        <GoalsPanelSection title="Display">
+                          <div className="grid gap-3">
+                            <label className="flex items-center justify-between gap-3">
+                              <span className="text-[12px] text-[rgba(255,255,255,0.78)]">Show someday tasks</span>
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={generalShowSomeday}
+                                onClick={() => setGeneralShowSomeday((current) => !current)}
+                                className={`relative inline-flex h-6 w-11 items-center rounded-full border transition ${
+                                  generalShowSomeday
+                                    ? 'border-[rgb(var(--theme-accent-rgb)/0.22)] bg-[rgb(var(--theme-accent-rgb)/0.16)]'
+                                    : 'border-white/[0.08] bg-white/[0.04]'
+                                }`}
+                              >
+                                <span
+                                  className={`inline-block h-4 w-4 rounded-full bg-white transition ${generalShowSomeday ? 'translate-x-5' : 'translate-x-1'}`}
+                                />
+                              </button>
+                            </label>
+                            <label className="flex items-center justify-between gap-3">
+                              <span className="text-[12px] text-[rgba(255,255,255,0.78)]">Show overload warning</span>
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={generalShowLoadWarning}
+                                onClick={() => setGeneralShowLoadWarning((current) => !current)}
+                                className={`relative inline-flex h-6 w-11 items-center rounded-full border transition ${
+                                  generalShowLoadWarning
+                                    ? 'border-[rgb(var(--theme-accent-rgb)/0.22)] bg-[rgb(var(--theme-accent-rgb)/0.16)]'
+                                    : 'border-white/[0.08] bg-white/[0.04]'
+                                }`}
+                              >
+                                <span
+                                  className={`inline-block h-4 w-4 rounded-full bg-white transition ${generalShowLoadWarning ? 'translate-x-5' : 'translate-x-1'}`}
+                                />
+                              </button>
+                            </label>
+                          </div>
+                        </GoalsPanelSection>
+                      </div>
+                    </motion.aside>
+                  ) : null}
+                </AnimatePresence>
               </div>
               <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
-                {scope === 'today' && scopedActiveTasks.length > 5 ? (
+                {generalShowLoadWarning && scope === 'today' && scopedActiveTasks.length > 5 ? (
                   <div className="rounded-[16px] border border-[rgb(var(--theme-warning-rgb)/0.18)] bg-[rgb(var(--theme-warning-rgb)/0.08)] px-3 py-2 text-sm text-[rgb(var(--theme-warning-rgb)/0.88)]">
                     You&apos;ve got too much on today — trim this down
                   </div>
@@ -1118,7 +1382,7 @@ export function TaskSuperPage({
                   </div>
                 ) : <p className="text-sm text-white/46">No general tasks in this scope.</p>}
 
-                {scopedSomedayTasks.length > 0 ? (
+                {generalShowSomeday && scopedSomedayTasks.length > 0 ? (
                   <div className="pt-3">
                     <div className="mb-2 flex items-center gap-2 border-t border-white/[0.06] pt-3">
                       <p className="text-[11px] uppercase tracking-[0.22em] text-white/32">Someday</p>
@@ -1159,6 +1423,7 @@ export function TaskSuperPage({
                     </span>
                   </div>
                   <button
+                    ref={goalsPanelTriggerRef}
                     type="button"
                     onClick={() => setGoalsPanelOpen((current) => !current)}
                     className="p-1 text-zinc-600 transition-colors hover:text-zinc-400"
@@ -1171,6 +1436,7 @@ export function TaskSuperPage({
                 <AnimatePresence>
                   {goalsPanelOpen ? (
                     <motion.aside
+                      ref={goalsPanelRef}
                       className={`absolute right-0 top-[calc(100%+10px)] z-[40] w-[344px] max-w-[calc(100vw-48px)] ${TASK_GOALS_PANEL_SHELL_CLASSNAME}`}
                       initial={{ opacity: 0, x: 12, y: -6 }}
                       animate={{ opacity: 1, x: 0, y: 0 }}
@@ -1225,6 +1491,15 @@ export function TaskSuperPage({
                                 </button>
                                 <button
                                   type="button"
+                                  onClick={() => setGoalsColumnMode('next-and-high-priority')}
+                                  className={`rounded-full px-2.5 py-1 text-[11px] transition ${
+                                    goalsColumnMode === 'next-and-high-priority' ? 'bg-white/[0.08] text-white' : 'text-white/54 hover:text-white/74'
+                                  }`}
+                                >
+                                  Next + high priority
+                                </button>
+                                <button
+                                  type="button"
                                   onClick={() => setGoalsColumnMode('all-tasks')}
                                   className={`rounded-full px-2.5 py-1 text-[11px] transition ${
                                     goalsColumnMode === 'all-tasks' ? 'bg-white/[0.08] text-white' : 'text-white/54 hover:text-white/74'
@@ -1234,6 +1509,24 @@ export function TaskSuperPage({
                                 </button>
                               </div>
                             </div>
+                            <label className="flex items-center justify-between gap-3">
+                              <span className="text-[12px] text-[rgba(255,255,255,0.78)]">Hide goals with no tasks</span>
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={goalsColumnHideEmpty}
+                                onClick={() => setGoalsColumnHideEmpty((current) => !current)}
+                                className={`relative inline-flex h-6 w-11 items-center rounded-full border transition ${
+                                  goalsColumnHideEmpty
+                                    ? 'border-[rgb(var(--theme-accent-rgb)/0.22)] bg-[rgb(var(--theme-accent-rgb)/0.16)]'
+                                    : 'border-white/[0.08] bg-white/[0.04]'
+                                }`}
+                              >
+                                <span
+                                  className={`inline-block h-4 w-4 rounded-full bg-white transition ${goalsColumnHideEmpty ? 'translate-x-5' : 'translate-x-1'}`}
+                                />
+                              </button>
+                            </label>
                           </div>
                         </GoalsPanelSection>
                       </div>
@@ -1245,7 +1538,18 @@ export function TaskSuperPage({
               <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1">
                 {scopedGoalGroups.length > 0 ? scopedGoalGroups.map((group) => {
                   const isExpanded = expandedOutcomeGoalId === group.id
-                  const visibleTasks = goalsColumnMode === 'next-task' ? group.tasks.slice(0, 1) : group.tasks
+                  const visibleTasks =
+                    goalsColumnMode === 'all-tasks'
+                      ? group.tasks
+                      : goalsColumnMode === 'next-and-high-priority'
+                        ? [
+                            ...group.tasks.slice(0, 1),
+                            ...group.highPriorityPreviewTasks.filter(
+                              (task) => !group.tasks.slice(0, 1).some((candidate) => candidate.id === task.id),
+                            ),
+                          ]
+                        : group.tasks.slice(0, 1)
+                  const additionalHighPriorityTaskIds = new Set(group.highPriorityPreviewTasks.map((task) => task.id))
                   const goalColor = getLifeGoalCategoryColor(group.goal.category, lifeGoalCategories)
 
                   return (
@@ -1285,9 +1589,23 @@ export function TaskSuperPage({
                         </div>
 
                         {!isExpanded ? (
-                          <p className="mt-1 truncate pl-[22px] text-[11px] text-zinc-500">
-                            {group.nextTask ? `Next: ${group.nextTask.text}` : 'No open tasks'}
-                          </p>
+                          <div className="mt-1 pl-[22px]">
+                            <p className="truncate text-[11px] text-zinc-500">
+                              {group.nextTask ? `Next: ${group.nextTask.text}` : 'No open tasks'}
+                            </p>
+                            {goalsColumnMode === 'next-and-high-priority' && group.highPriorityPreviewTasks.length > 0 ? (
+                              <div className="mt-1 border-t border-white/[0.05] pt-1 space-y-1">
+                                {group.highPriorityPreviewTasks.map((task) => (
+                                  <div key={task.id} className="flex items-center gap-2">
+                                    <span className="truncate text-[11px] text-zinc-400">{task.text}</span>
+                                    <span className="rounded-full border border-[rgb(var(--theme-warning-rgb)/0.18)] bg-[rgb(var(--theme-warning-rgb)/0.08)] px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-[rgb(var(--theme-warning-rgb)/0.88)]">
+                                      High
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
                         ) : null}
                       </button>
 
@@ -1329,13 +1647,24 @@ export function TaskSuperPage({
                                   </button>
 
                                   <div className="min-w-0 flex-1">
-                                    <span
-                                      className={`block truncate text-[12px] ${
-                                        task.completed ? 'text-zinc-600 line-through' : 'text-[13px] text-zinc-300'
-                                      }`}
-                                    >
-                                      {task.text}
-                                    </span>
+                                    <div className="flex items-center gap-2">
+                                      <span
+                                        className={`block truncate ${
+                                          task.completed
+                                            ? 'text-[12px] text-zinc-600 line-through'
+                                            : goalsColumnMode === 'next-and-high-priority' && additionalHighPriorityTaskIds.has(task.id)
+                                              ? 'text-[12px] text-zinc-300'
+                                              : 'text-[13px] text-zinc-300'
+                                        }`}
+                                      >
+                                        {task.text}
+                                      </span>
+                                      {goalsColumnMode === 'next-and-high-priority' && additionalHighPriorityTaskIds.has(task.id) ? (
+                                        <span className="rounded-full border border-[rgb(var(--theme-warning-rgb)/0.18)] bg-[rgb(var(--theme-warning-rgb)/0.08)] px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-[rgb(var(--theme-warning-rgb)/0.88)]">
+                                          High
+                                        </span>
+                                      ) : null}
+                                    </div>
 
                                     {task.dueDate ? (
                                       <span className="mt-0.5 block text-[11px] text-zinc-500">
@@ -1416,49 +1745,169 @@ export function TaskSuperPage({
             </SectionCard>
 
             <SectionCard compact className="flex h-[560px] min-h-0 flex-col border-white/[0.06] bg-white/[0.015] p-3.5 sm:p-4">
-              <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="relative mb-3">
+              <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
                   <p className="text-[11px] uppercase tracking-[0.22em] text-white/38">Directional Goals</p>
                   <span className="rounded-full border border-white/[0.08] bg-white/[0.03] px-2 py-0.5 text-[11px] text-white/52">
                     {scopedDirectionGroups.length}
                   </span>
                 </div>
+                <button
+                  ref={directionsPanelTriggerRef}
+                  type="button"
+                  onClick={() => setDirectionsPanelOpen((current) => !current)}
+                  className="p-1 text-zinc-600 transition-colors hover:text-zinc-400"
+                  aria-label={directionsPanelOpen ? 'Close directional controls' : 'Open directional controls'}
+                >
+                  <GoalsControlIcon />
+                </button>
+              </div>
+              <AnimatePresence>
+                {directionsPanelOpen ? (
+                  <motion.aside
+                    ref={directionsPanelRef}
+                    className={`absolute right-0 top-[calc(100%+10px)] z-[40] w-[300px] max-w-[calc(100vw-48px)] ${TASK_GOALS_PANEL_SHELL_CLASSNAME}`}
+                    initial={{ opacity: 0, x: 12, y: -6 }}
+                    animate={{ opacity: 1, x: 0, y: 0 }}
+                    exit={{ opacity: 0, x: 12, y: -6 }}
+                    transition={{ duration: 0.16, ease: 'easeOut' }}
+                  >
+                    <div className="grid gap-3">
+                      <GoalsPanelSection title="Preview Mode">
+                        <div className="inline-flex rounded-full border border-white/[0.08] bg-white/[0.03] p-1">
+                          <button
+                            type="button"
+                            onClick={() => setDirectionalPreviewMode('follow-scope')}
+                            className={`rounded-full px-2.5 py-1 text-[11px] transition ${
+                              directionalPreviewMode === 'follow-scope' ? 'bg-white/[0.08] text-white' : 'text-white/54 hover:text-white/74'
+                            }`}
+                          >
+                            Follow task scope
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDirectionalPreviewMode('all-active')}
+                            className={`rounded-full px-2.5 py-1 text-[11px] transition ${
+                              directionalPreviewMode === 'all-active' ? 'bg-white/[0.08] text-white' : 'text-white/54 hover:text-white/74'
+                            }`}
+                          >
+                            Show all active
+                          </button>
+                        </div>
+                      </GoalsPanelSection>
+                      <GoalsPanelSection title="Focus Mode">
+                        <div className="inline-flex rounded-full border border-white/[0.08] bg-white/[0.03] p-1">
+                          <button
+                            type="button"
+                            onClick={() => setDirectionalFocusMode('off')}
+                            className={`rounded-full px-2.5 py-1 text-[11px] transition ${
+                              directionalFocusMode === 'off' ? 'bg-white/[0.08] text-white' : 'text-white/54 hover:text-white/74'
+                            }`}
+                          >
+                            Off
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDirectionalFocusMode('focus-only')}
+                            className={`rounded-full px-2.5 py-1 text-[11px] transition ${
+                              directionalFocusMode === 'focus-only' ? 'bg-white/[0.08] text-white' : 'text-white/54 hover:text-white/74'
+                            }`}
+                          >
+                            Focus only
+                          </button>
+                        </div>
+                      </GoalsPanelSection>
+                      <GoalsPanelSection title="Sort">
+                        <div className="inline-flex rounded-full border border-white/[0.08] bg-white/[0.03] p-1">
+                          <button
+                            type="button"
+                            onClick={() => setDirectionalSortMode('default')}
+                            className={`rounded-full px-2.5 py-1 text-[11px] transition ${
+                              directionalSortMode === 'default' ? 'bg-white/[0.08] text-white' : 'text-white/54 hover:text-white/74'
+                            }`}
+                          >
+                            Default
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDirectionalSortMode('most-active')}
+                            className={`rounded-full px-2.5 py-1 text-[11px] transition ${
+                              directionalSortMode === 'most-active' ? 'bg-white/[0.08] text-white' : 'text-white/54 hover:text-white/74'
+                            }`}
+                          >
+                            Most active
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDirectionalSortMode('recently-updated')}
+                            className={`rounded-full px-2.5 py-1 text-[11px] transition ${
+                              directionalSortMode === 'recently-updated' ? 'bg-white/[0.08] text-white' : 'text-white/54 hover:text-white/74'
+                            }`}
+                          >
+                            Recently updated
+                          </button>
+                        </div>
+                      </GoalsPanelSection>
+                      <GoalsPanelSection title="Hide empty goals">
+                        <label className="flex items-center justify-between gap-3">
+                          <span className="text-[12px] text-[rgba(255,255,255,0.78)]">Hide empty goals</span>
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={directionalHideEmpty}
+                            onClick={() => setDirectionalHideEmpty((current) => !current)}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full border transition ${
+                              directionalHideEmpty
+                                ? 'border-[rgb(var(--theme-accent-rgb)/0.22)] bg-[rgb(var(--theme-accent-rgb)/0.16)]'
+                                : 'border-white/[0.08] bg-white/[0.04]'
+                            }`}
+                          >
+                            <span
+                              className={`inline-block h-4 w-4 rounded-full bg-white transition ${directionalHideEmpty ? 'translate-x-5' : 'translate-x-1'}`}
+                            />
+                          </button>
+                        </label>
+                      </GoalsPanelSection>
+                    </div>
+                  </motion.aside>
+                ) : null}
+              </AnimatePresence>
               </div>
               <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
                 {scopedDirectionGroups.length > 0 ? scopedDirectionGroups.map((group) => (
-                  <div key={group.goal.id} className="space-y-2">
-                    <div className="flex items-center justify-between gap-3 border-b border-white/[0.05] pb-2">
+                  <div key={group.goal.id} className="space-y-3">
+                    <div className="flex items-center gap-1.5 px-1">
+                      <DirectionalCompassGlyph color={getLifeGoalCategoryColor(group.goal.category, lifeGoalCategories)} />
                       <span
-                        className="inline-flex items-center gap-1.5 text-[13px] font-medium uppercase tracking-[0.08em]"
+                        className="text-[12px] font-medium"
                         style={{ color: getLifeGoalCategoryColor(group.goal.category, lifeGoalCategories) }}
                       >
-                        <span
-                          className="h-1.5 w-1.5 rounded-full"
-                          style={{ backgroundColor: getLifeGoalCategoryColor(group.goal.category, lifeGoalCategories) }}
-                        />
-                        {group.goal.title}
-                      </span>
-                      <span className="rounded-full border border-white/[0.08] bg-white/[0.03] px-2 py-0.5 text-[11px] text-white/52">
-                        {group.tasks.length}
+                        {group.goal.category || 'Uncategorized'}
                       </span>
                     </div>
-                    <div className="divide-y divide-white/[0.05]">
-                      {group.preview.map((task) => (
-                        <CompactTaskRow
-                          key={task.id}
-                          task={task}
-                          lifeGoals={safeLifeGoals}
-                          lifeGoalCategories={lifeGoalCategories}
-                          allTasks={safeTasks}
-                          selected={selectedTaskId === task.id}
-                          rowRef={selectedTaskId === task.id ? selectedTaskRowRef : undefined}
-                          onOpen={() => setSelectedTaskId(task.id)}
-                          onToggleComplete={() => toggleTaskCompletion(task.id)}
-                          onFocus={() => focusTask(task.id)}
-                          subdued
-                          list
-                        />
-                      ))}
+
+                    <div className="space-y-1">
+                      <div className="rounded-md px-2 py-1.5 transition-colors hover:bg-zinc-800/40">
+                        <p className="text-[13px] font-medium text-zinc-300">
+                          {group.goal.title}
+                        </p>
+
+                        {group.preview.length > 0 ? (
+                          <div className="mt-1 space-y-0.5">
+                            {group.preview.map((task) => (
+                              <div key={task.id} className="flex items-center gap-2">
+                                <DirectionalTaskBullet />
+                                <span className="text-[11px] text-zinc-500">
+                                  {task.text}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="mt-1 text-[11px] text-zinc-600">No current tasks</p>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )) : <p className="text-sm text-white/46">No directional tasks in this scope.</p>}
@@ -2127,16 +2576,17 @@ function CompactTaskRow({
             event.stopPropagation()
             onToggleComplete()
           }}
-          className={`mt-0.5 flex shrink-0 items-center justify-center rounded-full border text-[11px] ${
-            'h-5 w-5'
+          className={`mt-1 flex h-4 w-4 shrink-0 items-center justify-center border text-[9px] ${
+            list ? 'rounded-[6px]' : 'rounded-full'
           } ${
             task.completed
               ? 'border-[rgb(var(--theme-accent-rgb)/0.32)] bg-[rgb(var(--theme-accent-rgb)/0.12)] text-white'
               : list
-                ? 'border-white/[0.12] text-white/32'
+                ? 'border-white/[0.2] text-white/46'
                 : 'border-white/[0.14] text-white/38'
           }`}
           aria-label={task.completed ? 'Mark incomplete' : 'Mark complete'}
+          title={task.completed ? 'Mark incomplete' : 'Mark complete'}
         >
           {task.completed ? '✓' : ''}
         </button>
@@ -2146,11 +2596,30 @@ function CompactTaskRow({
               <p className={`truncate text-[15px] ${completed ? 'text-white/46 line-through' : 'text-white/86'}`}>
                 {task.text}
               </p>
-              <div className="mt-1 flex flex-wrap items-center gap-2 text-[12px] text-white/46">
-                {task.dueDate ? <span>{formatDateContextual(task.dueDate)}</span> : null}
-                {task.taskTag ? <MetaChip label={task.taskTag} /> : null}
-                {!flat && !list && linkDescriptor.label ? <span className="truncate text-white/42">{linkDescriptor.label}</span> : null}
-              </div>
+              {list ? (
+                task.dueDate || task.taskTag ? (
+                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]">
+                    {task.dueDate ? (
+                      <span className="inline-flex items-center gap-1.5 text-zinc-500">
+                        <CalendarGlyph />
+                        <span>{formatDateContextual(task.dueDate)}</span>
+                      </span>
+                    ) : null}
+                    {task.taskTag ? (
+                      <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 ${getTaskTagToneClassName(task.taskTag)}`}>
+                        <TagGlyph />
+                        <span>{task.taskTag}</span>
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null
+              ) : (
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-[12px] text-white/46">
+                  {task.dueDate ? <span>{formatDateContextual(task.dueDate)}</span> : null}
+                  {task.taskTag ? <MetaChip label={task.taskTag} /> : null}
+                  {!flat && !list && linkDescriptor.label ? <span className="truncate text-white/42">{linkDescriptor.label}</span> : null}
+                </div>
+              )}
             </div>
             {hideFocusAction || list ? null : (
               <button
@@ -2186,6 +2655,23 @@ function getGoalScannerRowStyle(
   }
 }
 
+function DirectionalCompassGlyph({ color }: { color: string }) {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true" className="shrink-0">
+      <circle cx="6" cy="6" r="4.5" stroke={color} strokeWidth="1.2" />
+      <path d="M7.9 4.1 6.8 6.8 4.1 7.9 5.2 5.2 7.9 4.1Z" fill={color} />
+    </svg>
+  )
+}
+
+function DirectionalTaskBullet() {
+  return (
+    <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true" className="shrink-0">
+      <circle cx="5" cy="5" r="3.5" stroke="currentColor" strokeWidth="1.2" className="text-zinc-700" />
+    </svg>
+  )
+}
+
 function GoalsPanelSection({
   title,
   children,
@@ -2212,6 +2698,77 @@ function GoalsControlIcon() {
       <circle cx="7.25" cy="11.75" r="1.35" fill="currentColor" />
     </svg>
   )
+}
+
+function ClockGlyph() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true" className="shrink-0 text-white/34">
+      <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.1" />
+      <path d="M6 3.4V6.1L7.9 7.2" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function ArrowRightGlyph() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 11 11" fill="none" aria-hidden="true" className="shrink-0">
+      <path d="M2.25 5.5H8.25" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+      <path d="M5.75 3 8.25 5.5 5.75 8" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function PlusIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M8 3V13" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <path d="M3 8H13" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function CalendarGlyph() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true" className="shrink-0 text-zinc-600">
+      <rect x="1.5" y="2.25" width="9" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.1" />
+      <path d="M3.25 1.5V3.1" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+      <path d="M8.75 1.5V3.1" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+      <path d="M1.5 4.25H10.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function TagGlyph() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true" className="shrink-0">
+      <path
+        d="M2 3.25C2 2.56 2.56 2 3.25 2H6.15C6.48 2 6.8 2.13 7.03 2.37L9.63 4.97C10.12 5.46 10.12 6.25 9.63 6.74L6.74 9.63C6.25 10.12 5.46 10.12 4.97 9.63L2.37 7.03C2.13 6.8 2 6.48 2 6.15V3.25Z"
+        stroke="currentColor"
+        strokeWidth="1.1"
+        strokeLinejoin="round"
+      />
+      <circle cx="4.1" cy="4.1" r="0.7" fill="currentColor" />
+    </svg>
+  )
+}
+
+function getTaskTagToneClassName(taskTag: string | null | undefined) {
+  switch (normalizeTaskTag(taskTag)) {
+    case 'admin':
+      return 'bg-slate-500/12 text-slate-300'
+    case 'reminder':
+      return 'bg-sky-500/12 text-sky-300'
+    case 'buy':
+      return 'bg-emerald-500/12 text-emerald-300'
+    case 'call':
+      return 'bg-violet-500/12 text-violet-300'
+    case 'book':
+      return 'bg-amber-500/12 text-amber-300'
+    case 'someday':
+      return 'bg-zinc-500/12 text-zinc-400'
+    default:
+      return 'bg-white/[0.04] text-white/58'
+  }
 }
 
 function InlineField({
@@ -2381,6 +2938,29 @@ function matchesGoalsColumnPriorityFilter(
 function compareUnassignedTasks(left: Task, right: Task) {
   if (left.updatedAt !== right.updatedAt) return (right.updatedAt ?? '').localeCompare(left.updatedAt ?? '')
   return right.order - left.order
+}
+
+function readTaskSuperPanelState(storageKey: string) {
+  if (typeof window === 'undefined') return {} as Record<string, unknown>
+
+  try {
+    const rawValue = window.localStorage.getItem(storageKey)
+    if (!rawValue) return {} as Record<string, unknown>
+    const parsed = JSON.parse(rawValue)
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : {}
+  } catch {
+    return {} as Record<string, unknown>
+  }
+}
+
+function writeTaskSuperPanelState(storageKey: string, value: Record<string, unknown>) {
+  if (typeof window === 'undefined') return
+
+  try {
+    window.localStorage.setItem(storageKey, JSON.stringify(value))
+  } catch {
+    // Ignore storage failures and keep the UI functional.
+  }
 }
 
 function getPriorityRank(priority: LifeGoalTaskPriority) {
