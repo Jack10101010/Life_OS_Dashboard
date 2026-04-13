@@ -1199,8 +1199,11 @@ export function GoalsPage({
   outcomeGoalCategoryFilter,
   directionalGoalCategoryFilter,
   selectedLifeGoalId,
+  goalDetailOrigin,
   onSelectLifeGoal,
   onChangeGoalsView,
+  onOpenDashboard,
+  onOpenTasks,
   onCreateHabitTracker,
   onCreateLifeGoal,
   onUpdateLifeGoal,
@@ -1225,8 +1228,11 @@ export function GoalsPage({
   outcomeGoalCategoryFilter: string | null
   directionalGoalCategoryFilter: string | null
   selectedLifeGoalId: string | null
+  goalDetailOrigin?: 'tasks' | null
   onSelectLifeGoal: (goalId: string | null) => void
   onChangeGoalsView: (view: GoalsView) => void
+  onOpenDashboard: () => void
+  onOpenTasks: () => void
   onCreateHabitTracker: (tracker: HabitTracker) => void
   onCreateLifeGoal: (goal: LifeGoal) => void
   onUpdateLifeGoal: (goalId: string, updater: (goal: LifeGoal) => LifeGoal) => void
@@ -5724,51 +5730,64 @@ export function GoalsPage({
 
 const renderLifeGoalOverviewPage = () => {
       return (
-        <LifeGoalOverviewPanel
-        lifeGoals={overviewLifeGoals}
-        categories={safeLifeGoalCategories}
-        tasks={safeTasks}
-        selectedGoalId={selectedLifeGoalId}
-        viewControls={goalOverviewViewControls}
-        onUpdateViewControls={(updater) =>
-          setGoalOverviewViewControls((current) => normalizeGoalOverviewViewControls(updater(current)))
-        }
-        onResetViewControls={() => setGoalOverviewViewControls(DEFAULT_GOAL_OVERVIEW_VIEW_CONTROLS)}
-        rowActions={goalOverviewRowActions}
-        onUpdateRowActions={(updater) =>
-          setGoalOverviewRowActions((current) => normalizeGoalOverviewRowActions(updater(current)))
-        }
-        onSelectGoal={(goalId) => {
-          onSelectLifeGoal(goalId)
-          setLifeGoalComposerOpen(false)
-          setLifeGoalActionFeedback(null)
-          onChangeGoalsView('life-detail')
-        }}
-        onUpdateLifeGoal={onUpdateLifeGoal}
-        onReorderLifeGoals={(updates) => {
-          updates.forEach(({ goalId, order }) => {
-            onUpdateLifeGoal(goalId, (current) => ({ ...current, order }))
-          })
-        }}
-        onArchiveLifeGoal={onArchiveLifeGoal}
-        onSetLifeGoalAsTodayTask={onSetLifeGoalAsTodayTask}
-        onOpenComposer={(trigger) => openLifeGoalComposer(trigger ?? undefined)}
-        onCloseComposer={closeLifeGoalComposer}
-        onResetComposerDraft={() => setLifeGoalDraft(createEmptyLifeGoalDraft())}
-        onOpenTaskPeek={(taskId, trigger) => openTaskPeek(taskId, trigger ?? undefined)}
-        onOpenNewTaskPeek={(trigger) => openNewTaskPeek(trigger ?? undefined)}
-        onOpenIconPicker={(goalId, trigger) => {
-          setInlineLifeGoalIconGoalId(goalId)
-          lifeGoalIconFieldRef.current = trigger as HTMLButtonElement | null
-          setLifeGoalIconPickerOpen(true)
-        }}
-        onRequestDeleteGoal={(goalId) => setDeleteGoalConfirmationTarget({ goalId, context: 'detail' })}
-        composerSlot={renderLifeGoalComposer()}
-        composerOpen={lifeGoalComposerOpen}
-        composerMode={lifeGoalComposerMode}
-        containScrollWithinElement={containScrollWithinElement}
-        renderLifeGoalIcon={renderLifeGoalIcon}
-      />
+        <div className="space-y-3">
+          <div className="flex min-w-0 items-center gap-2 px-1 text-sm">
+            <button
+              type="button"
+              onClick={onOpenDashboard}
+              className="truncate text-white/46 transition hover:text-white/72"
+            >
+              Life Dashboard
+            </button>
+            <span className="text-zinc-500">/</span>
+            <span className="truncate text-zinc-500">Goals</span>
+          </div>
+          <LifeGoalOverviewPanel
+            lifeGoals={overviewLifeGoals}
+            categories={safeLifeGoalCategories}
+            tasks={safeTasks}
+            selectedGoalId={selectedLifeGoalId}
+            viewControls={goalOverviewViewControls}
+            onUpdateViewControls={(updater) =>
+              setGoalOverviewViewControls((current) => normalizeGoalOverviewViewControls(updater(current)))
+            }
+            onResetViewControls={() => setGoalOverviewViewControls(DEFAULT_GOAL_OVERVIEW_VIEW_CONTROLS)}
+            rowActions={goalOverviewRowActions}
+            onUpdateRowActions={(updater) =>
+              setGoalOverviewRowActions((current) => normalizeGoalOverviewRowActions(updater(current)))
+            }
+            onSelectGoal={(goalId) => {
+              onSelectLifeGoal(goalId)
+              setLifeGoalComposerOpen(false)
+              setLifeGoalActionFeedback(null)
+              onChangeGoalsView('life-detail')
+            }}
+            onUpdateLifeGoal={onUpdateLifeGoal}
+            onReorderLifeGoals={(updates) => {
+              updates.forEach(({ goalId, order }) => {
+                onUpdateLifeGoal(goalId, (current) => ({ ...current, order }))
+              })
+            }}
+            onArchiveLifeGoal={onArchiveLifeGoal}
+            onSetLifeGoalAsTodayTask={onSetLifeGoalAsTodayTask}
+            onOpenComposer={(trigger) => openLifeGoalComposer(trigger ?? undefined)}
+            onCloseComposer={closeLifeGoalComposer}
+            onResetComposerDraft={() => setLifeGoalDraft(createEmptyLifeGoalDraft())}
+            onOpenTaskPeek={(taskId, trigger) => openTaskPeek(taskId, trigger ?? undefined)}
+            onOpenNewTaskPeek={(trigger) => openNewTaskPeek(trigger ?? undefined)}
+            onOpenIconPicker={(goalId, trigger) => {
+              setInlineLifeGoalIconGoalId(goalId)
+              lifeGoalIconFieldRef.current = trigger as HTMLButtonElement | null
+              setLifeGoalIconPickerOpen(true)
+            }}
+            onRequestDeleteGoal={(goalId) => setDeleteGoalConfirmationTarget({ goalId, context: 'detail' })}
+            composerSlot={renderLifeGoalComposer()}
+            composerOpen={lifeGoalComposerOpen}
+            composerMode={lifeGoalComposerMode}
+            containScrollWithinElement={containScrollWithinElement}
+            renderLifeGoalIcon={renderLifeGoalIcon}
+          />
+        </div>
     )
   }
 
@@ -5800,6 +5819,7 @@ const renderLifeGoalOverviewPage = () => {
       selectedGoalCategoryColor={selectedGoalCategoryColor}
       selectedGoalRuntimeTasks={selectedGoalTaskSource}
       goalRuntimeTaskMap={goalRuntimeTaskMap}
+      goalDetailOrigin={goalDetailOrigin}
       year={year}
       selectedRoadmapPanelActions={selectedRoadmapPanelActions}
       selectedRoadmapPanelUiState={selectedRoadmapPanelUiState}
@@ -5853,6 +5873,8 @@ const renderLifeGoalOverviewPage = () => {
       onArchiveLifeGoal={onArchiveLifeGoal}
       onChangeGoalsView={onChangeGoalsView}
       onSelectLifeGoal={onSelectLifeGoal}
+      onOpenDashboard={onOpenDashboard}
+      onOpenTasks={onOpenTasks}
       onSetLifeGoalAsTodayTask={onSetLifeGoalAsTodayTask}
       openEditLifeGoalComposer={openEditLifeGoalComposer}
       openMilestonePeek={openMilestonePeek}

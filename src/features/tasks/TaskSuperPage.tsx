@@ -8,6 +8,7 @@ import {
   getLifeGoalCategoryChipStyle,
   getLifeGoalCategoryChipTextStyle,
   getLifeGoalCategoryColor,
+  getLifeGoalCategoryColorTokenVariable,
   getLifeGoalCategoryDotStyle,
   getLifeGoalRowHighlightStyle,
   getTodayIsoDate,
@@ -19,10 +20,17 @@ type TaskSuperScope = 'today' | 'upcoming' | 'all-active'
 type TaskTimeFilter = 'all' | 'today' | 'overdue' | 'no-date' | 'scheduled'
 type TaskStatusFilter = 'open' | 'completed' | 'all'
 type TaskLinkMode = 'none' | 'goal' | 'direction'
-type GoalsColumnMode = 'next-task' | 'next-and-high-priority' | 'all-tasks'
+type GoalsColumnViewOptions = {
+  next: boolean
+  highPriority: boolean
+  dueSoon: boolean
+  allTasks: boolean
+  completed: boolean
+}
 type DirectionalPreviewMode = 'follow-scope' | 'all-active'
 type DirectionalFocusMode = 'off' | 'focus-only'
 type DirectionalSortMode = 'default' | 'most-active' | 'recently-updated'
+type GeneralSortMode = 'default' | 'due' | 'priority' | 'recently-added' | 'oldest-added'
 type CaptureScope =
   | { type: 'goal'; id: string; title: string }
   | { type: 'direction'; id: string; title: string }
@@ -37,7 +45,19 @@ type LinkDescriptor = {
   rowStyle?: CSSProperties
 }
 
-const DEFAULT_TASK_TAG_OPTIONS = ['buy', 'book', 'call', 'admin', 'reminder', 'someday'] as const
+const DEFAULT_TASK_TAG_OPTIONS = [
+  'admin',
+  'book',
+  'buy',
+  'call',
+  'health',
+  'mindset',
+  'build',
+  'plan',
+  'research',
+  'reminder',
+  'someday',
+] as const
 const GOAL_OVERVIEW_ROW_ACTIONS_STORAGE_KEY = 'goals-overview-row-actions-v1'
 const TASK_SUPER_GENERAL_PANEL_STORAGE_KEY = 'task-super-general-panel-v1'
 const TASK_SUPER_GOALS_PANEL_STORAGE_KEY = 'task-super-goals-panel-v1'
@@ -50,11 +70,18 @@ const SCOPE_OPTIONS: Array<{ id: TaskSuperScope; label: string }> = [
 const PRIORITY_OPTIONS: LifeGoalTaskPriority[] = ['none', 'low', 'medium', 'high']
 const FOCUS_COMPLETION_FEEDBACK_MS = 1800
 const TASK_GOALS_PANEL_SHELL_CLASSNAME =
-  'overflow-hidden rounded-[22px] border border-white/[0.06] bg-[rgb(var(--theme-surface-elevated-rgb))] p-3 shadow-[0_18px_40px_rgba(15,23,42,0.22)]'
+  'overflow-hidden rounded-[12px] border border-white/[0.06] bg-[rgb(var(--theme-surface-elevated-rgb))] p-3 shadow-[0_18px_40px_rgba(15,23,42,0.22)]'
 const TASK_GOALS_PANEL_PRIMARY_LABEL_CLASSNAME = 'text-[12px] text-[rgba(255,255,255,0.85)]'
 const TASK_GOALS_PANEL_SECONDARY_LABEL_CLASSNAME = 'text-[11px] text-[rgba(255,255,255,0.55)]'
 const TASK_GOALS_PANEL_SELECT_CLASSNAME =
   'h-9 w-full appearance-none rounded-[14px] border border-white/[0.1] bg-white/[0.06] px-3 pr-9 text-[13px] text-[rgba(255,255,255,0.75)] outline-none transition hover:border-white/[0.12] hover:bg-white/[0.08]'
+const DEFAULT_GOALS_COLUMN_VIEW_OPTIONS: GoalsColumnViewOptions = {
+  next: true,
+  highPriority: false,
+  dueSoon: false,
+  allTasks: false,
+  completed: true,
+}
 
 type CaptureDraft = {
   text: string
@@ -72,12 +99,16 @@ export function TaskSuperPage({
   lifeGoalCategories,
   onUpdateTasks,
   onAddCurrentFocusToTodayLog,
+  onOpenDashboard,
+  onOpenLifeGoal,
 }: {
   tasks: Task[]
   lifeGoals: LifeGoal[]
   lifeGoalCategories: LifeGoalCategoryDefinition[]
   onUpdateTasks: (updater: (current: Task[]) => Task[]) => void
   onAddCurrentFocusToTodayLog?: (task: Task) => void
+  onOpenDashboard?: () => void
+  onOpenLifeGoal?: (goalId: string) => void
 }) {
   const safeTasks = tasks ?? []
   const safeLifeGoals = lifeGoals ?? []
@@ -114,6 +145,9 @@ export function TaskSuperPage({
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null)
   const [preferredPanelLinkMode, setPreferredPanelLinkMode] = useState<TaskLinkMode | null>(null)
   const [pageControlsPanelOpen, setPageControlsPanelOpen] = useState(false)
+  const [showCurrentFocusStrip, setShowCurrentFocusStrip] = useState<boolean>(() =>
+    readTaskSuperPanelState(TASK_SUPER_GENERAL_PANEL_STORAGE_KEY).showCurrentFocusStrip ?? true,
+  )
   const [generalPanelOpen, setGeneralPanelOpen] = useState(false)
   const [generalShowSomeday, setGeneralShowSomeday] = useState<boolean>(() =>
     readTaskSuperPanelState(TASK_SUPER_GENERAL_PANEL_STORAGE_KEY).generalShowSomeday ?? true,
@@ -121,7 +155,11 @@ export function TaskSuperPage({
   const [generalShowLoadWarning, setGeneralShowLoadWarning] = useState<boolean>(() =>
     readTaskSuperPanelState(TASK_SUPER_GENERAL_PANEL_STORAGE_KEY).generalShowLoadWarning ?? true,
   )
+  const [generalSortMode, setGeneralSortMode] = useState<GeneralSortMode>(() =>
+    (readTaskSuperPanelState(TASK_SUPER_GENERAL_PANEL_STORAGE_KEY).generalSortMode as GeneralSortMode) ?? 'default',
+  )
   const [goalsPanelOpen, setGoalsPanelOpen] = useState(false)
+  const [goalsViewDropdownOpen, setGoalsViewDropdownOpen] = useState(false)
   const [directionsPanelOpen, setDirectionsPanelOpen] = useState(false)
   const [directionalPreviewMode, setDirectionalPreviewMode] = useState<DirectionalPreviewMode>(() =>
     readTaskSuperPanelState(TASK_SUPER_DIRECTIONS_PANEL_STORAGE_KEY).directionalPreviewMode ?? 'all-active',
@@ -135,14 +173,17 @@ export function TaskSuperPage({
   const [directionalHideEmpty, setDirectionalHideEmpty] = useState<boolean>(() =>
     readTaskSuperPanelState(TASK_SUPER_DIRECTIONS_PANEL_STORAGE_KEY).directionalHideEmpty ?? false,
   )
+  const [goalsColumnCategoryFilter, setGoalsColumnCategoryFilter] = useState<string>(() =>
+    (readTaskSuperPanelState(TASK_SUPER_GOALS_PANEL_STORAGE_KEY).goalsColumnCategoryFilter as string) ?? 'all',
+  )
   const [goalsColumnGoalFilter, setGoalsColumnGoalFilter] = useState<string>(() =>
     readTaskSuperPanelState(TASK_SUPER_GOALS_PANEL_STORAGE_KEY).goalsColumnGoalFilter ?? 'all',
   )
   const [goalsColumnPriorityFilter, setGoalsColumnPriorityFilter] = useState<LifeGoalTaskPriority | 'all'>(() =>
     readTaskSuperPanelState(TASK_SUPER_GOALS_PANEL_STORAGE_KEY).goalsColumnPriorityFilter ?? 'all',
   )
-  const [goalsColumnMode, setGoalsColumnMode] = useState<GoalsColumnMode>(() =>
-    readTaskSuperPanelState(TASK_SUPER_GOALS_PANEL_STORAGE_KEY).goalsColumnMode ?? 'next-task',
+  const [goalsColumnViewOptions, setGoalsColumnViewOptions] = useState<GoalsColumnViewOptions>(() =>
+    readGoalsColumnViewOptions(readTaskSuperPanelState(TASK_SUPER_GOALS_PANEL_STORAGE_KEY)),
   )
   const [goalsColumnHideEmpty, setGoalsColumnHideEmpty] = useState<boolean>(() =>
     readTaskSuperPanelState(TASK_SUPER_GOALS_PANEL_STORAGE_KEY).goalsColumnHideEmpty ?? false,
@@ -339,19 +380,22 @@ export function TaskSuperPage({
 
   useEffect(() => {
     writeTaskSuperPanelState(TASK_SUPER_GENERAL_PANEL_STORAGE_KEY, {
+      showCurrentFocusStrip,
       generalShowSomeday,
       generalShowLoadWarning,
+      generalSortMode,
     })
-  }, [generalShowLoadWarning, generalShowSomeday])
+  }, [generalShowLoadWarning, generalShowSomeday, generalSortMode, showCurrentFocusStrip])
 
   useEffect(() => {
     writeTaskSuperPanelState(TASK_SUPER_GOALS_PANEL_STORAGE_KEY, {
+      goalsColumnCategoryFilter,
       goalsColumnGoalFilter,
       goalsColumnPriorityFilter,
-      goalsColumnMode,
+      goalsColumnViewOptions,
       goalsColumnHideEmpty,
     })
-  }, [goalsColumnGoalFilter, goalsColumnHideEmpty, goalsColumnMode, goalsColumnPriorityFilter])
+  }, [goalsColumnCategoryFilter, goalsColumnGoalFilter, goalsColumnHideEmpty, goalsColumnPriorityFilter, goalsColumnViewOptions])
 
   useEffect(() => {
     writeTaskSuperPanelState(TASK_SUPER_DIRECTIONS_PANEL_STORAGE_KEY, {
@@ -655,19 +699,34 @@ export function TaskSuperPage({
         .filter((task) => !isSomedayTask(task))
         .filter((task) => !task.linkedGoalId && !task.linkedDirectionId)
         .slice()
-        .sort(compareExecutionTasks(todayIso)),
-    [safeTasks, todayIso],
+        .sort(compareGeneralTasks(generalSortMode, todayIso)),
+    [generalSortMode, safeTasks, todayIso],
   )
 
   const isAllGoalsMode = goalsColumnGoalFilter === 'all'
+  const outcomeGoalCategoryOptions = useMemo(
+    () => Array.from(new Set(orderedOutcomeGoals.map((goal) => goal.category.trim()).filter(Boolean))),
+    [orderedOutcomeGoals],
+  )
   const filteredGoalSet = useMemo(
-    () => orderedOutcomeGoals.filter((goal) => goalsColumnGoalFilter === 'all' || goal.id === goalsColumnGoalFilter),
-    [goalsColumnGoalFilter, orderedOutcomeGoals],
+    () =>
+      orderedOutcomeGoals.filter(
+        (goal) =>
+          (goalsColumnCategoryFilter === 'all' || goal.category.trim() === goalsColumnCategoryFilter) &&
+          (goalsColumnGoalFilter === 'all' || goal.id === goalsColumnGoalFilter),
+      ),
+    [goalsColumnCategoryFilter, goalsColumnGoalFilter, orderedOutcomeGoals],
   )
   const selectedGoalForColumn = useMemo(
     () => (!isAllGoalsMode ? orderedOutcomeGoals.find((goal) => goal.id === goalsColumnGoalFilter) ?? null : null),
     [goalsColumnGoalFilter, isAllGoalsMode, orderedOutcomeGoals],
   )
+
+  useEffect(() => {
+    if (goalsColumnGoalFilter !== 'all' && !filteredGoalSet.some((goal) => goal.id === goalsColumnGoalFilter)) {
+      setGoalsColumnGoalFilter('all')
+    }
+  }, [filteredGoalSet, goalsColumnGoalFilter])
 
   useEffect(() => {
     setGoalsColumnCompletedOpen(false)
@@ -679,9 +738,14 @@ export function TaskSuperPage({
     }
   }, [expandedOutcomeGoalId, filteredGoalSet])
 
+  useEffect(() => {
+    if (!goalsPanelOpen) setGoalsViewDropdownOpen(false)
+  }, [goalsPanelOpen])
+
   const scopedGoalGroups = useMemo(
     () => {
       const goalOrderIndex = new Map(filteredGoalSet.map((goal, index) => [goal.id, index]))
+      const tomorrowIso = shiftIsoDate(todayIso, 1)
 
       return filteredGoalSet
         .map((goal) => {
@@ -715,6 +779,10 @@ export function TaskSuperPage({
             .slice()
             .sort((left, right) => (right.completedAt ?? '').localeCompare(left.completedAt ?? ''))
           const nextTask = activeTasks[0] ?? scopedTasks[0] ?? null
+          const dueSoonTask =
+            activeTasks.find((task) => task.dueDate === todayIso && task.id !== nextTask?.id) ??
+            activeTasks.find((task) => task.dueDate === tomorrowIso && task.id !== nextTask?.id) ??
+            null
           const highPriorityPreviewTasks = activeTasks
             .filter((task) => task.priority === 'high')
             .filter((task) => task.id !== nextTask?.id)
@@ -728,10 +796,11 @@ export function TaskSuperPage({
             completedTasks,
             highPriorityPreviewTasks,
             nextTask,
+            dueSoonTask,
           }
         })
         .filter(({ allDefinedTasks }) => (goalsColumnHideEmpty ? allDefinedTasks.length > 0 : true))
-        .map(({ goal, activeTasks, allDefinedTasks, completedTasks, highPriorityPreviewTasks, nextTask }) => ({
+        .map(({ goal, activeTasks, allDefinedTasks, completedTasks, highPriorityPreviewTasks, nextTask, dueSoonTask }) => ({
           id: goal.id,
           goal,
           label: goal.title,
@@ -741,21 +810,25 @@ export function TaskSuperPage({
           allDefinedTaskCount: allDefinedTasks.length,
           highPriorityPreviewTasks,
           nextTask,
+          dueSoonTask,
           kind: 'goal' as const,
         }))
         .sort((left, right) => (goalOrderIndex.get(left.id) ?? 0) - (goalOrderIndex.get(right.id) ?? 0))
     },
-    [filteredGoalSet, goalsColumnHideEmpty, goalsColumnPriorityFilter, safeTasks, scopedActiveTasks],
+    [filteredGoalSet, goalsColumnHideEmpty, goalsColumnPriorityFilter, safeTasks, scopedActiveTasks, todayIso],
   )
 
   const goalsColumnSummary = useMemo(() => {
     const segments: string[] = []
-    const modeLabel =
-      goalsColumnMode === 'next-task'
-        ? 'Next task'
-        : goalsColumnMode === 'next-and-high-priority'
-          ? 'Next + high priority'
-          : 'All tasks'
+    const activeViewLabels = goalsColumnViewOptions.allTasks
+      ? ['All tasks', ...(goalsColumnViewOptions.completed ? ['Completed'] : [])]
+      : [
+          'Next task',
+          goalsColumnViewOptions.dueSoon ? 'Due soon' : null,
+          goalsColumnViewOptions.highPriority ? 'High priority' : null,
+          goalsColumnViewOptions.completed ? 'Completed' : null,
+        ].filter(Boolean) as string[]
+    const modeLabel = activeViewLabels.length > 0 ? activeViewLabels.join(' + ') : 'None'
 
     if (isAllGoalsMode) {
       segments.push('All goals')
@@ -769,20 +842,43 @@ export function TaskSuperPage({
       segments.push(`Priority: ${goalsColumnPriorityFilter === 'none' ? 'Low / None' : toLabel(goalsColumnPriorityFilter)}`)
     }
 
+    if (goalsColumnCategoryFilter !== 'all') {
+      segments.push(`Category: ${goalsColumnCategoryFilter}`)
+    }
+
     if (goalsColumnHideEmpty) {
       segments.push('Hide empty')
     }
 
     return segments.join(' · ')
-  }, [goalsColumnHideEmpty, goalsColumnMode, goalsColumnPriorityFilter, isAllGoalsMode, selectedGoalForColumn])
+  }, [goalsColumnCategoryFilter, goalsColumnHideEmpty, goalsColumnPriorityFilter, goalsColumnViewOptions, isAllGoalsMode, selectedGoalForColumn])
 
   const openGeneralQuickCapture = useCallback(() => {
-    setCaptureScope(null)
-    setCaptureExpanded(true)
-    window.requestAnimationFrame(() => {
-      quickCaptureInputRef.current?.focus()
-    })
-  }, [])
+    createTask(
+      {
+        ...createEmptyCaptureDraft(),
+        text: 'New task',
+      },
+      {
+        scope: null,
+      },
+    )
+  }, [createTask])
+
+  const addTaskForGoalFromOutcome = useCallback(
+    (goalId: string, goalTitle: string) => {
+      createTask(
+        {
+          ...createEmptyCaptureDraft(),
+          text: 'New task',
+        },
+        {
+          scope: { type: 'goal', id: goalId, title: goalTitle },
+        },
+      )
+    },
+    [createTask],
+  )
 
   const scopedDirectionGroups = useMemo(
     () => {
@@ -842,8 +938,8 @@ export function TaskSuperPage({
         .filter((task) => !task.completed)
         .filter((task) => isSomedayTask(task))
         .slice()
-        .sort(compareExecutionTasks(todayIso)),
-    [filteredTasks, todayIso],
+        .sort(compareGeneralTasks(generalSortMode, todayIso)),
+    [filteredTasks, generalSortMode, todayIso],
   )
 
   const activeFilterChips = useMemo(
@@ -863,23 +959,80 @@ export function TaskSuperPage({
     () => activeExecutionQueue.filter((task) => !focusedTask || task.id !== focusedTask.id).slice(0, 3),
     [activeExecutionQueue, focusedTask],
   )
+  const pageHeaderDate = useMemo(() => new Date(), [])
+  const pageGreeting = useMemo(() => getDashboardGreeting(pageHeaderDate, 'Jack'), [pageHeaderDate])
+  const dueTodayCount = useMemo(
+    () =>
+      safeTasks.filter((task) => !task.completed && !isSomedayTask(task) && task.dueDate === todayIso).length,
+    [safeTasks, todayIso],
+  )
+  const upcoming48HourCount = useMemo(
+    () =>
+      safeTasks.filter((task) => {
+        if (task.completed || isSomedayTask(task)) return false
+        const dueTimestamp = getTaskDueTimestamp(task)
+        if (dueTimestamp === null) return false
+        const now = pageHeaderDate.getTime()
+        const horizon = now + 48 * 60 * 60 * 1000
+        return dueTimestamp > now && dueTimestamp <= horizon
+      }).length,
+    [pageHeaderDate, safeTasks],
+  )
+  const upcomingWeekCount = useMemo(
+    () =>
+      safeTasks.filter((task) => {
+        if (task.completed || isSomedayTask(task)) return false
+        const dueTimestamp = getTaskDueTimestamp(task)
+        if (dueTimestamp === null) return false
+        const now = pageHeaderDate.getTime()
+        const horizon = now + 7 * 24 * 60 * 60 * 1000
+        return dueTimestamp > now && dueTimestamp <= horizon
+      }).length,
+    [pageHeaderDate, safeTasks],
+  )
+  const overdueTaskCount = useMemo(
+    () =>
+      safeTasks.filter((task) => !task.completed && !isSomedayTask(task) && Boolean(task.dueDate && task.dueDate < todayIso)).length,
+    [safeTasks, todayIso],
+  )
+  const completedThisWeekCount = useMemo(() => {
+    const weekStart = getStartOfWeek(pageHeaderDate)
+    return safeTasks.filter((task) => {
+      if (!task.completed || !task.completedAt) return false
+      const completedAt = new Date(task.completedAt)
+      return !Number.isNaN(completedAt.getTime()) && completedAt >= weekStart
+    }).length
+  }, [pageHeaderDate, safeTasks])
+  const pageSummaryLine = useMemo(() => {
+    const dateLabel = formatDashboardHeaderDate(pageHeaderDate)
+    if (dueTodayCount > 0) {
+      return `${dateLabel} — ${dueTodayCount} ${dueTodayCount === 1 ? 'task' : 'tasks'} due today`
+    }
+    if (upcoming48HourCount > 0) {
+      return `${dateLabel} — ${upcoming48HourCount} ${upcoming48HourCount === 1 ? 'task' : 'tasks'} coming up`
+    }
+    if (upcomingWeekCount > 0) {
+      return `${dateLabel} — ${upcomingWeekCount} ${upcomingWeekCount === 1 ? 'task' : 'tasks'} this week`
+    }
+    return `${dateLabel} — nothing scheduled`
+  }, [dueTodayCount, pageHeaderDate, upcoming48HourCount, upcomingWeekCount])
 
   return (
     <PageContainer width="page" className="-mx-2 pb-7 pt-2 sm:-mx-2 lg:-mx-3 2xl:-mx-4">
       <div className="mx-auto flex max-w-[1320px] flex-col gap-3.5">
-        <div className="relative flex items-center justify-between gap-3 px-1">
+        <div className="relative flex items-center justify-between gap-3 border-b border-white/[0.05] px-1 pb-3">
           <div className="min-w-0 flex items-center gap-2 text-sm">
             <button
               type="button"
               onClick={() => {
-                if (typeof window !== 'undefined') window.history.back()
+                onOpenDashboard?.()
               }}
               className="truncate text-white/46 transition hover:text-white/72"
             >
               Life Dashboard
             </button>
-            <span className="text-white/26">/</span>
-            <span className="truncate text-white/82">Priorities &amp; Tasks</span>
+            <span className="text-zinc-500">/</span>
+            <span className="truncate text-zinc-500">Priorities &amp; Tasks</span>
             {activeFilterChips.length > 0 ? (
               <span className="rounded-full border border-white/[0.08] bg-white/[0.03] px-2 py-0.5 text-[11px] text-white/52">
                 {activeFilterChips.join(' · ')}
@@ -1040,6 +1193,24 @@ export function TaskSuperPage({
 
                   <GoalsPanelSection title="Actions">
                     <div className="flex flex-wrap items-center gap-2">
+                      <label className="flex items-center justify-between gap-3 rounded-[14px] border border-white/[0.06] bg-white/[0.03] px-3 py-2.5 min-w-[220px]">
+                        <span className="text-[12px] text-[rgba(255,255,255,0.78)]">Show current focus</span>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={showCurrentFocusStrip}
+                          onClick={() => setShowCurrentFocusStrip((current) => !current)}
+                          className={`relative inline-flex h-6 w-11 items-center rounded-full border transition ${
+                            showCurrentFocusStrip
+                              ? 'border-[rgb(var(--theme-accent-rgb)/0.22)] bg-[rgb(var(--theme-accent-rgb)/0.16)]'
+                              : 'border-white/[0.08] bg-white/[0.04]'
+                          }`}
+                        >
+                          <span
+                            className={`inline-block h-4 w-4 rounded-full bg-white transition ${showCurrentFocusStrip ? 'translate-x-5' : 'translate-x-1'}`}
+                          />
+                        </button>
+                      </label>
                       <button
                         type="button"
                         onClick={clearFilters}
@@ -1055,138 +1226,157 @@ export function TaskSuperPage({
           </AnimatePresence>
         </div>
 
-        <Card className="overflow-hidden p-0" style={currentFocusLinkDescriptor?.rowStyle}>
-          <div className="px-3.5 py-2.5 sm:px-4 sm:py-3">
-            <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-[11px] uppercase tracking-[0.22em] text-white/38">Current Focus</p>
-                  <AnimatePresence initial={false}>
-                    {focusCompletionFeedback ? (
-                      <motion.div
-                        initial={{ opacity: 0, y: -4 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -4 }}
-                        className="inline-flex items-center gap-2 rounded-full border border-[rgb(var(--theme-accent-rgb)/0.18)] bg-[rgb(var(--theme-accent-rgb)/0.08)] px-3 py-1 text-[11px] text-[rgb(var(--theme-accent-rgb)/0.88)]"
-                      >
-                        <span className="font-medium text-white/88">{focusCompletionFeedback.taskText}</span>
-                        {focusCompletionFeedback.contextLabel ? <span>• {focusCompletionFeedback.contextLabel}</span> : null}
-                        {onAddCurrentFocusToTodayLog ? (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const completedTask = safeTasks.find((task) => task.id === focusCompletionFeedback.taskId)
-                              if (completedTask) onAddCurrentFocusToTodayLog(completedTask)
-                            }}
-                            className="rounded-full border border-white/[0.12] px-2 py-0.5 text-[11px] text-white/82 transition hover:bg-white/[0.06]"
-                          >
-                            Add to today&apos;s log
-                          </button>
-                        ) : null}
-                      </motion.div>
-                    ) : null}
-                  </AnimatePresence>
-                </div>
+        <div className="flex flex-col gap-3 px-1 lg:flex-row lg:items-end lg:justify-between">
+          <div className="min-w-0">
+            <h1 className="text-[22px] font-semibold tracking-[-0.02em] text-white">{pageGreeting}</h1>
+            <p className="mt-1 text-[15px] text-zinc-500">{pageSummaryLine}</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-5 text-[13px] text-zinc-500">
+            <div className="inline-flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-emerald-400/90" />
+              <span>{completedThisWeekCount} completed this week</span>
+            </div>
+            <div className="inline-flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full bg-amber-400/90" />
+              <span>{overdueTaskCount} overdue</span>
+            </div>
+          </div>
+        </div>
 
-                {focusedTask ? (
-                  <button
-                    type="button"
-                    onClick={() => setSelectedTaskId(focusedTask.id)}
-                    className="mt-1.5 flex min-w-0 flex-col items-start text-left"
-                  >
-                    <p className="truncate text-[16px] font-semibold tracking-[-0.02em] text-white">{focusedTask.text}</p>
-                    <div className="mt-1 flex flex-wrap items-center gap-2">
-                      {focusedTask.dueDate ? <MetaChip label={formatDateContextual(focusedTask.dueDate)} /> : null}
-                      {focusedTask.dueTime ? <MetaChip label={formatDueTime(focusedTask.dueTime)} /> : null}
-                      <PriorityPill priority={focusedTask.priority} />
-                      {focusedTask.taskTag ? <MetaChip label={focusedTask.taskTag} /> : null}
-                      {currentFocusLinkDescriptor?.label ? (
-                        <span
-                          className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs"
-                          style={{ ...currentFocusLinkDescriptor.chipStyle, ...currentFocusLinkDescriptor.chipTextStyle }}
+        {showCurrentFocusStrip ? (
+          <Card className="overflow-hidden rounded-[12px] p-0" style={currentFocusLinkDescriptor?.rowStyle}>
+            <div className="px-3.5 py-2.5 sm:px-4 sm:py-3">
+              <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-[11px] uppercase tracking-[0.22em] text-white/38">Current Focus</p>
+                    <AnimatePresence initial={false}>
+                      {focusCompletionFeedback ? (
+                        <motion.div
+                          initial={{ opacity: 0, y: -4 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -4 }}
+                          className="inline-flex items-center gap-2 rounded-full border border-[rgb(var(--theme-accent-rgb)/0.18)] bg-[rgb(var(--theme-accent-rgb)/0.08)] px-3 py-1 text-[11px] text-[rgb(var(--theme-accent-rgb)/0.88)]"
                         >
-                          <span className="h-1.5 w-1.5 rounded-full" style={currentFocusLinkDescriptor.dotStyle} />
-                          {currentFocusLinkDescriptor.label}
-                          {currentFocusLinkDescriptor.quiet ? <span className="text-white/42">• quiet</span> : null}
-                        </span>
+                          <span className="font-medium text-white/88">{focusCompletionFeedback.taskText}</span>
+                          {focusCompletionFeedback.contextLabel ? <span>• {focusCompletionFeedback.contextLabel}</span> : null}
+                          {onAddCurrentFocusToTodayLog ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const completedTask = safeTasks.find((task) => task.id === focusCompletionFeedback.taskId)
+                                if (completedTask) onAddCurrentFocusToTodayLog(completedTask)
+                              }}
+                              className="rounded-full border border-white/[0.12] px-2 py-0.5 text-[11px] text-white/82 transition hover:bg-white/[0.06]"
+                            >
+                              Add to today&apos;s log
+                            </button>
+                          ) : null}
+                        </motion.div>
                       ) : null}
-                    </div>
-                  </button>
-                ) : scope === 'today' && todayExecutionTasks.length === 0 ? (
-                  <form onSubmit={submitFocusPrompt} className="mt-1.5 flex flex-col gap-2 sm:flex-row">
-                    <input
-                      value={focusPromptDraft}
-                      onChange={(event) => setFocusPromptDraft(event.target.value)}
-                      placeholder="What's the one thing you're doing today?"
-                      className="min-w-0 flex-1 rounded-2xl border border-white/[0.08] bg-[#161616] px-4 py-2.5 text-sm text-white outline-none transition placeholder:text-white/26 focus:border-white/[0.14] focus:bg-[#1b1b1b]"
-                    />
-                    <button
-                      type="submit"
-                      className="rounded-2xl border border-[rgb(var(--theme-accent-rgb)/0.18)] bg-[rgb(var(--theme-accent-rgb)/0.12)] px-4 py-2.5 text-sm font-medium text-white transition hover:bg-[rgb(var(--theme-accent-rgb)/0.18)]"
-                    >
-                      Create & focus
-                    </button>
-                  </form>
-                ) : (
-                  <div className="mt-1.5 flex flex-wrap gap-2">
-                    {todayExecutionTasks.slice(0, 3).map((task) => (
-                      <button
-                        key={task.id}
-                        type="button"
-                        onClick={() => focusTask(task.id)}
-                        className="rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-xs text-white/72 transition hover:bg-white/[0.05] hover:text-white"
-                      >
-                        Focus {task.text}
-                      </button>
-                    ))}
+                    </AnimatePresence>
                   </div>
-                )}
-              </div>
 
-              <div className="flex shrink-0 flex-wrap items-center gap-2">
-                {focusedTask ? (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => toggleTaskCompletion(focusedTask.id)}
-                      className="rounded-full border border-[rgb(var(--theme-accent-rgb)/0.18)] bg-[rgb(var(--theme-accent-rgb)/0.12)] px-4 py-2 text-sm font-medium text-white transition hover:bg-[rgb(var(--theme-accent-rgb)/0.18)]"
-                    >
-                      Complete
-                    </button>
+                  {focusedTask ? (
                     <button
                       type="button"
                       onClick={() => setSelectedTaskId(focusedTask.id)}
-                      className="rounded-full border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-sm text-white/72 transition hover:bg-white/[0.05] hover:text-white"
+                      className="mt-1.5 flex min-w-0 flex-col items-start text-left"
                     >
-                      Open
+                      <p className="truncate text-[16px] font-semibold tracking-[-0.02em] text-white">{focusedTask.text}</p>
+                      <div className="mt-1 flex flex-wrap items-center gap-2">
+                        {focusedTask.dueDate ? <MetaChip label={formatDateContextual(focusedTask.dueDate)} /> : null}
+                        {focusedTask.dueTime ? <MetaChip label={formatDueTime(focusedTask.dueTime)} /> : null}
+                        <PriorityPill priority={focusedTask.priority} />
+                        {focusedTask.taskTag ? <MetaChip label={focusedTask.taskTag} /> : null}
+                        {currentFocusLinkDescriptor?.label ? (
+                          <span
+                            className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs"
+                            style={{ ...currentFocusLinkDescriptor.chipStyle, ...currentFocusLinkDescriptor.chipTextStyle }}
+                          >
+                            <span className="h-1.5 w-1.5 rounded-full" style={currentFocusLinkDescriptor.dotStyle} />
+                            {currentFocusLinkDescriptor.label}
+                            {currentFocusLinkDescriptor.quiet ? <span className="text-white/42">• quiet</span> : null}
+                          </span>
+                        ) : null}
+                      </div>
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => rescheduleTask(focusedTask.id, 1)}
-                      className="rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-xs text-white/64 transition hover:bg-white/[0.05] hover:text-white"
-                    >
-                      Tomorrow
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => rescheduleTask(focusedTask.id, 7)}
-                      className="rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-xs text-white/64 transition hover:bg-white/[0.05] hover:text-white"
-                    >
-                      Next week
-                    </button>
-                  </>
-                ) : null}
+                  ) : scope === 'today' && todayExecutionTasks.length === 0 ? (
+                    <form onSubmit={submitFocusPrompt} className="mt-1.5 flex flex-col gap-2 sm:flex-row">
+                      <input
+                        value={focusPromptDraft}
+                        onChange={(event) => setFocusPromptDraft(event.target.value)}
+                        placeholder="What's the one thing you're doing today?"
+                        className="min-w-0 flex-1 rounded-2xl border border-white/[0.08] bg-[#161616] px-4 py-2.5 text-sm text-white outline-none transition placeholder:text-white/26 focus:border-white/[0.14] focus:bg-[#1b1b1b]"
+                      />
+                      <button
+                        type="submit"
+                        className="rounded-2xl border border-[rgb(var(--theme-accent-rgb)/0.18)] bg-[rgb(var(--theme-accent-rgb)/0.12)] px-4 py-2.5 text-sm font-medium text-white transition hover:bg-[rgb(var(--theme-accent-rgb)/0.18)]"
+                      >
+                        Create & focus
+                      </button>
+                    </form>
+                  ) : (
+                    <div className="mt-1.5 flex flex-wrap gap-2">
+                      {todayExecutionTasks.slice(0, 3).map((task) => (
+                        <button
+                          key={task.id}
+                          type="button"
+                          onClick={() => focusTask(task.id)}
+                          className="rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1.5 text-xs text-white/72 transition hover:bg-white/[0.05] hover:text-white"
+                        >
+                          Focus {task.text}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex shrink-0 flex-wrap items-center gap-2">
+                  {focusedTask ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => toggleTaskCompletion(focusedTask.id)}
+                        className="rounded-full border border-[rgb(var(--theme-accent-rgb)/0.18)] bg-[rgb(var(--theme-accent-rgb)/0.12)] px-4 py-2 text-sm font-medium text-white transition hover:bg-[rgb(var(--theme-accent-rgb)/0.18)]"
+                      >
+                        Complete
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedTaskId(focusedTask.id)}
+                        className="rounded-full border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-sm text-white/72 transition hover:bg-white/[0.05] hover:text-white"
+                      >
+                        Open
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => rescheduleTask(focusedTask.id, 1)}
+                        className="rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-xs text-white/64 transition hover:bg-white/[0.05] hover:text-white"
+                      >
+                        Tomorrow
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => rescheduleTask(focusedTask.id, 7)}
+                        className="rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-xs text-white/64 transition hover:bg-white/[0.05] hover:text-white"
+                      >
+                        Next week
+                      </button>
+                    </>
+                  ) : null}
+                </div>
               </div>
             </div>
-          </div>
-        </Card>
+          </Card>
+        ) : null}
 
         {!executionMode ? (
-          <SectionCard compact className="border-white/[0.06] bg-white/[0.015] p-3.5 sm:p-4">
+          <SectionCard compact className="rounded-[12px] border-white/[0.06] bg-white/[0.015] p-3.5 sm:p-4">
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <ClockGlyph />
-                <p className="text-[11px] uppercase tracking-[0.22em] text-white/38">Coming Up</p>
+                <p className="text-[11px] uppercase tracking-[0.22em] text-zinc-500">Coming Up</p>
               </div>
               <button
                 type="button"
@@ -1194,7 +1384,7 @@ export function TaskSuperPage({
                   setScope('upcoming')
                   setComingUpSelectedDate(null)
                 }}
-                className="inline-flex items-center gap-1 text-[12px] text-white/46 transition hover:text-white/72"
+                className="inline-flex items-center gap-1 text-[12px] text-zinc-500 transition hover:text-zinc-400"
               >
                 <span>View all</span>
                 <ArrowRightGlyph />
@@ -1206,23 +1396,19 @@ export function TaskSuperPage({
                   {comingUpStripTasks.map((task) => {
                     const linkedEntity = goalById.get(task.linkedGoalId ?? task.linkedDirectionId ?? '') ?? null
                     const dotColor = linkedEntity
-                      ? getLifeGoalCategoryColor(linkedEntity.category, lifeGoalCategories)
+                      ? resolveLifeGoalCategoryCssColor(getLifeGoalCategoryColor(linkedEntity.category, lifeGoalCategories))
                       : 'rgba(255,255,255,0.38)'
-                    const timingLabel = task.dueDate
-                      ? task.dueTime
-                        ? `${formatDateContextual(task.dueDate)}, ${formatDueTime(task.dueTime)}`
-                        : formatDateContextual(task.dueDate)
-                      : 'No date'
+                    const timingLabel = task.dueDate ? formatComingUpTimingLabel(task.dueDate, task.dueTime, todayIso) : 'No date'
 
                     return (
                       <button
                         key={task.id}
                         type="button"
                         onClick={() => setSelectedTaskId(task.id)}
-                        className="flex min-w-[220px] items-center gap-2.5 rounded-[16px] border border-white/[0.06] bg-white/[0.03] px-3 py-2 text-left transition hover:bg-white/[0.05]"
+                        className="flex min-w-[220px] items-center gap-2.5 rounded-[10px] border border-white/[0.06] bg-white/[0.03] px-3 py-2 text-left transition hover:bg-white/[0.05]"
                       >
-                        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: dotColor }} />
-                        <span className="min-w-0 flex-1 truncate text-[13px] text-white/74">{task.text}</span>
+                        <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: dotColor }} />
+                        <span className="min-w-0 flex-1 truncate text-[13px] text-zinc-400">{task.text}</span>
                         <span className="shrink-0 rounded-full bg-white/[0.05] px-2 py-0.5 text-[11px] text-white/46">
                           {timingLabel}
                         </span>
@@ -1238,7 +1424,7 @@ export function TaskSuperPage({
         ) : null}
 
         {executionMode ? (
-          <SectionCard compact className="space-y-3 p-3.5 sm:p-4">
+          <SectionCard compact className="rounded-[12px] space-y-3 p-3.5 sm:p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-[11px] uppercase tracking-[0.24em] text-white/38">Execution queue</p>
@@ -1271,12 +1457,12 @@ export function TaskSuperPage({
           </SectionCard>
         ) : (
           <section className="grid gap-3 xl:grid-cols-3">
-            <SectionCard compact className="flex h-[560px] min-h-0 flex-col border-white/[0.06] bg-white/[0.015] p-3.5 sm:p-4">
+            <SectionCard compact className="rounded-[12px] flex h-[560px] min-h-0 flex-col border-white/[0.06] bg-white/[0.015] p-3.5 sm:p-4">
               <div className="relative mb-3">
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
-                    <p className="text-[11px] uppercase tracking-[0.22em] text-white/38">General Tasks</p>
-                    <span className="rounded-full border border-white/[0.08] bg-white/[0.03] px-2 py-0.5 text-[11px] text-white/52">
+                    <p className="text-[11px] uppercase tracking-[0.22em] text-zinc-500">General Tasks</p>
+                    <span className="rounded-full border border-white/[0.08] bg-white/[0.03] px-2 py-0.5 text-[11px] text-zinc-500">
                       {scopedGeneralTasks.length}
                     </span>
                   </div>
@@ -1313,6 +1499,20 @@ export function TaskSuperPage({
                       <div className="grid gap-3">
                         <GoalsPanelSection title="Display">
                           <div className="grid gap-3">
+                            <label className="flex items-center justify-between gap-5">
+                              <span className="text-[12px] text-[rgba(255,255,255,0.78)]">Sort</span>
+                              <select
+                                value={generalSortMode}
+                                onChange={(event) => setGeneralSortMode(event.target.value as GeneralSortMode)}
+                                className={`${TASK_GOALS_PANEL_SELECT_CLASSNAME} w-[min(220px,58%)] shrink-0`}
+                              >
+                                <option value="default">Default</option>
+                                <option value="due">Due</option>
+                                <option value="priority">Priority</option>
+                                <option value="recently-added">Recently added</option>
+                                <option value="oldest-added">Oldest added</option>
+                              </select>
+                            </label>
                             <label className="flex items-center justify-between gap-3">
                               <span className="text-[12px] text-[rgba(255,255,255,0.78)]">Show someday tasks</span>
                               <button
@@ -1358,7 +1558,7 @@ export function TaskSuperPage({
               </div>
               <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
                 {generalShowLoadWarning && scope === 'today' && scopedActiveTasks.length > 5 ? (
-                  <div className="rounded-[16px] border border-[rgb(var(--theme-warning-rgb)/0.18)] bg-[rgb(var(--theme-warning-rgb)/0.08)] px-3 py-2 text-sm text-[rgb(var(--theme-warning-rgb)/0.88)]">
+                  <div className="rounded-[10px] border border-[rgb(var(--theme-warning-rgb)/0.18)] bg-[rgb(var(--theme-warning-rgb)/0.08)] px-3 py-2 text-sm text-[rgb(var(--theme-warning-rgb)/0.88)]">
                     You&apos;ve got too much on today — trim this down
                   </div>
                 ) : null}
@@ -1413,12 +1613,12 @@ export function TaskSuperPage({
               </div>
             </SectionCard>
 
-            <SectionCard compact className="flex h-[560px] min-h-0 flex-col border-[rgb(var(--theme-accent-rgb)/0.08)] bg-[linear-gradient(180deg,rgba(var(--theme-accent-rgb),0.025),rgba(255,255,255,0.012))] p-3.5 sm:p-4">
+            <SectionCard compact className="rounded-[12px] flex h-[560px] min-h-0 flex-col border-[rgb(var(--theme-accent-rgb)/0.08)] bg-[linear-gradient(180deg,rgba(var(--theme-accent-rgb),0.025),rgba(255,255,255,0.012))] p-3.5 sm:p-4">
               <div className="relative mb-3 space-y-2">
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
-                    <p className="text-[11px] uppercase tracking-[0.22em] text-white/38">Outcome Goals</p>
-                    <span className="rounded-full border border-white/[0.08] bg-white/[0.03] px-2 py-0.5 text-[11px] text-white/52">
+                    <p className="text-[11px] uppercase tracking-[0.22em] text-zinc-500">Outcome Goals</p>
+                    <span className="rounded-full border border-white/[0.08] bg-white/[0.03] px-2 py-0.5 text-[11px] text-zinc-500">
                       {scopedGoalGroups.length}
                     </span>
                   </div>
@@ -1437,7 +1637,7 @@ export function TaskSuperPage({
                   {goalsPanelOpen ? (
                     <motion.aside
                       ref={goalsPanelRef}
-                      className={`absolute right-0 top-[calc(100%+10px)] z-[40] w-[344px] max-w-[calc(100vw-48px)] ${TASK_GOALS_PANEL_SHELL_CLASSNAME}`}
+                      className={`absolute right-0 top-[calc(100%+10px)] z-[40] w-[304px] max-w-[calc(100vw-40px)] origin-top-right ${TASK_GOALS_PANEL_SHELL_CLASSNAME}`}
                       initial={{ opacity: 0, x: 12, y: -6 }}
                       animate={{ opacity: 1, x: 0, y: 0 }}
                       exit={{ opacity: 0, x: 12, y: -6 }}
@@ -1447,12 +1647,26 @@ export function TaskSuperPage({
                         <GoalsPanelSection title="Filters">
                           <div className="grid gap-4">
                             <label className="flex items-center justify-between gap-5">
+                              <span className="text-[12px] text-[rgba(255,255,255,0.78)]">Category</span>
+                              <select
+                                value={goalsColumnCategoryFilter}
+                                onChange={(event) => setGoalsColumnCategoryFilter(event.target.value)}
+                                className={`${TASK_GOALS_PANEL_SELECT_CLASSNAME} w-[min(308px,58%)] shrink-0`}
+                              >
+                                <option value="all">All categories</option>
+                                {outcomeGoalCategoryOptions.map((category) => (
+                                  <option key={category} value={category}>
+                                    {category}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <label className="flex items-center justify-between gap-5">
                               <span className="text-[12px] text-[rgba(255,255,255,0.78)]">Goal</span>
                               <select
                                 value={goalsColumnGoalFilter}
                                 onChange={(event) => {
                                   setGoalsColumnGoalFilter(event.target.value)
-                                  setGoalsColumnMode(event.target.value === 'all' ? 'next-task' : 'all-tasks')
                                 }}
                                 className={`${TASK_GOALS_PANEL_SELECT_CLASSNAME} w-[min(308px,58%)] shrink-0`}
                               >
@@ -1477,36 +1691,63 @@ export function TaskSuperPage({
                                 <option value="none">Low / None</option>
                               </select>
                             </label>
-                            <div className="flex items-center justify-between gap-5">
-                              <span className="text-[12px] text-[rgba(255,255,255,0.78)]">Mode</span>
-                              <div className="inline-flex rounded-full border border-white/[0.08] bg-white/[0.03] p-1">
+                            <div className="items-start justify-between gap-5 sm:flex">
+                              <span className="pt-1 text-[12px] text-[rgba(255,255,255,0.78)]">View</span>
+                              <div className="mt-2 w-full shrink-0 sm:mt-0 sm:w-[min(264px,58%)]">
                                 <button
                                   type="button"
-                                  onClick={() => setGoalsColumnMode('next-task')}
-                                  className={`rounded-full px-2.5 py-1 text-[11px] transition ${
-                                    goalsColumnMode === 'next-task' ? 'bg-white/[0.08] text-white' : 'text-white/54 hover:text-white/74'
-                                  }`}
+                                  onClick={() => setGoalsViewDropdownOpen((current) => !current)}
+                                  className={`${TASK_GOALS_PANEL_SELECT_CLASSNAME} flex h-auto min-h-9 items-center justify-between pr-3 text-left`}
                                 >
-                                  Next task
+                                  <span className="truncate">
+                                    {goalsColumnViewOptions.allTasks
+                                      ? 'All tasks'
+                                      : [
+                                          goalsColumnViewOptions.next ? 'Next task' : null,
+                                          goalsColumnViewOptions.highPriority ? 'High priority' : null,
+                                          goalsColumnViewOptions.dueSoon ? 'Due soon' : null,
+                                          goalsColumnViewOptions.completed ? 'Completed' : null,
+                                        ].filter(Boolean).join(', ') || 'Select views'}
+                                  </span>
+                                  <span className={`ml-3 shrink-0 text-white/42 transition-transform ${goalsViewDropdownOpen ? 'rotate-180' : ''}`}>
+                                    ▾
+                                  </span>
                                 </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setGoalsColumnMode('next-and-high-priority')}
-                                  className={`rounded-full px-2.5 py-1 text-[11px] transition ${
-                                    goalsColumnMode === 'next-and-high-priority' ? 'bg-white/[0.08] text-white' : 'text-white/54 hover:text-white/74'
-                                  }`}
-                                >
-                                  Next + high priority
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setGoalsColumnMode('all-tasks')}
-                                  className={`rounded-full px-2.5 py-1 text-[11px] transition ${
-                                    goalsColumnMode === 'all-tasks' ? 'bg-white/[0.08] text-white' : 'text-white/54 hover:text-white/74'
-                                  }`}
-                                >
-                                  All tasks
-                                </button>
+                                {goalsViewDropdownOpen ? (
+                                  <div className="mt-2 w-full rounded-[14px] border border-white/[0.08] bg-[rgb(var(--theme-surface-elevated-rgb))] p-1.5">
+                                    {([
+                                      ['dueSoon', 'Due soon'],
+                                      ['highPriority', 'High priority'],
+                                      ['allTasks', 'All tasks'],
+                                      ['completed', 'Completed'],
+                                    ] as const).map(([key, label]) => {
+                                      const isActive = goalsColumnViewOptions[key]
+
+                                      return (
+                                        <button
+                                          key={key}
+                                          type="button"
+                                          onClick={() =>
+                                            setGoalsColumnViewOptions((current) => ({
+                                              ...current,
+                                              [key]: !current[key],
+                                            }))
+                                          }
+                                          className="flex w-full items-center gap-2 rounded-[10px] px-2 py-1.5 text-left text-[11px] text-white/70 transition hover:bg-white/[0.04] hover:text-white"
+                                        >
+                                          <span
+                                            className={`flex h-3.5 w-3.5 items-center justify-center rounded-[4px] border text-[9px] ${
+                                              isActive ? 'border-white/28 bg-white/[0.08] text-white/88' : 'border-white/[0.12] text-transparent'
+                                            }`}
+                                          >
+                                            ✓
+                                          </span>
+                                          <span className="flex-1">{label}</span>
+                                        </button>
+                                      )
+                                    })}
+                                  </div>
+                                ) : null}
                               </div>
                             </div>
                             <label className="flex items-center justify-between gap-3">
@@ -1538,47 +1779,117 @@ export function TaskSuperPage({
               <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1">
                 {scopedGoalGroups.length > 0 ? scopedGoalGroups.map((group) => {
                   const isExpanded = expandedOutcomeGoalId === group.id
-                  const visibleTasks =
-                    goalsColumnMode === 'all-tasks'
-                      ? group.tasks
-                      : goalsColumnMode === 'next-and-high-priority'
-                        ? [
-                            ...group.tasks.slice(0, 1),
-                            ...group.highPriorityPreviewTasks.filter(
-                              (task) => !group.tasks.slice(0, 1).some((candidate) => candidate.id === task.id),
-                            ),
-                          ]
-                        : group.tasks.slice(0, 1)
-                  const additionalHighPriorityTaskIds = new Set(group.highPriorityPreviewTasks.map((task) => task.id))
+                  const isAllTasksView = goalsColumnViewOptions.allTasks
+                  const nextTaskLabel =
+                    group.nextTask?.dueDate && group.nextTask.dueDate < todayIso
+                      ? `Overdue: ${group.nextTask.text}`
+                      : group.nextTask?.dueDate === todayIso
+                        ? `Due today: ${group.nextTask.text}`
+                        : group.nextTask?.dueDate === shiftIsoDate(todayIso, 1)
+                          ? `Due tomorrow: ${group.nextTask.text}`
+                          : group.nextTask
+                            ? `Next: ${group.nextTask.text}`
+                            : 'No open tasks'
+                  const dueSoonLabel =
+                    group.dueSoonTask?.dueDate === todayIso ? 'Due today' : group.dueSoonTask?.dueDate === shiftIsoDate(todayIso, 1) ? 'Tomorrow' : null
+                  const collapsedDueSoonTask =
+                    !isAllTasksView && goalsColumnViewOptions.dueSoon ? group.dueSoonTask : null
+                  const collapsedHighPriorityPreviewTasks =
+                    !isAllTasksView && goalsColumnViewOptions.highPriority
+                      ? group.highPriorityPreviewTasks.filter((task) => task.id !== collapsedDueSoonTask?.id)
+                      : []
+                  const orderedVisibleTasks = buildGoalsColumnVisibleTasks(group.tasks, {
+                    nextEnabled: true,
+                    dueSoonEnabled: goalsColumnViewOptions.dueSoon,
+                    highPriorityEnabled: goalsColumnViewOptions.highPriority,
+                    allTasksEnabled: goalsColumnViewOptions.allTasks,
+                    nextTask: group.nextTask,
+                    dueSoonTask: group.dueSoonTask,
+                    highPriorityTasks: group.highPriorityPreviewTasks,
+                  })
+                  const visibleTasks = orderedVisibleTasks
+                  const additionalHighPriorityTaskIds = new Set(
+                    !isAllTasksView && goalsColumnViewOptions.highPriority ? group.highPriorityPreviewTasks.map((task) => task.id) : [],
+                  )
                   const goalColor = getLifeGoalCategoryColor(group.goal.category, lifeGoalCategories)
+                  const goalAccentColor = resolveLifeGoalCategoryCssColor(goalColor)
+                  const goalHairlineColor = resolveLifeGoalCategoryCssColor(goalColor, 0.72)
+                  const milestoneTitleById = new Map(
+                    (group.goal.milestones ?? []).map((milestone) => [milestone.id, milestone.title.trim() || 'Untitled milestone']),
+                  )
+                  const orderedMilestones = (group.goal.milestones ?? []).slice().sort((left, right) => left.order - right.order)
+                  const allTaskMilestoneGroups =
+                    isAllTasksView
+                      ? orderedMilestones
+                          .map((milestone) => ({
+                            milestoneId: milestone.id,
+                            label: milestone.title.trim() || 'Untitled milestone',
+                            tasks: visibleTasks.filter((task) => task.milestoneId === milestone.id),
+                          }))
+                          .filter((milestoneGroup) => milestoneGroup.tasks.length > 0)
+                      : []
+                  const ungroupedVisibleTasks =
+                    isAllTasksView
+                      ? visibleTasks.filter((task) => !task.milestoneId || !milestoneTitleById.has(task.milestoneId))
+                      : visibleTasks
 
                   return (
                     <div
                       key={group.id}
-                      className="rounded-lg border-l-2 border-transparent transition-all duration-200"
-                      style={{ borderLeftColor: goalColor }}
+                      className="rounded-lg rounded-l-[12px] border-l-2 border-t border-b border-transparent transition-all duration-200"
+                      style={{
+                        borderLeftColor: goalAccentColor,
+                        boxShadow: isExpanded
+                          ? `inset 0 0.5px 0 ${goalHairlineColor}, inset 0 -0.5px 0 ${goalHairlineColor}`
+                          : 'none',
+                      }}
                     >
-                      <button
-                        type="button"
+                      <div
+                        role="button"
+                        tabIndex={0}
                         onClick={() => setExpandedOutcomeGoalId(isExpanded ? null : group.id)}
-                        className="w-full rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-zinc-800/40"
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault()
+                            setExpandedOutcomeGoalId(isExpanded ? null : group.id)
+                          }
+                        }}
+                        className="w-full rounded-lg rounded-l-[12px] px-3 py-2.5 text-left transition-colors hover:bg-zinc-800/40"
                       >
                         <div className="flex items-center justify-between">
-                          <div className="flex min-w-0 items-center gap-2">
+                          <div className="flex min-w-0 items-start gap-2">
                             <span
-                              className="flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full border-2 border-white/20"
+                              className="mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full border"
+                              style={{ borderColor: goalAccentColor }}
+                              aria-hidden="true"
                             >
                               <span
-                                className="h-2 w-2 rounded-full"
-                                style={{ backgroundColor: goalColor }}
+                                className="h-1.5 w-1.5 rounded-full border"
+                                style={{ borderColor: goalAccentColor }}
                               />
                             </span>
-                            <span className="truncate text-[14px] font-medium text-zinc-100">
-                              {group.label}
-                            </span>
+                            <div className="min-w-0">
+                              <div className="flex min-w-0 items-center gap-1.5">
+                                <span className="block truncate text-[14px] font-medium text-zinc-100">
+                                  {group.label}
+                                </span>
+                              </div>
+                            </div>
                           </div>
 
                           <div className="ml-2 flex flex-shrink-0 items-center gap-2">
+                            {isExpanded && onOpenLifeGoal ? (
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  onOpenLifeGoal(group.id)
+                                }}
+                                className="rounded-full border border-white/[0.06] bg-white/[0.02] px-1.5 py-0 text-[9px] uppercase tracking-[0.08em] text-zinc-500 transition hover:text-zinc-300"
+                              >
+                                Open goal
+                              </button>
+                            ) : null}
                             <span className="rounded-full bg-zinc-800/80 px-1.5 py-0.5 text-[10px] text-zinc-600">
                               {group.tasks.length}
                             </span>
@@ -1589,16 +1900,28 @@ export function TaskSuperPage({
                         </div>
 
                         {!isExpanded ? (
-                          <div className="mt-1 pl-[22px]">
-                            <p className="truncate text-[11px] text-zinc-500">
-                              {group.nextTask ? `Next: ${group.nextTask.text}` : 'No open tasks'}
-                            </p>
-                            {goalsColumnMode === 'next-and-high-priority' && group.highPriorityPreviewTasks.length > 0 ? (
-                              <div className="mt-1 border-t border-white/[0.05] pt-1 space-y-1">
-                                {group.highPriorityPreviewTasks.map((task) => (
+                          <div className="mt-1 space-y-0.5 pl-0.5">
+                            {!isAllTasksView ? (
+                              <p className="truncate text-[11px] text-zinc-300">
+                                {nextTaskLabel}
+                              </p>
+                            ) : null}
+                            {!isAllTasksView && goalsColumnViewOptions.dueSoon && group.dueSoonTask && dueSoonLabel ? (
+                              <div className="flex items-center gap-1.5">
+                                <span className="shrink-0 text-[10px] text-zinc-400">
+                                  {dueSoonLabel}:
+                                </span>
+                                <span className="truncate text-[10px] text-zinc-500">
+                                  {group.dueSoonTask.text}
+                                </span>
+                              </div>
+                            ) : null}
+                            {!isAllTasksView && goalsColumnViewOptions.highPriority && collapsedHighPriorityPreviewTasks.length > 0 ? (
+                              <div className="inline-block max-w-full border-t border-white/[0.03] pt-0.5 space-y-0.5">
+                                {collapsedHighPriorityPreviewTasks.map((task) => (
                                   <div key={task.id} className="flex items-center gap-2">
-                                    <span className="truncate text-[11px] text-zinc-400">{task.text}</span>
-                                    <span className="rounded-full border border-[rgb(var(--theme-warning-rgb)/0.18)] bg-[rgb(var(--theme-warning-rgb)/0.08)] px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-[rgb(var(--theme-warning-rgb)/0.88)]">
+                                    <span className="truncate text-[10px] text-zinc-500">{task.text}</span>
+                                    <span className="rounded-full bg-[rgb(var(--theme-warning-rgb)/0.05)] px-1.5 py-0.5 text-[8px] uppercase tracking-[0.08em] text-[rgb(var(--theme-warning-rgb)/0.72)]">
                                       High
                                     </span>
                                   </div>
@@ -1607,87 +1930,223 @@ export function TaskSuperPage({
                             ) : null}
                           </div>
                         ) : null}
-                      </button>
+                      </div>
 
                       {isExpanded ? (
+                        <>
                         <div className="space-y-0.5 px-3 pb-2.5 animate-in fade-in slide-in-from-top-1 duration-150">
                           {visibleTasks.length > 0 ? (
                             <div>
-                              {visibleTasks.map((task, index) => (
-                                <div
-                                  key={task.id}
-                                  ref={selectedTaskId === task.id ? selectedTaskRowRef : undefined}
-                                  onClick={() => setSelectedTaskId(task.id)}
-                                  onKeyDown={(event) => {
-                                    if (event.key === 'Enter' || event.key === ' ') {
-                                      event.preventDefault()
-                                      setSelectedTaskId(task.id)
-                                    }
-                                  }}
-                                  role="button"
-                                  tabIndex={0}
-                                  className={`flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-zinc-800/30 ${
-                                    index < visibleTasks.length - 1 ? 'border-b border-white/[0.05]' : ''
-                                  }`}
-                                >
-                                  <button
-                                    type="button"
-                                    onClick={(event) => {
-                                      event.stopPropagation()
-                                      toggleTaskCompletion(task.id)
-                                    }}
-                                    className={`flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded-full border ${
-                                      task.completed
-                                        ? 'border-emerald-500/50 bg-emerald-500/20'
-                                        : 'border-zinc-700'
-                                    }`}
-                                    aria-label={task.completed ? 'Mark incomplete' : 'Mark complete'}
-                                  >
-                                    {task.completed ? <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" /> : null}
-                                  </button>
+                              {isAllTasksView ? (
+                                <>
+                                  {ungroupedVisibleTasks.length > 0 ? (
+                                    <div className="pb-2">
+                                      {ungroupedVisibleTasks.map((task, index) => (
+                                        <div
+                                          key={task.id}
+                                          ref={selectedTaskId === task.id ? selectedTaskRowRef : undefined}
+                                          onClick={() => setSelectedTaskId(task.id)}
+                                          onKeyDown={(event) => {
+                                            if (event.key === 'Enter' || event.key === ' ') {
+                                              event.preventDefault()
+                                              setSelectedTaskId(task.id)
+                                            }
+                                          }}
+                                          role="button"
+                                          tabIndex={0}
+                                          className={`flex cursor-pointer items-start gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-white/[0.04] ${
+                                            index < ungroupedVisibleTasks.length - 1 ? 'border-b border-white/[0.06]' : ''
+                                          }`}
+                                        >
+                                          <button
+                                            type="button"
+                                            onClick={(event) => {
+                                              event.stopPropagation()
+                                              toggleTaskCompletion(task.id)
+                                            }}
+                                            className={`group mt-[1px] flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[9px] transition-colors ${
+                                              task.completed
+                                                ? 'border-[rgb(var(--theme-accent-rgb)/0.32)] bg-[rgb(var(--theme-accent-rgb)/0.12)] text-white'
+                                                : 'border-white/[0.18] text-transparent hover:border-emerald-400/70 hover:text-emerald-400'
+                                            }`}
+                                            aria-label={task.completed ? 'Mark incomplete' : 'Mark complete'}
+                                            title={task.completed ? 'Mark incomplete' : 'Mark complete'}
+                                          >
+                                            {task.completed ? '✓' : <span className="opacity-0 transition-opacity group-hover:opacity-70">✓</span>}
+                                          </button>
 
-                                  <div className="min-w-0 flex-1">
-                                    <div className="flex items-center gap-2">
-                                      <span
-                                        className={`block truncate ${
-                                          task.completed
-                                            ? 'text-[12px] text-zinc-600 line-through'
-                                            : goalsColumnMode === 'next-and-high-priority' && additionalHighPriorityTaskIds.has(task.id)
-                                              ? 'text-[12px] text-zinc-300'
-                                              : 'text-[13px] text-zinc-300'
-                                        }`}
-                                      >
-                                        {task.text}
-                                      </span>
-                                      {goalsColumnMode === 'next-and-high-priority' && additionalHighPriorityTaskIds.has(task.id) ? (
-                                        <span className="rounded-full border border-[rgb(var(--theme-warning-rgb)/0.18)] bg-[rgb(var(--theme-warning-rgb)/0.08)] px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-[rgb(var(--theme-warning-rgb)/0.88)]">
-                                          High
+                                          <div className="min-w-0 flex-1">
+                                            <div className="flex items-center gap-2">
+                                              <span className="block min-w-0 flex-1 truncate text-[13px] text-zinc-200">
+                                                {task.text}
+                                              </span>
+                                            </div>
+
+                                            {task.dueDate ? (
+                                              <span className="mt-0.5 block text-[11px] text-zinc-500">
+                                                {formatOutcomeTaskDueLabel(task.dueDate, todayIso)}
+                                              </span>
+                                            ) : null}
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : null}
+
+                                  {allTaskMilestoneGroups.map((milestoneGroup, milestoneGroupIndex) => (
+                                    <div key={`milestone-group-${group.id}-${milestoneGroup.milestoneId}`} className={milestoneGroupIndex > 0 || ungroupedVisibleTasks.length > 0 ? 'pt-2' : ''}>
+                                      <div className="pb-1">
+                                        <div className="flex items-center gap-2">
+                                          <span className="shrink-0 text-[8px] uppercase tracking-[0.12em] text-emerald-300/70">
+                                            {milestoneGroup.label}
+                                          </span>
+                                          <span className="h-px flex-1 bg-emerald-500/10" />
+                                        </div>
+                                      </div>
+                                      {milestoneGroup.tasks.map((task, index) => (
+                                        <div
+                                          key={task.id}
+                                          ref={selectedTaskId === task.id ? selectedTaskRowRef : undefined}
+                                          onClick={() => setSelectedTaskId(task.id)}
+                                          onKeyDown={(event) => {
+                                            if (event.key === 'Enter' || event.key === ' ') {
+                                              event.preventDefault()
+                                              setSelectedTaskId(task.id)
+                                            }
+                                          }}
+                                          role="button"
+                                          tabIndex={0}
+                                          className={`flex cursor-pointer items-start gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-white/[0.04] ${
+                                            index < milestoneGroup.tasks.length - 1 ? 'border-b border-white/[0.06]' : ''
+                                          }`}
+                                        >
+                                          <button
+                                            type="button"
+                                            onClick={(event) => {
+                                              event.stopPropagation()
+                                              toggleTaskCompletion(task.id)
+                                            }}
+                                            className={`group mt-[1px] flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[9px] transition-colors ${
+                                              task.completed
+                                                ? 'border-[rgb(var(--theme-accent-rgb)/0.32)] bg-[rgb(var(--theme-accent-rgb)/0.12)] text-white'
+                                                : 'border-white/[0.18] text-transparent hover:border-emerald-400/70 hover:text-emerald-400'
+                                            }`}
+                                            aria-label={task.completed ? 'Mark incomplete' : 'Mark complete'}
+                                            title={task.completed ? 'Mark incomplete' : 'Mark complete'}
+                                          >
+                                            {task.completed ? '✓' : <span className="opacity-0 transition-opacity group-hover:opacity-70">✓</span>}
+                                          </button>
+
+                                          <div className="min-w-0 flex-1">
+                                            <div className="flex items-center gap-2">
+                                              <span className="block min-w-0 flex-1 truncate text-[13px] text-zinc-200">
+                                                {task.text}
+                                              </span>
+                                            </div>
+
+                                            {task.dueDate ? (
+                                              <span className="mt-0.5 block text-[11px] text-zinc-500">
+                                                {formatOutcomeTaskDueLabel(task.dueDate, todayIso)}
+                                              </span>
+                                            ) : null}
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ))}
+                                </>
+                              ) : (
+                                visibleTasks.map((task, index) => (
+                                  <div
+                                    key={task.id}
+                                    ref={selectedTaskId === task.id ? selectedTaskRowRef : undefined}
+                                    onClick={() => setSelectedTaskId(task.id)}
+                                    onKeyDown={(event) => {
+                                      if (event.key === 'Enter' || event.key === ' ') {
+                                        event.preventDefault()
+                                        setSelectedTaskId(task.id)
+                                      }
+                                    }}
+                                    role="button"
+                                    tabIndex={0}
+                                    className={`flex cursor-pointer items-start gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-white/[0.04] ${
+                                      index < visibleTasks.length - 1 ? 'border-b border-white/[0.06]' : ''
+                                    }`}
+                                  >
+                                    <button
+                                      type="button"
+                                      onClick={(event) => {
+                                        event.stopPropagation()
+                                        toggleTaskCompletion(task.id)
+                                      }}
+                                      className={`group mt-[1px] flex h-4 w-4 shrink-0 items-center justify-center rounded-full border text-[9px] transition-colors ${
+                                        task.completed
+                                          ? 'border-[rgb(var(--theme-accent-rgb)/0.32)] bg-[rgb(var(--theme-accent-rgb)/0.12)] text-white'
+                                          : 'border-white/[0.18] text-transparent hover:border-emerald-400/70 hover:text-emerald-400'
+                                      }`}
+                                      aria-label={task.completed ? 'Mark incomplete' : 'Mark complete'}
+                                      title={task.completed ? 'Mark incomplete' : 'Mark complete'}
+                                    >
+                                      {task.completed ? '✓' : <span className="opacity-0 transition-opacity group-hover:opacity-70">✓</span>}
+                                    </button>
+
+                                    <div className="min-w-0 flex-1">
+                                      <div className="flex items-center gap-2">
+                                        <span
+                                          className={`block min-w-0 flex-1 truncate ${
+                                            task.completed
+                                              ? 'text-[12px] text-zinc-600 line-through'
+                                              : goalsColumnViewOptions.highPriority && additionalHighPriorityTaskIds.has(task.id)
+                                                ? 'text-[12px] text-zinc-200'
+                                                : 'text-[13px] text-zinc-200'
+                                          }`}
+                                        >
+                                          {task.text}
+                                        </span>
+                                        {goalsColumnViewOptions.highPriority && additionalHighPriorityTaskIds.has(task.id) ? (
+                                          <span className="rounded-full border border-[rgb(var(--theme-warning-rgb)/0.18)] bg-[rgb(var(--theme-warning-rgb)/0.08)] px-1.5 py-0.5 text-[9px] uppercase tracking-[0.08em] text-[rgb(var(--theme-warning-rgb)/0.88)]">
+                                            High
+                                          </span>
+                                        ) : null}
+                                      </div>
+
+                                      {task.dueDate ? (
+                                        <span className="mt-0.5 block text-[11px] text-zinc-500">
+                                          {formatOutcomeTaskDueLabel(task.dueDate, todayIso)}
                                         </span>
                                       ) : null}
                                     </div>
-
-                                    {task.dueDate ? (
-                                      <span className="mt-0.5 block text-[11px] text-zinc-500">
-                                        {formatDateContextual(task.dueDate)}
-                                      </span>
-                                    ) : null}
                                   </div>
-                                </div>
-                              ))}
+                                ))
+                              )}
                             </div>
                           ) : (
                             <p className="px-2 py-2 text-sm text-zinc-500">No active tasks for this goal.</p>
                           )}
 
-                          {group.completedTasks.length > 0 ? (
+                          <div className="flex justify-end pt-2">
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                addTaskForGoalFromOutcome(group.id, group.label)
+                              }}
+                              className="inline-flex items-center gap-1 rounded-full border border-white/[0.06] bg-white/[0.02] px-1.5 py-0.5 text-[8px] uppercase tracking-[0.08em] text-zinc-500 transition hover:text-zinc-300"
+                            >
+                              <span className="text-[9px] leading-none">+</span>
+                              <span>Add task</span>
+                            </button>
+                          </div>
+
+                          {goalsColumnViewOptions.completed && group.completedTasks.length > 0 ? (
                             <div className="pt-2">
                               <button
                                 type="button"
                                 onClick={() => setGoalsColumnCompletedOpen((current) => !current)}
                                 className="flex w-full items-center justify-between py-1 text-left"
                               >
-                                <span className="text-[11px] uppercase tracking-[0.22em] text-white/34">Completed</span>
-                                <span className="text-[11px] text-white/46">{goalsColumnCompletedOpen ? 'Hide' : group.completedTasks.length}</span>
+                                <span className="text-[10px] uppercase tracking-[0.18em] text-zinc-500">Completed</span>
+                                <span className="text-[10px] text-zinc-500">{goalsColumnCompletedOpen ? 'Hide' : group.completedTasks.length}</span>
                               </button>
                               {goalsColumnCompletedOpen ? (
                                 <div className="mt-1">
@@ -1708,17 +2167,10 @@ export function TaskSuperPage({
                                         index < group.completedTasks.length - 1 ? 'border-b border-white/[0.05]' : ''
                                       }`}
                                     >
-                                      <button
-                                        type="button"
-                                        onClick={(event) => {
-                                          event.stopPropagation()
-                                          toggleTaskCompletion(task.id)
-                                        }}
-                                        className="flex h-3.5 w-3.5 flex-shrink-0 items-center justify-center rounded-full border border-emerald-500/50 bg-emerald-500/20"
-                                        aria-label="Mark incomplete"
-                                      >
-                                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                                      </button>
+                                      <span
+                                        aria-hidden="true"
+                                        className="mt-0.5 flex h-2 w-2 flex-shrink-0 rounded-full bg-emerald-400/80"
+                                      />
 
                                       <div className="min-w-0 flex-1">
                                         <span className="block truncate text-[12px] text-zinc-600 line-through">
@@ -1737,6 +2189,7 @@ export function TaskSuperPage({
                             </div>
                           ) : null}
                         </div>
+                        </>
                       ) : null}
                     </div>
                   )
@@ -1744,12 +2197,12 @@ export function TaskSuperPage({
               </div>
             </SectionCard>
 
-            <SectionCard compact className="flex h-[560px] min-h-0 flex-col border-white/[0.06] bg-white/[0.015] p-3.5 sm:p-4">
+            <SectionCard compact className="rounded-[12px] flex h-[560px] min-h-0 flex-col border-white/[0.06] bg-white/[0.015] p-3.5 sm:p-4">
               <div className="relative mb-3">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
-                  <p className="text-[11px] uppercase tracking-[0.22em] text-white/38">Directional Goals</p>
-                  <span className="rounded-full border border-white/[0.08] bg-white/[0.03] px-2 py-0.5 text-[11px] text-white/52">
+                  <p className="text-[11px] uppercase tracking-[0.22em] text-zinc-500">Directional Goals</p>
+                  <span className="rounded-full border border-white/[0.08] bg-white/[0.03] px-2 py-0.5 text-[11px] text-zinc-500">
                     {scopedDirectionGroups.length}
                   </span>
                 </div>
@@ -1916,7 +2369,7 @@ export function TaskSuperPage({
           </section>
         )}
 
-        <SectionCard compact className="space-y-3 p-3.5 sm:p-4">
+        <SectionCard compact className="rounded-[12px] space-y-3 p-3.5 sm:p-4">
           <button
             type="button"
             onClick={() => setCompletedTodayOpen((current) => !current)}
@@ -2417,7 +2870,7 @@ function TaskRow({
           }`}
           aria-label={task.completed ? 'Mark incomplete' : 'Mark complete'}
         >
-          {task.completed ? '✓' : ''}
+          {task.completed ? '✓' : list ? <span className="opacity-0 transition-opacity hover:opacity-40">✓</span> : ''}
         </button>
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-3">
@@ -2550,7 +3003,7 @@ function CompactTaskRow({
               selected ? 'text-white' : 'hover:bg-white/[0.02]'
             }`
           : list
-            ? `border-none bg-transparent px-1.5 py-3 ${
+            ? `border-none bg-transparent px-1.5 pt-[11px] pb-[4px] ${
                 selected
                   ? 'rounded-[12px] bg-white/[0.04]'
                   : subdued
@@ -2576,39 +3029,44 @@ function CompactTaskRow({
             event.stopPropagation()
             onToggleComplete()
           }}
-          className={`mt-1 flex h-4 w-4 shrink-0 items-center justify-center border text-[9px] ${
+          className={`group/checkbox mt-1 flex h-4 w-4 shrink-0 items-center justify-center border text-[9px] transition-colors ${
             list ? 'rounded-[6px]' : 'rounded-full'
           } ${
             task.completed
               ? 'border-[rgb(var(--theme-accent-rgb)/0.32)] bg-[rgb(var(--theme-accent-rgb)/0.12)] text-white'
               : list
-                ? 'border-white/[0.2] text-white/46'
+                ? 'border-white/[0.2] text-white/46 hover:border-emerald-400/70 hover:bg-[rgb(var(--theme-accent-rgb)/0.08)] hover:text-emerald-400'
                 : 'border-white/[0.14] text-white/38'
           }`}
           aria-label={task.completed ? 'Mark incomplete' : 'Mark complete'}
           title={task.completed ? 'Mark incomplete' : 'Mark complete'}
         >
-          {task.completed ? '✓' : ''}
+          {task.completed ? '✓' : list ? <span className="opacity-0 transition-opacity group-hover/checkbox:opacity-40">✓</span> : ''}
         </button>
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <p className={`truncate text-[15px] ${completed ? 'text-white/46 line-through' : 'text-white/86'}`}>
+              <p className={`truncate ${list ? 'text-[12px]' : 'text-[15px]'} ${completed ? 'text-white/46 line-through' : list ? 'text-white/68' : 'text-white/86'}`}>
                 {task.text}
               </p>
               {list ? (
                 task.dueDate || task.taskTag ? (
-                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]">
-                    {task.dueDate ? (
-                      <span className="inline-flex items-center gap-1.5 text-zinc-500">
-                        <CalendarGlyph />
-                        <span>{formatDateContextual(task.dueDate)}</span>
-                      </span>
-                    ) : null}
+                  <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px]">
+                    {task.dueDate ? (() => {
+                      const dueMeta = getGeneralTaskDueDateMeta(task.dueDate)
+                      return (
+                        <span className={`inline-flex items-center gap-1.5 ${dueMeta.className}`}>
+                          <CalendarGlyph className={dueMeta.iconClassName} />
+                          <span>{dueMeta.label}</span>
+                        </span>
+                      )
+                    })() : null}
                     {task.taskTag ? (
-                      <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 ${getTaskTagToneClassName(task.taskTag)}`}>
-                        <TagGlyph />
-                        <span>{task.taskTag}</span>
+                      <span
+                        className={`flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-full ${getTaskTagColorClass(task.taskTag)}`}
+                      >
+                        <Tag className="w-2 h-2" />
+                        {formatTaskTagLabel(task.taskTag)}
                       </span>
                     ) : null}
                   </div>
@@ -2702,7 +3160,7 @@ function GoalsControlIcon() {
 
 function ClockGlyph() {
   return (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true" className="shrink-0 text-white/34">
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true" className="shrink-0 text-zinc-500">
       <circle cx="6" cy="6" r="4.5" stroke="currentColor" strokeWidth="1.1" />
       <path d="M6 3.4V6.1L7.9 7.2" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
@@ -2727,9 +3185,9 @@ function PlusIcon() {
   )
 }
 
-function CalendarGlyph() {
+function CalendarGlyph({ className = 'text-zinc-600' }: { className?: string }) {
   return (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true" className="shrink-0 text-zinc-600">
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true" className={`shrink-0 ${className}`}>
       <rect x="1.5" y="2.25" width="9" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.1" />
       <path d="M3.25 1.5V3.1" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
       <path d="M8.75 1.5V3.1" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
@@ -2738,13 +3196,13 @@ function CalendarGlyph() {
   )
 }
 
-function TagGlyph() {
+function Tag({ className }: { className?: string }) {
   return (
-    <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden="true" className="shrink-0">
+    <svg width="10" height="10" viewBox="0 0 12 12" fill="none" aria-hidden="true" className={className}>
       <path
         d="M2 3.25C2 2.56 2.56 2 3.25 2H6.15C6.48 2 6.8 2.13 7.03 2.37L9.63 4.97C10.12 5.46 10.12 6.25 9.63 6.74L6.74 9.63C6.25 10.12 5.46 10.12 4.97 9.63L2.37 7.03C2.13 6.8 2 6.48 2 6.15V3.25Z"
         stroke="currentColor"
-        strokeWidth="1.1"
+        strokeWidth="0.95"
         strokeLinejoin="round"
       />
       <circle cx="4.1" cy="4.1" r="0.7" fill="currentColor" />
@@ -2752,23 +3210,40 @@ function TagGlyph() {
   )
 }
 
-function getTaskTagToneClassName(taskTag: string | null | undefined) {
-  switch (normalizeTaskTag(taskTag)) {
+function getTaskTagColorClass(tag?: string) {
+  const t = tag?.trim().toLowerCase()
+
+  switch (t) {
     case 'admin':
-      return 'bg-slate-500/12 text-slate-300'
-    case 'reminder':
-      return 'bg-sky-500/12 text-sky-300'
-    case 'buy':
-      return 'bg-emerald-500/12 text-emerald-300'
-    case 'call':
-      return 'bg-violet-500/12 text-violet-300'
+      return 'bg-violet-500/15 text-violet-400'
     case 'book':
-      return 'bg-amber-500/12 text-amber-300'
+      return 'bg-amber-500/15 text-amber-400'
+    case 'buy':
+      return 'bg-emerald-500/15 text-emerald-400'
+    case 'call':
+      return 'bg-pink-500/15 text-pink-400'
+    case 'health':
+      return 'bg-cyan-500/15 text-cyan-400'
+    case 'mindset':
+      return 'bg-cyan-500/15 text-cyan-400'
+    case 'build':
+      return 'bg-blue-500/15 text-blue-400'
+    case 'plan':
+      return 'bg-violet-500/15 text-violet-400'
+    case 'research':
+      return 'bg-cyan-500/15 text-cyan-400'
+    case 'reminder':
+      return 'bg-amber-500/15 text-amber-400'
     case 'someday':
-      return 'bg-zinc-500/12 text-zinc-400'
+      return 'bg-slate-500/15 text-slate-400'
     default:
-      return 'bg-white/[0.04] text-white/58'
+      return 'bg-white/[0.08] text-white/70'
   }
+}
+
+function formatTaskTagLabel(tag?: string) {
+  if (!tag) return ''
+  return tag.charAt(0).toUpperCase() + tag.slice(1).toLowerCase()
 }
 
 function InlineField({
@@ -2924,6 +3399,48 @@ function compareExecutionTasks(todayIso: string) {
   }
 }
 
+function compareGeneralTasks(sortMode: GeneralSortMode, todayIso: string) {
+  if (sortMode === 'due') {
+    return (left: Task, right: Task) => {
+      const leftDue = left.dueDate ?? '9999-12-31'
+      const rightDue = right.dueDate ?? '9999-12-31'
+      const leftDuePriority = left.dueDate && left.dueDate < todayIso ? 0 : left.dueDate === todayIso ? 1 : left.dueDate ? 2 : 3
+      const rightDuePriority = right.dueDate && right.dueDate < todayIso ? 0 : right.dueDate === todayIso ? 1 : right.dueDate ? 2 : 3
+      if (leftDuePriority !== rightDuePriority) return leftDuePriority - rightDuePriority
+      if (leftDue !== rightDue) return leftDue.localeCompare(rightDue)
+      const leftDueTime = left.dueTime ?? ''
+      const rightDueTime = right.dueTime ?? ''
+      if (leftDueTime !== rightDueTime) return leftDueTime.localeCompare(rightDueTime)
+      if (left.order !== right.order) return left.order - right.order
+      return left.text.localeCompare(right.text)
+    }
+  }
+
+  if (sortMode === 'priority') {
+    return (left: Task, right: Task) => {
+      const priorityDelta = getPriorityRank(right.priority) - getPriorityRank(left.priority)
+      if (priorityDelta !== 0) return priorityDelta
+      return compareExecutionTasks(todayIso)(left, right)
+    }
+  }
+
+  if (sortMode === 'recently-added') {
+    return (left: Task, right: Task) => {
+      if ((right.createdAt ?? '') !== (left.createdAt ?? '')) return (right.createdAt ?? '').localeCompare(left.createdAt ?? '')
+      return right.order - left.order
+    }
+  }
+
+  if (sortMode === 'oldest-added') {
+    return (left: Task, right: Task) => {
+      if ((left.createdAt ?? '') !== (right.createdAt ?? '')) return (left.createdAt ?? '').localeCompare(right.createdAt ?? '')
+      return left.order - right.order
+    }
+  }
+
+  return compareExecutionTasks(todayIso)
+}
+
 function matchesGoalsColumnPriorityFilter(
   task: Task,
   goalsColumnPriorityFilter: LifeGoalTaskPriority | 'all',
@@ -2953,6 +3470,103 @@ function readTaskSuperPanelState(storageKey: string) {
   }
 }
 
+function readGoalsColumnViewOptions(value: Record<string, unknown>) {
+  const candidate = value.goalsColumnViewOptions
+  if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+    const viewOptions = candidate as Partial<GoalsColumnViewOptions>
+    return {
+      next: true,
+      highPriority: viewOptions.highPriority ?? DEFAULT_GOALS_COLUMN_VIEW_OPTIONS.highPriority,
+      dueSoon: viewOptions.dueSoon ?? DEFAULT_GOALS_COLUMN_VIEW_OPTIONS.dueSoon,
+      allTasks: viewOptions.allTasks ?? DEFAULT_GOALS_COLUMN_VIEW_OPTIONS.allTasks,
+      completed: viewOptions.completed ?? DEFAULT_GOALS_COLUMN_VIEW_OPTIONS.completed,
+    }
+  }
+
+  if (value.goalsColumnMode === 'all-tasks') {
+    return { ...DEFAULT_GOALS_COLUMN_VIEW_OPTIONS, allTasks: true }
+  }
+
+  if (value.goalsColumnMode === 'next-and-high-priority') {
+    return { ...DEFAULT_GOALS_COLUMN_VIEW_OPTIONS, highPriority: true }
+  }
+
+  return DEFAULT_GOALS_COLUMN_VIEW_OPTIONS
+}
+
+function buildGoalsColumnVisibleTasks(
+  tasks: Task[],
+  options: {
+    nextEnabled: boolean
+    dueSoonEnabled: boolean
+    highPriorityEnabled: boolean
+    allTasksEnabled: boolean
+    nextTask: Task | null
+    dueSoonTask: Task | null
+    highPriorityTasks: Task[]
+  },
+) {
+  if (options.allTasksEnabled) return tasks
+
+  const orderedTasks: Task[] = []
+  const seenTaskIds = new Set<string>()
+
+  const pushTask = (task: Task | null) => {
+    if (!task || seenTaskIds.has(task.id)) return
+    seenTaskIds.add(task.id)
+    orderedTasks.push(task)
+  }
+
+  if (options.nextEnabled) pushTask(options.nextTask)
+  if (options.dueSoonEnabled) pushTask(options.dueSoonTask)
+  if (options.highPriorityEnabled) options.highPriorityTasks.forEach((task) => pushTask(task))
+
+  return orderedTasks
+}
+
+function resolveLifeGoalCategoryCssColor(color: LifeGoalCategoryDefinition['color'], alpha = 0.9) {
+  const variable = getLifeGoalCategoryColorTokenVariable(color)
+  return `rgb(var(${variable}) / ${alpha})`
+}
+
+function getGeneralTaskDueDateMeta(dueDate: string) {
+  const todayIso = getTodayIsoDate()
+  const dueTimestamp = new Date(`${dueDate}T00:00:00Z`).getTime()
+  const todayTimestamp = new Date(`${todayIso}T00:00:00Z`).getTime()
+  const dayDelta = Math.round((dueTimestamp - todayTimestamp) / 86400000)
+
+  if (dayDelta < 0) {
+    const overdueDays = Math.abs(dayDelta)
+    return {
+      label: `Overdue by ${overdueDays} day${overdueDays === 1 ? '' : 's'}`,
+      className: 'text-[rgb(var(--theme-negative-rgb)/0.88)]',
+      iconClassName: 'text-[rgb(var(--theme-negative-rgb)/0.82)]',
+    }
+  }
+
+  if (dayDelta === 0) {
+    return {
+      label: 'Today',
+      className: 'text-[rgb(var(--theme-accent-rgb)/0.92)]',
+      iconClassName: 'text-[rgb(var(--theme-accent-rgb)/0.88)]',
+    }
+  }
+
+  if (dayDelta <= 3) {
+    return {
+      label: `Due in ${dayDelta} day${dayDelta === 1 ? '' : 's'}`,
+      className: 'text-[rgb(var(--theme-warning-rgb)/0.88)]',
+      iconClassName: 'text-[rgb(var(--theme-warning-rgb)/0.82)]',
+    }
+  }
+
+  return {
+    label: formatDateContextual(dueDate),
+    className: 'text-zinc-500',
+    iconClassName: 'text-zinc-600',
+  }
+}
+
 function writeTaskSuperPanelState(storageKey: string, value: Record<string, unknown>) {
   if (typeof window === 'undefined') return
 
@@ -2976,11 +3590,55 @@ function getPriorityRank(priority: LifeGoalTaskPriority) {
   }
 }
 
+function getDashboardGreeting(now: Date, name: string) {
+  const hour = now.getHours()
+  if (hour < 12) return `Good morning, ${name}`
+  if (hour < 18) return `Good afternoon, ${name}`
+  return `Good evening, ${name}`
+}
+
+function formatDashboardHeaderDate(date: Date) {
+  return new Intl.DateTimeFormat('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  }).format(date)
+}
+
+function getTaskDueTimestamp(task: Task) {
+  if (!task.dueDate) return null
+  const dueTime = normalizeDueTime(task.dueTime)
+  const dueDateTime = dueTime ? `${task.dueDate}T${dueTime}:00` : `${task.dueDate}T23:59:59`
+  const timestamp = new Date(dueDateTime).getTime()
+  return Number.isNaN(timestamp) ? null : timestamp
+}
+
+function getStartOfWeek(date: Date) {
+  const next = new Date(date)
+  const day = next.getDay()
+  const diff = day === 0 ? -6 : 1 - day
+  next.setHours(0, 0, 0, 0)
+  next.setDate(next.getDate() + diff)
+  return next
+}
+
 function formatDueTime(time: string) {
   const [hours, minutes] = time.split(':').map(Number)
   const date = new Date()
   date.setHours(hours ?? 0, minutes ?? 0, 0, 0)
   return date.toLocaleTimeString('en-IE', { hour: 'numeric', minute: '2-digit' })
+}
+
+function formatComingUpTimingLabel(dueDate: string, dueTime: string | null | undefined, todayIso: string) {
+  const baseLabel = dueDate === todayIso ? 'Today' : dueDate === shiftIsoDate(todayIso, 1) ? 'Tomorrow' : formatDateContextual(dueDate)
+  const normalizedDueTime = normalizeDueTime(dueTime ?? null)
+  return normalizedDueTime ? `${baseLabel}, ${formatDueTime(normalizedDueTime)}` : baseLabel
+}
+
+function formatOutcomeTaskDueLabel(dueDate: string, todayIso: string) {
+  if (dueDate === todayIso) return 'Due today'
+  if (dueDate === shiftIsoDate(todayIso, 1)) return 'Due tomorrow'
+  return formatDateContextual(dueDate)
 }
 
 function getNextFocusCandidateId(tasks: Task[], completedTaskId: string, todayIso: string) {

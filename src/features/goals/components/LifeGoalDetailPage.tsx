@@ -56,6 +56,7 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
     selectedGoalCategoryColor,
     selectedGoalRuntimeTasks,
     goalRuntimeTaskMap,
+    goalDetailOrigin,
     year,
     selectedRoadmapPanelActions,
     selectedRoadmapPanelUiState,
@@ -109,6 +110,8 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
     onArchiveLifeGoal,
     onChangeGoalsView,
     onSelectLifeGoal,
+    onOpenDashboard,
+    onOpenTasks,
     onSetLifeGoalAsTodayTask,
     openEditLifeGoalComposer,
     openMilestonePeek,
@@ -3308,6 +3311,38 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
       animate={{ opacity: 1 }}
       transition={{ duration: prefersReducedMotion ? 0 : 0.2, ease: 'easeOut' }}
     >
+      <div className="flex min-w-0 items-center gap-2 px-1 text-sm">
+        <button
+          type="button"
+          onClick={onOpenDashboard}
+          className="truncate text-white/46 transition hover:text-white/72"
+        >
+          Life Dashboard
+        </button>
+        <span className="text-zinc-500">/</span>
+        {goalDetailOrigin === 'tasks' ? (
+          <>
+            <button
+              type="button"
+              onClick={onOpenTasks}
+              className="truncate text-white/46 transition hover:text-white/72"
+            >
+              Priorities &amp; Tasks
+            </button>
+            <span className="text-zinc-500">/</span>
+          </>
+        ) : null}
+        <button
+          type="button"
+          onClick={() => onChangeGoalsView(parentOverviewGoalsView)}
+          className="truncate text-white/46 transition hover:text-white/72"
+        >
+          Goals
+        </button>
+        <span className="text-zinc-500">/</span>
+        <span className="truncate text-zinc-500">{selectedLifeGoal.title}</span>
+      </div>
+
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
           <button

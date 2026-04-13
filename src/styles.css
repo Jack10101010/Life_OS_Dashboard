@@ -25,6 +25,7 @@
   --theme-negative-rgb: 215 38 61;
   --theme-info-rgb: 120 167 255;
   --theme-violet-rgb: 166 122 255;
+  --theme-violet-soft-rgb: 196 170 255;
   --theme-teal-rgb: 70 190 176;
 
   --theme-button-primary-bg-rgb: 243 241 240;
@@ -106,6 +107,7 @@
   --theme-negative-rgb: 216 75 90;
   --theme-info-rgb: 109 151 255;
   --theme-violet-rgb: 143 118 255;
+  --theme-violet-soft-rgb: 177 156 255;
   --theme-teal-rgb: 46 176 163;
 
   --theme-button-primary-bg-rgb: 44 206 91;

@@ -386,7 +386,7 @@ export function getLifeGoalCategoryColorTokenVariable(color: LifeGoalCategoryCol
     case 'teal':
       return '--theme-teal-rgb'
     case 'red':
-      return '--theme-negative-rgb'
+      return '--theme-violet-soft-rgb'
     default:
       return '--theme-border-strong-rgb'
   }

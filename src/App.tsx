@@ -45,6 +45,7 @@ import { getLifeGoalRuntimeTasks } from './features/goals/goalUtils'
 import { LifeGoal, LifeGoalCategoryColor, LifeGoalCategoryDefinition, PageId, Task } from './types'
 
 type GoalsView = 'life-overview' | 'directional-overview' | 'life-detail' | 'habit-goals'
+type GoalDetailOrigin = 'tasks' | null
 type AppHistoryState = {
   __appNavigation: true
   page: PageId
@@ -153,6 +154,7 @@ export default function App() {
   const [snapshotsLoading, setSnapshotsLoading] = useState(true)
   const [selectedLifeGoalId, setSelectedLifeGoalId] = useState<string | null>(initialGoalUrlState.selectedLifeGoalIdOverride)
   const [goalsView, setGoalsView] = useState<GoalsView>(initialGoalUrlState.goalsViewOverride ?? 'life-overview')
+  const [goalDetailOrigin, setGoalDetailOrigin] = useState<GoalDetailOrigin>(null)
   const [outcomeGoalCategoryFilter, setOutcomeGoalCategoryFilter] = useState<string | null>(null)
   const [directionalGoalCategoryFilter, setDirectionalGoalCategoryFilter] = useState<string | null>(null)
   const isApplyingHistoryRef = useRef(false)
@@ -579,6 +581,12 @@ export default function App() {
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
   }, [setPage])
+
+  useEffect(() => {
+    if (page !== 'goals' || goalsView !== 'life-detail') {
+      setGoalDetailOrigin(null)
+    }
+  }, [goalsView, page])
 
   useEffect(() => {
     if (typeof window === 'undefined' || !hasInitializedHistoryRef.current) return
@@ -1060,6 +1068,13 @@ export default function App() {
             lifeGoalCategories={lifeGoalCategories}
             onUpdateTasks={(updater) => setTasks((current) => updater(current))}
             onAddCurrentFocusToTodayLog={handleAddCurrentFocusToTodayLog}
+            onOpenDashboard={() => setPage('dashboard')}
+            onOpenLifeGoal={(goalId) => {
+              setGoalDetailOrigin('tasks')
+              setSelectedLifeGoalId(goalId)
+              setGoalsView('life-detail')
+              setPage('goals')
+            }}
           />
         </ErrorBoundary>
       )
@@ -1080,8 +1095,11 @@ export default function App() {
             outcomeGoalCategoryFilter={outcomeGoalCategoryFilter}
             directionalGoalCategoryFilter={directionalGoalCategoryFilter}
             selectedLifeGoalId={selectedLifeGoalId}
+            goalDetailOrigin={goalDetailOrigin}
             onSelectLifeGoal={setSelectedLifeGoalId}
             onChangeGoalsView={setGoalsView}
+            onOpenDashboard={() => setPage('dashboard')}
+            onOpenTasks={() => setPage('tasks')}
             onCreateHabitTracker={saveTracker}
             onCreateLifeGoal={(goal) =>
               {
