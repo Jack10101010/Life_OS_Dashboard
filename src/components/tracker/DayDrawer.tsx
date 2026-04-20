@@ -1,5 +1,6 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { ChevronRight } from 'lucide-react'
 import {
   BadHabitDefinition,
   DayEntry,
@@ -3442,7 +3443,7 @@ function TimePickerField({
         style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)' }}
       >
         <span className={value ? 'theme-text-primary' : 'theme-text-faint'}>{value || placeholder}</span>
-        <span className="theme-text-faint">▾</span>
+        <ChevronRight className={`h-3.5 w-3.5 theme-text-faint transition-transform duration-150 ${open ? 'rotate-90' : ''}`} />
       </button>
 
       {open && panelPosition && typeof document !== 'undefined'

@@ -1,4 +1,5 @@
 import { memo, ReactNode, useEffect, useRef, useState } from 'react'
+import { ChevronRight } from 'lucide-react'
 
 type LifeGoalRoadmapPanelProps = {
   variant?: 'default' | 'embedded'
@@ -175,7 +176,7 @@ export const LifeGoalRoadmapPanel = memo(function LifeGoalRoadmapPanel({
                 aria-label="Roadmap controls"
                 className="inline-flex h-[28px] w-[28px] items-center justify-center rounded-full border border-white/[0.045] bg-white/[0.018] text-white/44 transition hover:border-white/[0.08] hover:text-white/68"
               >
-                <span className="text-[11px] leading-none">▾</span>
+                <ChevronRight className={`h-3.5 w-3.5 transition-transform duration-150 ${controlsOpen ? 'rotate-90' : ''}`} />
               </button>
               {controlsOpen && uiState.progressView === 'tasks' ? (
                 <div className="absolute right-0 top-[calc(100%+8px)] z-30 min-w-[220px] rounded-[18px] border border-white/[0.07] bg-[rgb(var(--theme-surface-elevated-rgb)/0.98)] p-3 shadow-[0_18px_48px_rgba(0,0,0,0.34)]">

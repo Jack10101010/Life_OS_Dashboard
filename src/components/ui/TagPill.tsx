@@ -42,7 +42,7 @@ export function TagPill({
     <span
       className={`${
         active ? 'tag-pill-select scale-100 opacity-100' : 'scale-[0.985] opacity-[0.94]'
-      } rounded-full border px-2.5 py-1 text-xs font-medium transition-[transform,opacity,background-color,border-color,color,box-shadow,filter] duration-150 ease-out will-change-transform ${
+      } theme-pill-shell px-2.5 py-1 text-xs transition-[transform,opacity,background-color,border-color,color,box-shadow,filter] duration-150 ease-out will-change-transform ${
         active ? activeClass : inactiveClass
       }`}
       style={{

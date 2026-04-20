@@ -12,7 +12,7 @@ import {
   startOfCalendarMonth,
 } from './goalUtils'
 
-const GOAL_DATE_PICKER_WEEKDAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const
+const GOAL_DATE_PICKER_WEEKDAY_LABELS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'] as const
 
 type GoalDatePickerProps = {
   value?: string | null
@@ -44,8 +44,8 @@ export const GoalDatePicker = forwardRef<HTMLDivElement, GoalDatePickerProps>(fu
   const navigationButtonClassName = useMemo(
     () =>
       navigationStyle === 'bordered'
-        ? 'theme-text-muted rounded-full border border-[rgb(var(--theme-border-subtle-rgb))] px-2.5 py-1.5 text-xs transition hover:border-[rgb(var(--theme-border-strong-rgb))] hover:text-[rgb(var(--theme-text-primary-rgb))]'
-        : 'theme-text-muted rounded-full px-2.5 py-1.5 text-xs transition hover:text-[rgb(var(--theme-text-primary-rgb))]',
+        ? 'theme-text-muted inline-flex h-9 w-9 items-center justify-center rounded-full border border-[rgb(var(--theme-border-subtle-rgb))] text-sm transition hover:border-[rgb(var(--theme-border-strong-rgb))] hover:bg-[rgb(var(--theme-surface-soft-rgb))] hover:text-[rgb(var(--theme-text-primary-rgb))]'
+        : 'theme-text-muted inline-flex h-9 w-9 items-center justify-center rounded-full text-sm transition hover:bg-[rgb(var(--theme-surface-soft-rgb))] hover:text-[rgb(var(--theme-text-primary-rgb))]',
     [navigationStyle],
   )
 
@@ -54,11 +54,12 @@ export const GoalDatePicker = forwardRef<HTMLDivElement, GoalDatePickerProps>(fu
   return createPortal(
     <div
       ref={ref}
-      className="theme-popover fixed z-[80] overflow-hidden rounded-[24px] border p-3 shadow-[0_22px_46px_rgba(15,23,42,0.18)]"
+      className="theme-popover fixed z-[80] overflow-hidden rounded-[24px] border bg-[rgb(var(--theme-surface-rgb))] p-3 shadow-[0_22px_46px_rgba(15,23,42,0.18)]"
       style={{
         top: `${anchorPosition.top}px`,
         left: `${anchorPosition.left}px`,
-        width: `${anchorPosition.width}px`,
+        width: `${Math.max(anchorPosition.width, 360)}px`,
+        backgroundColor: 'rgb(var(--theme-surface-rgb))',
       }}
     >
       {label ? <p className="theme-text-faint mb-2 text-[11px] uppercase tracking-[0.14em]">{label}</p> : null}
@@ -68,16 +69,18 @@ export const GoalDatePicker = forwardRef<HTMLDivElement, GoalDatePickerProps>(fu
           type="button"
           onClick={() => setViewMonth((current) => shiftCalendarMonth(current, -1))}
           className={navigationButtonClassName}
+          aria-label="Previous month"
         >
-          Prev
+          ←
         </button>
         <p className="theme-text-primary text-sm font-medium">{formatCalendarMonthLabel(viewMonth)}</p>
         <button
           type="button"
           onClick={() => setViewMonth((current) => shiftCalendarMonth(current, 1))}
           className={navigationButtonClassName}
+          aria-label="Next month"
         >
-          Next
+          →
         </button>
       </div>
 
@@ -125,22 +128,13 @@ export const GoalDatePicker = forwardRef<HTMLDivElement, GoalDatePickerProps>(fu
         >
           Today
         </button>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => onChange('')}
-            className="theme-text-muted rounded-full px-2 py-1 text-xs transition hover:text-[rgb(var(--theme-text-primary-rgb))]"
-          >
-            Clear
-          </button>
-          <button
-            type="button"
-            onClick={onClose}
-            className="theme-text-muted rounded-full px-2 py-1 text-xs transition hover:text-[rgb(var(--theme-text-primary-rgb))]"
-          >
-            Done
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => onChange('')}
+          className="theme-text-muted rounded-full px-2 py-1 text-xs transition hover:text-[rgb(var(--theme-text-primary-rgb))]"
+        >
+          Clear
+        </button>
       </div>
     </div>,
     document.body,

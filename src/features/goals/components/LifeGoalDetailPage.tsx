@@ -1,18 +1,36 @@
 // @ts-nocheck
 import * as React from 'react'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { ResponsiveGrid, SectionCard } from '../../../components/layout/LayoutPrimitives'
-import { Button } from '../../../components/ui/Button'
+import {
+  ControlsPanelShell,
+  PanelActionRow,
+  PanelFieldRow,
+  PanelRowLabel,
+  PanelSection,
+  PanelSectionTitle,
+  ResponsiveGrid,
+  SectionCard,
+} from '../../../components/layout/LayoutPrimitives'
+import type { FloatingPanelPosition } from '../../../components/layout/OverlayPrimitives'
+import { Button, IconButton } from '../../../components/ui/Button'
+import Toggle from '../../../components/ui/Toggle'
 import { GoalProgressTimelineChart } from './GoalProgressTimelineChart'
 import { LifeGoalFocusCard } from './LifeGoalFocusCard'
 import { LifeGoalNotesEditor } from './LifeGoalNotesEditor'
 import { LifeGoalRoadmapPanel } from './LifeGoalRoadmapPanel'
 import { LifeGoalVisionCard } from './LifeGoalVisionCard'
+import GoalHero from '../../../components/goals/GoalHero'
+import GoalInsights from '../../../components/goals/GoalInsights'
+import GoalRoadmap from '../../../components/goals/GoalRoadmap'
+import GoalVision from '../../../components/goals/GoalVision'
 import { GoalDatePicker } from '../GoalDatePicker'
 import {
   formatDate,
   formatTaskDueDate,
+  getLifeGoalCategoryColor,
   getLifeGoalCategoryChipStyle,
+  getLifeGoalCategoryChipTextStyle,
   getLifeGoalCategoryDotStyle,
   getLifeGoalCategorySurfaceWashStyle,
   getLifeGoalMomentumState,
@@ -24,9 +42,195 @@ import {
   isValidIsoDate,
 } from '../goalUtils'
 import { getLiveTrackerStreak, getTrackerGoalProgress } from '../../../lib/habitTrackerGoals'
-import { getLifeGoalTaskPriorityMeta, getPriorityScore, getRelativeDueMeta, getRoadmapTagGroups, getRoadmapTaskVisualState, normalizeTaskTags } from '../lib/taskDerivations'
+import { getLifeGoalTaskPriorityMeta, getPriorityScore, getRelativeDueMeta, getRoadmapTagGroups, getRoadmapTaskVisualState, normalizeTaskTag } from '../lib/taskDerivations'
 
 type LifeGoalDetailPageProps = Record<string, any>
+
+const ATOMS_GOAL_DETAIL_TEST_GOAL_TITLE = 'ZZZ TEST GOAL DETAIL'
+const ATOMS_GOAL_DETAIL_FALLBACK_IMAGE =
+  'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540"%3E%3Cdefs%3E%3CradialGradient id="a" cx="50%25" cy="40%25" r="75%25"%3E%3Cstop offset="0%25" stop-color="%236366F1" stop-opacity=".32"/%3E%3Cstop offset="45%25" stop-color="%231A1D26" stop-opacity=".9"/%3E%3Cstop offset="100%25" stop-color="%230A0B0F"/%3E%3C/radialGradient%3E%3C/defs%3E%3Crect width="960" height="540" fill="url(%23a)"/%3E%3C/svg%3E'
+
+function GoalDetailControlsIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+      <path d="M2.5 4.25H13.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <path d="M2.5 8H13.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <path d="M2.5 11.75H13.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+      <circle cx="5.25" cy="4.25" r="1.35" fill="currentColor" />
+      <circle cx="10.75" cy="8" r="1.35" fill="currentColor" />
+      <circle cx="7.25" cy="11.75" r="1.35" fill="currentColor" />
+    </svg>
+  )
+}
+
+function getAtomsGoalEmoji(goal) {
+  const icon = typeof goal?.icon === 'string' ? goal.icon.replace(/^emoji:\s*/i, '').trim() : ''
+  return icon || '🎯'
+}
+
+function getAtomsGoalStatus(goal) {
+  if (goal?.status === 'complete') return 'Completed'
+  return goal?.status === 'paused' ? 'On Hold' : 'Active'
+}
+
+function getAtomsTaskCategory(task) {
+  return task?.taskTag ? formatAtomsTaskTagLabel(task.taskTag) : task?.priority && task.priority !== 'none' ? `${task.priority} priority` : 'Goal task'
+}
+
+function formatAtomsTaskTagLabel(tag) {
+  const normalized = normalizeTaskTag(tag)
+  if (!normalized) return 'Goal task'
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1).toLowerCase()
+}
+
+function getAtomsTaskEstimate(task) {
+  if (task?.dueDate) return formatTaskDueDate(task.dueDate)
+  return 'Next action'
+}
+
+function getAtomsRoadmapTaskSubtitle(task) {
+  const dueDate = typeof task?.dueDate === 'string' ? task.dueDate.trim() : task?.dueDate
+  if (dueDate) return getAtomsRoadmapDueSubtitle(dueDate)
+  const category = getAtomsTaskCategory(task)
+  return category === 'Goal task' ? null : { text: category, tone: 'default' }
+}
+
+function getAtomsRoadmapDueSubtitle(dueDate) {
+  const today = new Date(`${getTodayIsoDate()}T00:00:00Z`)
+  const target = new Date(`${dueDate}T00:00:00Z`)
+  const dayDiff = Math.round((target.getTime() - today.getTime()) / 86400000)
+
+  if (dayDiff < 0) {
+    const overdueDays = Math.abs(dayDiff)
+    return {
+      text: formatTaskDueDate(dueDate),
+      tone: 'overdue',
+      suffix: `${overdueDays}d`,
+    }
+  }
+
+  if (dayDiff === 0) {
+    return {
+      text: 'Today',
+      tone: 'today',
+    }
+  }
+
+  if (dayDiff <= 3) {
+    return {
+      text: `Due in ${dayDiff}d`,
+      tone: 'upcoming',
+    }
+  }
+
+  return {
+    text: formatTaskDueDate(dueDate),
+    tone: 'default',
+  }
+}
+
+function getAtomsLastActivity(progress) {
+  if (progress?.lastCompletedTask?.completedAt) return `Last progressed ${formatDate(progress.lastCompletedTask.completedAt)}`
+  return 'No recent progress yet'
+}
+
+function getAtomsVisionImageUrl(goal) {
+  const image = goal?.visionImages?.[0]
+  if (typeof image === 'string' && image.trim()) return image
+  if (image && typeof image === 'object') return image.url ?? image.src ?? image.dataUrl ?? ATOMS_GOAL_DETAIL_FALLBACK_IMAGE
+  return ATOMS_GOAL_DETAIL_FALLBACK_IMAGE
+}
+
+function getAtomsVisionText(goal) {
+  return goal?.visionStatement?.trim() || goal?.whyItMatters?.trim() || 'A clear picture of what this goal is moving toward.'
+}
+
+function getAtomsRoadmapMilestones(goal, milestones, tasks, nextTask) {
+  const nextTaskId = nextTask?.id ?? null
+  const toRoadmapStep = (task) => {
+    const subtitle = getAtomsRoadmapTaskSubtitle(task)
+    return {
+      id: task.id,
+      taskId: task.id,
+      title: task.text?.trim() || 'Untitled task',
+      status: task.completed ? 'completed' : task.id === nextTaskId ? 'current' : 'upcoming',
+      subtitle: subtitle?.text,
+      subtitleTone: subtitle?.tone,
+      subtitleDot: subtitle?.dot,
+      subtitleSuffix: subtitle?.suffix,
+    }
+  }
+
+  if (!milestones?.length) {
+    return [
+      {
+        id: 'goal-tasks',
+        label: 'Execution',
+        steps: tasks.map(toRoadmapStep),
+      },
+    ]
+  }
+
+  const milestoneIds = new Set(milestones.map((milestone) => milestone.id))
+  const milestoneGroups = milestones.map((milestone, index) => {
+    const milestoneTasks = tasks.filter((task) => task.milestoneId === milestone.id)
+
+    return {
+      id: milestone.id,
+      label: milestone.title?.trim() || `Milestone ${index + 1}`,
+      metadata: milestone.targetDate ? formatDate(milestone.targetDate) : undefined,
+      steps: milestoneTasks.map(toRoadmapStep),
+    }
+  })
+
+  const unassignedTasks = tasks.filter((task) => !task.milestoneId || !milestoneIds.has(task.milestoneId))
+  if (unassignedTasks.length === 0) return milestoneGroups
+
+  return [
+    ...milestoneGroups,
+    {
+      id: 'goal-tasks-unassigned',
+      label: 'Unassigned tasks',
+      steps: unassignedTasks.map(toRoadmapStep),
+    },
+  ]
+}
+
+function getAtomsRoadmapNextTask(milestones, tasks) {
+  const milestoneIds = new Set((milestones ?? []).map((milestone) => milestone.id))
+
+  for (const milestone of milestones ?? []) {
+    const nextMilestoneTask = tasks.find((task) => task.milestoneId === milestone.id && !task.completed)
+    if (nextMilestoneTask) return nextMilestoneTask
+  }
+
+  const hasMilestoneTasks = tasks.some((task) => milestoneIds.has(task.milestoneId))
+  if (hasMilestoneTasks) return null
+
+  return tasks.find((task) => !task.completed) ?? null
+}
+
+function getAtomsInsightTrend(goal, progress) {
+  if (goal?.status === 'complete') return 'ahead'
+  if ((progress?.plannedTasks?.length ?? 0) === 0 && (progress?.completedTaskItems?.length ?? 0) === 0) return 'behind'
+  return 'on-track'
+}
+
+function getAtomsChartData(tasks) {
+  const today = new Date()
+  return Array.from({ length: 8 }, (_, index) => {
+    const bucketStart = new Date(today)
+    bucketStart.setDate(today.getDate() - (7 - index) * 4)
+    const bucketEnd = new Date(bucketStart)
+    bucketEnd.setDate(bucketStart.getDate() + 3)
+
+    return tasks.filter((task) => {
+      if (!task.completedAt) return false
+      const completedAt = new Date(task.completedAt)
+      return completedAt >= bucketStart && completedAt <= bucketEnd
+    }).length
+  })
+}
 
 export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: LifeGoalDetailPageProps) {
   const {
@@ -168,10 +372,140 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
   const [directionalHeaderEditPanelOpen, setDirectionalHeaderEditPanelOpen] = React.useState(false)
   const directionalHeaderEditPanelRef = React.useRef<HTMLDivElement | null>(null)
   const directionalHeaderEditButtonRef = React.useRef<HTMLButtonElement | null>(null)
+  const [goalDetailCategoryMenuOpen, setGoalDetailCategoryMenuOpen] = React.useState(false)
+  const [goalDetailControlsPanelOpen, setGoalDetailControlsPanelOpen] = React.useState(false)
+  const [goalDetailRoadmapControlsPanelOpen, setGoalDetailRoadmapControlsPanelOpen] = React.useState(false)
+  const [goalDetailRoadmapViewSelection, setGoalDetailRoadmapViewSelection] = React.useState<'roadmap' | 'milestones' | 'notes' | 'tasks'>('roadmap')
+  const [goalDetailRoadmapShowMilestones, setGoalDetailRoadmapShowMilestones] = React.useState(true)
+  const [goalDetailRoadmapCompletedExpanded, setGoalDetailRoadmapCompletedExpanded] = React.useState(false)
+  const [isHeroExpanded, setIsHeroExpanded] = React.useState(true)
+  const [goalDetailFooterMenuOpen, setGoalDetailFooterMenuOpen] = React.useState(false)
+  const [goalDetailDatePickerField, setGoalDetailDatePickerField] = React.useState<'startDate' | 'targetDate' | null>(null)
+  const [goalDetailDatePanelPosition, setGoalDetailDatePanelPosition] = React.useState<FloatingPanelPosition | null>(null)
+  const goalDetailControlsPanelRef = React.useRef<HTMLElement | null>(null)
+  const goalDetailControlsTriggerRef = React.useRef<HTMLButtonElement | null>(null)
+  const goalDetailRoadmapControlsPanelRef = React.useRef<HTMLElement | null>(null)
+  const goalDetailRoadmapControlsTriggerRef = React.useRef<HTMLButtonElement | null>(null)
+  const goalDetailFooterMenuRef = React.useRef<HTMLDivElement | null>(null)
+  const goalDetailFooterMenuButtonRef = React.useRef<HTMLButtonElement | null>(null)
+  const goalDetailCategoryMenuRef = React.useRef<HTMLDivElement | null>(null)
+  const goalDetailCategoryButtonRef = React.useRef<HTMLButtonElement | null>(null)
+  const goalDetailDatePanelRef = React.useRef<HTMLDivElement | null>(null)
+  const goalDetailStartDateButtonRef = React.useRef<HTMLButtonElement | null>(null)
+  const goalDetailTargetDateButtonRef = React.useRef<HTMLButtonElement | null>(null)
   const getRuntimeTasksForGoal = React.useCallback(
     (goal) => goalRuntimeTaskMap?.get(goal.id) ?? [],
     [goalRuntimeTaskMap],
   )
+
+  React.useEffect(() => {
+    if (!goalDetailControlsPanelOpen) return
+
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node
+      const clickedDatePicker = goalDetailDatePanelRef.current?.contains(target)
+      const clickedDateTrigger =
+        goalDetailStartDateButtonRef.current?.contains(target) ||
+        goalDetailTargetDateButtonRef.current?.contains(target)
+      const clickedFooterMenu =
+        goalDetailFooterMenuRef.current?.contains(target) ||
+        goalDetailFooterMenuButtonRef.current?.contains(target)
+
+      if (goalDetailFooterMenuOpen && !clickedFooterMenu) {
+        setGoalDetailFooterMenuOpen(false)
+      }
+
+      if (goalDetailDatePickerField && !clickedDatePicker && !clickedDateTrigger) {
+        setGoalDetailDatePickerField(null)
+        setGoalDetailDatePanelPosition(null)
+      }
+
+      if (
+        goalDetailControlsPanelRef.current?.contains(target) ||
+        goalDetailControlsTriggerRef.current?.contains(target) ||
+        clickedDatePicker ||
+        clickedFooterMenu
+      ) {
+        return
+      }
+      setGoalDetailControlsPanelOpen(false)
+      setGoalDetailFooterMenuOpen(false)
+      setGoalDetailDatePickerField(null)
+      setGoalDetailDatePanelPosition(null)
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setGoalDetailControlsPanelOpen(false)
+        setGoalDetailFooterMenuOpen(false)
+        setGoalDetailDatePickerField(null)
+        setGoalDetailDatePanelPosition(null)
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown, true)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown, true)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [goalDetailControlsPanelOpen, goalDetailDatePickerField, goalDetailFooterMenuOpen])
+
+  React.useEffect(() => {
+    if (!goalDetailCategoryMenuOpen) return
+
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node
+      if (
+        goalDetailCategoryMenuRef.current?.contains(target) ||
+        goalDetailCategoryButtonRef.current?.contains(target)
+      ) {
+        return
+      }
+      setGoalDetailCategoryMenuOpen(false)
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setGoalDetailCategoryMenuOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown, true)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown, true)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [goalDetailCategoryMenuOpen])
+
+  React.useEffect(() => {
+    if (!goalDetailRoadmapControlsPanelOpen) return
+
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node
+      if (
+        goalDetailRoadmapControlsPanelRef.current?.contains(target) ||
+        goalDetailRoadmapControlsTriggerRef.current?.contains(target)
+      ) {
+        return
+      }
+      setGoalDetailRoadmapControlsPanelOpen(false)
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setGoalDetailRoadmapControlsPanelOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown, true)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown, true)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [goalDetailRoadmapControlsPanelOpen])
 
   React.useEffect(() => {
     if (!directionalHeaderEditPanelOpen) return
@@ -232,6 +566,7 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
   const sortedPlannedTasks = selectedGoalRoadmapDerived.sortedPlannedTasks
   const explicitlyAssignedTasksByMilestone = selectedGoalRoadmapDerived.explicitlyAssignedTasksByMilestone
   const roadmapTasksGroupedByMilestone = selectedGoalRoadmapDerived.roadmapTasksGroupedByMilestone
+  const roadmapTasksWithoutMilestone = selectedGoalRoadmapDerived.roadmapTasksWithoutMilestone
   const goalReadyToComplete = selectedGoalRoadmapDerived.goalReadyToComplete
   const todayIsoDate = getTodayIsoDate()
   const relatedGoals = selectedGoalRelatedGoals
@@ -528,30 +863,17 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
   const roadmapHeaderControlActiveClass =
     'inline-flex items-center rounded-full border border-white/[0.08] bg-white/[0.04] px-2.5 py-[5px] text-[10px] uppercase tracking-[0.14em] text-white/76 transition hover:border-white/[0.1] hover:text-white/84'
   const renderTaskTags = React.useCallback((task: LifeGoalTask) => {
-    const tags = normalizeTaskTags(task.tags)
-    if (tags.length === 0) return null
-
-    const visibleTags = tags.slice(0, 3)
-    const overflowCount = tags.length - visibleTags.length
+    const tag = task.taskTag ? normalizeTaskTag(task.taskTag) : ''
+    if (!tag) return null
 
     return (
       <>
-        {visibleTags.map((tag) => (
-          <span
-            key={`${task.id}-${tag}`}
-            className="inline-flex items-center rounded-full border border-white/[0.055] bg-white/[0.022] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] leading-none text-white/50"
-          >
-            {tag}
-          </span>
-        ))}
-        {overflowCount > 0 ? (
-          <span
-            title={tags.join(' · ')}
-            className="inline-flex items-center rounded-full border border-white/[0.05] bg-white/[0.018] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] leading-none text-white/42"
-          >
-            +{overflowCount}
-          </span>
-        ) : null}
+        <span
+          key={`${task.id}-${tag}`}
+          className="inline-flex items-center rounded-full border border-white/[0.055] bg-white/[0.022] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] leading-none text-white/50"
+        >
+          {tag}
+        </span>
       </>
     )
   }, [])
@@ -819,153 +1141,176 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
             Priority
           </option>
         </select>
-        <span className="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2 text-[10px] text-white/26">▾</span>
+        <span className="pointer-events-none absolute right-0 top-1/2 -translate-y-1/2">
+          <ChevronRight className="h-3.5 w-3.5 rotate-90 text-white/26" />
+        </span>
       </div>
     </div>
   ), [taskListSortMode, setTaskListSortMode])
   const roadmapMilestoneStructuredContent = React.useMemo(() =>
-    roadmapTasksGroupedByMilestone.length > 0 ? (
+    roadmapTasksGroupedByMilestone.length > 0 || roadmapTasksWithoutMilestone.length > 0 ? (
       <div className="pb-4">
         {(() => {
           let upcomingMilestoneVisualIndex = 0
-          return roadmapTasksGroupedByMilestone.map(({ milestone, tasks }, groupIndex) => {
-          const isCurrentGroup = milestone.id === currentMilestone?.id
-          const isUpcomingGroup = !isCurrentGroup
-          const isNextUpcomingGroup = isUpcomingGroup && upcomingMilestoneVisualIndex === 0
-          const incompleteGroupTasks = tasks.filter((task) => !task.completed)
-          if (incompleteGroupTasks.length === 0) return null
-          if (isUpcomingGroup) {
-            upcomingMilestoneVisualIndex += 1
-          }
+          const milestoneGroups = roadmapTasksGroupedByMilestone.map(({ milestone, tasks }, groupIndex) => {
+            const isCurrentGroup = milestone.id === currentMilestone?.id
+            const isUpcomingGroup = !isCurrentGroup
+            const isNextUpcomingGroup = isUpcomingGroup && upcomingMilestoneVisualIndex === 0
+            const incompleteGroupTasks = tasks.filter((task) => !task.completed)
+            if (incompleteGroupTasks.length === 0) return null
+            if (isUpcomingGroup) {
+              upcomingMilestoneVisualIndex += 1
+            }
 
-          return (
-            <div key={`roadmap-milestone-group-${milestone.id}`} className={groupIndex > 0 ? 'pt-5' : ''}>
-              <div className="relative" style={roadmapContentInsetStyle}>
-                {isCurrentGroup ? (
-                  <p className="pb-1 text-[10px] font-medium uppercase tracking-[0.18em] text-[rgb(var(--theme-accent-rgb)/0.88)] [text-shadow:0_0_8px_rgb(var(--theme-accent-rgb)/0.24)]">
-                    You are here
-                  </p>
-                ) : null}
-              </div>
-              <div className="relative pb-3" style={roadmapContentInsetStyle}>
-                <div className="relative flex flex-wrap items-center gap-2">
-                  {isUpcomingGroup ? (
-                    <>
+            return (
+              <div key={`roadmap-milestone-group-${milestone.id}`} className={groupIndex > 0 ? 'pt-5' : ''}>
+                <div className="relative" style={roadmapContentInsetStyle}>
+                  {isCurrentGroup ? (
+                    <p className="pb-1 text-[10px] font-medium uppercase tracking-[0.18em] text-[rgb(var(--theme-accent-rgb)/0.88)] [text-shadow:0_0_8px_rgb(var(--theme-accent-rgb)/0.24)]">
+                      You are here
+                    </p>
+                  ) : null}
+                </div>
+                <div className="relative pb-3" style={roadmapContentInsetStyle}>
+                  <div className="relative flex flex-wrap items-center gap-2">
+                    {isUpcomingGroup ? (
+                      <>
+                        <span
+                          aria-hidden="true"
+                          className="pointer-events-none absolute bottom-0 top-0 z-[2]"
+                          style={{
+                            left: `${roadmapConnectorLeft}px`,
+                            width: `${roadmapLineWidth + 1}px`,
+                            background: 'rgb(var(--theme-surface-rgb) / 1)',
+                          }}
+                        />
+                        <svg
+                          aria-hidden="true"
+                          className="pointer-events-none absolute inset-y-0 z-[3] h-full"
+                          style={{
+                            left: `${roadmapConnectorLeft}px`,
+                            width: `${roadmapConnectorWidth}px`,
+                          }}
+                          viewBox={`0 0 ${roadmapConnectorWidth} 100`}
+                          preserveAspectRatio="none"
+                        >
+                          <path
+                            d={roadmapMilestoneConnectorPath}
+                            fill="none"
+                            stroke={roadmapLineColor}
+                            strokeWidth={roadmapLineWidth}
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            shapeRendering="geometricPrecision"
+                            vectorEffect="non-scaling-stroke"
+                          />
+                        </svg>
+                      </>
+                    ) : null}
+                    {isCurrentGroup ? (
                       <span
                         aria-hidden="true"
-                        className="pointer-events-none absolute bottom-0 top-0 z-[2]"
+                        className="pointer-events-none absolute top-1/2 h-px -translate-y-1/2"
                         style={{
                           left: `${roadmapConnectorLeft}px`,
-                          width: `${roadmapLineWidth + 1}px`,
-                          background: 'rgb(var(--theme-surface-rgb) / 1)',
+                          width: `${roadmapGeometry.currentMilestoneTickReach}px`,
+                          background: roadmapLineColor,
+                          height: `${roadmapLineWidth}px`,
                         }}
                       />
-                      <svg
-                        aria-hidden="true"
-                        className="pointer-events-none absolute inset-y-0 z-[3] h-full"
-                        style={{
-                          left: `${roadmapConnectorLeft}px`,
-                          width: `${roadmapConnectorWidth}px`,
-                        }}
-                        viewBox={`0 0 ${roadmapConnectorWidth} 100`}
-                        preserveAspectRatio="none"
-                      >
-                        <path
-                          d={roadmapMilestoneConnectorPath}
-                          fill="none"
-                          stroke={roadmapLineColor}
-                          strokeWidth={roadmapLineWidth}
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          shapeRendering="geometricPrecision"
-                          vectorEffect="non-scaling-stroke"
-                        />
-                      </svg>
-                    </>
-                  ) : null}
-                  {isCurrentGroup ? (
-                    <span
-                      aria-hidden="true"
-                      className="pointer-events-none absolute top-1/2 h-px -translate-y-1/2"
-                      style={{
-                        left: `${roadmapConnectorLeft}px`,
-                        width: `${roadmapGeometry.currentMilestoneTickReach}px`,
-                        background: roadmapLineColor,
-                        height: `${roadmapLineWidth}px`,
-                      }}
-                    />
-                  ) : null}
-                  {isUpcomingGroup ? (
-                    <button
-                      type="button"
-                      onClick={() => openMilestonePeek(milestone.id)}
-                      className={`flex w-full flex-wrap items-center gap-2 rounded-[14px] border px-[14px] py-[10px] text-left transition ${
-                        isNextUpcomingGroup
-                          ? 'border-[rgb(var(--theme-accent-rgb)/0.25)] bg-white/[0.02] shadow-[0_0_0_1px_rgb(var(--theme-accent-rgb)/0.08)] hover:border-[rgb(var(--theme-accent-rgb)/0.32)]'
-                          : 'border-white/[0.07] bg-white/[0.02] hover:border-white/[0.1] hover:bg-white/[0.024]'
-                      }`}
-                    >
-                      <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-white/88">
-                        {milestone.title}
-                      </p>
-                      <span
-                        className={`rounded-full border px-2 py-0.5 text-[9px] uppercase tracking-[0.12em] ${
+                    ) : null}
+                    {isUpcomingGroup ? (
+                      <button
+                        type="button"
+                        onClick={() => openMilestonePeek(milestone.id)}
+                        className={`flex w-full flex-wrap items-center gap-2 rounded-[14px] border px-[14px] py-[10px] text-left transition ${
                           isNextUpcomingGroup
-                            ? 'border-white/[0.06] bg-white/[0.02] text-white/48 opacity-70'
-                            : 'border-white/[0.05] bg-white/[0.016] text-white/42 opacity-70'
+                            ? 'border-[rgb(var(--theme-accent-rgb)/0.25)] bg-white/[0.02] shadow-[0_0_0_1px_rgb(var(--theme-accent-rgb)/0.08)] hover:border-[rgb(var(--theme-accent-rgb)/0.32)]'
+                            : 'border-white/[0.07] bg-white/[0.02] hover:border-white/[0.1] hover:bg-white/[0.024]'
                         }`}
                       >
-                        {isNextUpcomingGroup ? 'Next milestone' : 'Upcoming milestone'}
-                      </span>
-                      {milestone.targetDate ? (
-                        <span className={`text-[12px] ${getRelativeDueMeta(milestone.targetDate)?.toneClassName ?? 'text-mist/50'}`}>
-                          {getRelativeDueMeta(milestone.targetDate)?.label ?? formatDate(milestone.targetDate)}
-                        </span>
-                      ) : null}
-                    </button>
-                  ) : (
-                    <div
-                      className={`flex w-full flex-wrap items-center gap-2 ${
-                      isUpcomingGroup
-                        ? `rounded-[14px] border px-[14px] py-[10px] ${
+                        <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-white/88">
+                          {milestone.title}
+                        </p>
+                        <span
+                          className={`rounded-full border px-2 py-0.5 text-[9px] uppercase tracking-[0.12em] ${
                             isNextUpcomingGroup
-                              ? 'border-[rgb(var(--theme-accent-rgb)/0.25)] bg-white/[0.02] shadow-[0_0_0_1px_rgb(var(--theme-accent-rgb)/0.08)]'
-                              : 'border-white/[0.07] bg-white/[0.02]'
-                          }`
-                        : ''
-                      }`}
-                    >
-                      <p className={`text-[11px] uppercase tracking-[0.18em] ${isCurrentGroup ? 'text-white/78' : 'font-medium text-white/88'}`}>
-                        {milestone.title}
-                      </p>
-                      <span
-                        className={`rounded-full border px-2 py-0.5 text-[9px] uppercase tracking-[0.12em] ${
-                          isCurrentGroup
-                            ? 'border-[rgb(var(--theme-accent-rgb)/0.12)] bg-[rgb(var(--theme-accent-rgb)/0.05)] text-[rgb(var(--theme-accent-rgb)/0.72)]'
-                            : isNextUpcomingGroup
                               ? 'border-white/[0.06] bg-white/[0.02] text-white/48 opacity-70'
                               : 'border-white/[0.05] bg-white/[0.016] text-white/42 opacity-70'
+                          }`}
+                        >
+                          {isNextUpcomingGroup ? 'Next milestone' : 'Upcoming milestone'}
+                        </span>
+                        {milestone.targetDate ? (
+                          <span className={`text-[12px] ${getRelativeDueMeta(milestone.targetDate)?.toneClassName ?? 'text-mist/50'}`}>
+                            {getRelativeDueMeta(milestone.targetDate)?.label ?? formatDate(milestone.targetDate)}
+                          </span>
+                        ) : null}
+                      </button>
+                    ) : (
+                      <div
+                        className={`flex w-full flex-wrap items-center gap-2 ${
+                        isUpcomingGroup
+                          ? `rounded-[14px] border px-[14px] py-[10px] ${
+                              isNextUpcomingGroup
+                                ? 'border-[rgb(var(--theme-accent-rgb)/0.25)] bg-white/[0.02] shadow-[0_0_0_1px_rgb(var(--theme-accent-rgb)/0.08)]'
+                                : 'border-white/[0.07] bg-white/[0.02]'
+                            }`
+                          : ''
                         }`}
                       >
-                        {isCurrentGroup ? 'Current milestone' : isNextUpcomingGroup ? 'Next milestone' : 'Upcoming milestone'}
-                      </span>
-                      {milestone.targetDate ? (
-                        <span className={`text-[12px] ${getRelativeDueMeta(milestone.targetDate)?.toneClassName ?? 'text-mist/50'}`}>
-                          {getRelativeDueMeta(milestone.targetDate)?.label ?? formatDate(milestone.targetDate)}
+                        <p className={`text-[11px] uppercase tracking-[0.18em] ${isCurrentGroup ? 'text-white/78' : 'font-medium text-white/88'}`}>
+                          {milestone.title}
+                        </p>
+                        <span
+                          className={`rounded-full border px-2 py-0.5 text-[9px] uppercase tracking-[0.12em] ${
+                            isCurrentGroup
+                              ? 'border-[rgb(var(--theme-accent-rgb)/0.12)] bg-[rgb(var(--theme-accent-rgb)/0.05)] text-[rgb(var(--theme-accent-rgb)/0.72)]'
+                              : isNextUpcomingGroup
+                                ? 'border-white/[0.06] bg-white/[0.02] text-white/48 opacity-70'
+                                : 'border-white/[0.05] bg-white/[0.016] text-white/42 opacity-70'
+                          }`}
+                        >
+                          {isCurrentGroup ? 'Current milestone' : isNextUpcomingGroup ? 'Next milestone' : 'Upcoming milestone'}
                         </span>
-                      ) : null}
-                    </div>
+                        {milestone.targetDate ? (
+                          <span className={`text-[12px] ${getRelativeDueMeta(milestone.targetDate)?.toneClassName ?? 'text-mist/50'}`}>
+                            {getRelativeDueMeta(milestone.targetDate)?.label ?? formatDate(milestone.targetDate)}
+                          </span>
+                        ) : null}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className={`space-y-0.5 ${isUpcomingGroup ? 'mt-2' : ''}`}>
+                  {incompleteGroupTasks.map((task) =>
+                    renderRoadmapPanelTaskRow(task, task.id === roadmapSections.current?.id ? 'current' : 'upcoming'),
                   )}
                 </div>
               </div>
-              <div className={`space-y-0.5 ${isUpcomingGroup ? 'mt-2' : ''}`}>
-                {incompleteGroupTasks.map((task) =>
+            )
+          })
+          const incompleteNoMilestoneTasks = roadmapTasksWithoutMilestone.filter((task) => !task.completed)
+          const noMilestoneGroup = incompleteNoMilestoneTasks.length > 0 ? (
+            <div key="roadmap-no-milestone-group" className={roadmapTasksGroupedByMilestone.length > 0 ? 'pt-5' : ''}>
+              <div className="relative pb-3" style={roadmapContentInsetStyle}>
+                <div className="flex w-full flex-wrap items-center gap-2 rounded-[14px] border border-white/[0.07] bg-white/[0.02] px-[14px] py-[10px]">
+                  <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-white/88">
+                    No milestone
+                  </p>
+                  <span className="rounded-full border border-white/[0.05] bg-white/[0.016] px-2 py-0.5 text-[9px] uppercase tracking-[0.12em] text-white/42 opacity-70">
+                    Unassigned
+                  </span>
+                </div>
+              </div>
+              <div className="space-y-0.5 mt-2">
+                {incompleteNoMilestoneTasks.map((task) =>
                   renderRoadmapPanelTaskRow(task, task.id === roadmapSections.current?.id ? 'current' : 'upcoming'),
                 )}
               </div>
             </div>
-          )
-        })
+          ) : null
+          return [...milestoneGroups, noMilestoneGroup]
         })()}
       </div>
     ) : null,
@@ -982,6 +1327,7 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
     roadmapMilestoneConnectorPath,
     roadmapSections.current?.id,
     roadmapTasksGroupedByMilestone,
+    roadmapTasksWithoutMilestone,
   ])
   const renderParentGoalChips = React.useCallback(() => (
     <>
@@ -1297,6 +1643,28 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
     if (!selectedLifeGoalCanUploadVisionImages) return
     visionUploadInputRef.current?.click()
   }, [selectedLifeGoalCanUploadVisionImages, visionUploadInputRef])
+  const handleAtomsVisionFileSelected = React.useCallback(async (files: FileList | null) => {
+    const file = files?.[0]
+    if (!file) return
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result ?? ''))
+      reader.onerror = () => reject(reader.error)
+      reader.readAsDataURL(file)
+    })
+    onUpdateLifeGoal(selectedLifeGoal.id, (goal) => ({
+      ...goal,
+      visionImages: dataUrl ? [dataUrl] : [],
+      updatedAt: new Date().toISOString(),
+    }))
+  }, [onUpdateLifeGoal, selectedLifeGoal.id])
+  const handleAtomsVisionImageRemove = React.useCallback(() => {
+    onUpdateLifeGoal(selectedLifeGoal.id, (goal) => ({
+      ...goal,
+      visionImages: [],
+      updatedAt: new Date().toISOString(),
+    }))
+  }, [onUpdateLifeGoal, selectedLifeGoal.id])
   const handleFocusToday = React.useCallback(() => {
     onSetLifeGoalAsTodayTask(selectedLifeGoal, selectedGoalRuntimeTasks)
     setLifeGoalActionFeedback('Focused for today.')
@@ -1387,10 +1755,8 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
                 <option value="paused" className="bg-[rgb(var(--theme-surface-elevated-rgb))] text-white">Paused</option>
                 <option value="complete" className="bg-[rgb(var(--theme-surface-elevated-rgb))] text-white">Completed</option>
               </select>
-              <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-white/26">
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                  <path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
+              <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center">
+                <ChevronRight className="h-3.5 w-3.5 rotate-90 text-white/26" aria-hidden="true" />
               </span>
             </div>
           </div>
@@ -1409,10 +1775,8 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
                   </option>
                 ))}
               </select>
-              <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-white/26">
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                  <path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
+              <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center">
+                <ChevronRight className="h-3.5 w-3.5 rotate-90 text-white/26" aria-hidden="true" />
               </span>
             </div>
           </div>
@@ -2638,7 +3002,7 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
                       ) : null}
                     </div>
                     <div className="flex shrink-0 items-center gap-2 pt-0.5">
-                      {task.important ? (
+                      {task.priority === 'high' ? (
                         <span className="inline-flex items-center rounded-full border border-[#A94D45]/28 bg-[#2A1615]/30 px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-[#D58A82]">
                           Important
                         </span>
@@ -3223,6 +3587,717 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
     taskMomentumTransition,
     visibleGoalStartCueTaskId,
   ])
+
+  const atomsVisionBrightness =
+    typeof selectedLifeGoal.visionImageBrightness === 'number'
+      ? selectedLifeGoal.visionImageBrightness
+      : 0.7
+  const updateAtomsVisionBrightness = React.useCallback((value: number) => {
+    onUpdateLifeGoal(selectedLifeGoal.id, (goal) => ({
+      ...goal,
+      visionImageBrightness: value,
+      updatedAt: new Date().toISOString(),
+    }))
+  }, [onUpdateLifeGoal, selectedLifeGoal.id])
+  const [atomsShowIcon, setAtomsShowIcon] = React.useState(Boolean(selectedGoalDetailContentVisibility.icon))
+  const [atomsShowCategory, setAtomsShowCategory] = React.useState(Boolean(selectedGoalDetailContentVisibility.category))
+  const [atomsShowStatus, setAtomsShowStatus] = React.useState(Boolean(selectedGoalDetailContentVisibility.status))
+  const useAtomsGoalDetail = selectedLifeGoal.title === ATOMS_GOAL_DETAIL_TEST_GOAL_TITLE
+
+  if (useAtomsGoalDetail) {
+    const atomsNextTask = getAtomsRoadmapNextTask(selectedLifeGoalMilestones, selectedGoalRuntimeTasks)
+    const atomsRoadmapMilestones = getAtomsRoadmapMilestones(
+      selectedLifeGoal,
+      selectedLifeGoalMilestones,
+      selectedGoalRuntimeTasks,
+      atomsNextTask,
+    )
+    const atomsChartData = getAtomsChartData(selectedGoalRuntimeTasks)
+    const atomsLastActivity = getAtomsLastActivity(selectedLifeGoalProgress)
+    const atomsCategoryOptions = Array.from(
+      new Set([
+        selectedLifeGoal.category,
+        ...(lifeGoalCategories ?? []).map((category) => (typeof category === 'string' ? category : category.name)),
+      ].filter(Boolean)),
+    ).sort((left, right) => left.localeCompare(right))
+    const updateAtomsCategory = (category: string) => {
+      onUpdateLifeGoal(selectedLifeGoal.id, (goal) => ({
+        ...goal,
+        category,
+        updatedAt: new Date().toISOString(),
+      }))
+      setGoalDetailCategoryMenuOpen(false)
+    }
+    const atomsHeroEmojiContent = (
+      <button
+        type="button"
+        onClick={(event) => startInlineIconEdit(event.currentTarget)}
+        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl text-3xl leading-none transition hover:bg-white/[0.035]"
+        aria-label="Change goal icon"
+      >
+        {selectedLifeGoal.icon?.startsWith('emoji:') ? (
+          selectedLifeGoal.icon.slice(6)
+        ) : selectedLifeGoal.icon && LIFE_GOAL_ICON_MAP[selectedLifeGoal.icon] ? (
+          (() => {
+            const Icon = LIFE_GOAL_ICON_MAP[selectedLifeGoal.icon].Icon
+            return <Icon size={24} className="text-white/70" />
+          })()
+        ) : (
+          getAtomsGoalEmoji(selectedLifeGoal)
+        )}
+      </button>
+    )
+    const atomsHeroTitleContent =
+      inlineLifeGoalEditingField === 'title' ? (
+        <input
+          ref={lifeGoalTitleInputRef}
+          value={lifeGoalDraft.title}
+          onChange={(event) => setLifeGoalDraft((current) => ({ ...current, title: event.target.value }))}
+          onBlur={() => commitInlineLifeGoalField(selectedLifeGoal, 'title')}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault()
+              commitInlineLifeGoalField(selectedLifeGoal, 'title')
+            }
+            if (event.key === 'Escape') {
+              event.preventDefault()
+              cancelInlineLifeGoalField(selectedLifeGoal, 'title')
+            }
+          }}
+          placeholder="Goal title"
+          spellCheck={true}
+          className="min-w-0 flex-1 bg-transparent px-0 py-0 text-2xl font-bold tracking-tight text-slate-100 outline-none placeholder:text-slate-500"
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={startInlineTitleEdit}
+          className="min-w-0 flex-1 truncate text-left text-2xl font-bold tracking-tight text-slate-100 transition hover:text-white"
+        >
+          {selectedLifeGoal.title}
+        </button>
+      )
+    const atomsHeroChips = (
+      <>
+        {isDirectionalGoal
+          ? renderGoalTypeInfoChip(
+              'Directional',
+              'Long-term life direction. Not something to complete.',
+              'border-white/[0.08] bg-white/[0.04] text-white/72',
+            )
+          : null}
+        {renderParentGoalChips()}
+        {atomsShowCategory && selectedGoalCategory ? (
+          <span className="relative inline-flex">
+            <button
+              ref={goalDetailCategoryButtonRef}
+              type="button"
+              onClick={() => setGoalDetailCategoryMenuOpen((current) => !current)}
+              className={`${goalHeaderChipClassName} gap-1.5 transition hover:brightness-125`}
+              style={{ ...getLifeGoalCategoryChipStyle(selectedGoalCategoryColor), ...getLifeGoalCategoryChipTextStyle(selectedGoalCategoryColor) }}
+              aria-haspopup="menu"
+              aria-expanded={goalDetailCategoryMenuOpen}
+            >
+              <span className="h-1.5 w-1.5 rounded-full" style={getLifeGoalCategoryDotStyle(selectedGoalCategoryColor)} />
+              {selectedGoalCategory}
+            </button>
+            {goalDetailCategoryMenuOpen ? (
+              <div
+                ref={goalDetailCategoryMenuRef}
+                role="menu"
+                className="theme-popover absolute right-0 top-[calc(100%+8px)] z-[60] min-w-[176px] overflow-hidden rounded-[16px] border border-white/[0.06] bg-[rgb(var(--theme-surface-elevated-rgb)/0.98)] p-1.5 shadow-[0_18px_40px_rgba(15,23,42,0.28)]"
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => updateAtomsCategory('')}
+                  className="flex w-full items-center rounded-[12px] px-3 py-2 text-left text-sm text-white/46 transition hover:bg-white/[0.05] hover:text-white/78"
+                >
+                  No category
+                </button>
+                {atomsCategoryOptions.map((category) => {
+                  const categoryColor =
+                    category === selectedGoalCategory
+                      ? selectedGoalCategoryColor
+                      : getLifeGoalCategoryColor(category, (lifeGoalCategories ?? []).filter((item) => typeof item !== 'string'))
+                  return (
+                    <button
+                      key={`atoms-hero-category-${category}`}
+                      type="button"
+                      role="menuitem"
+                      onClick={() => updateAtomsCategory(category)}
+                      className="flex w-full items-center gap-2 rounded-[12px] px-3 py-2 text-left text-sm transition hover:bg-white/[0.05]"
+                      style={getLifeGoalCategoryChipTextStyle(categoryColor)}
+                    >
+                      <span className="h-1.5 w-1.5 rounded-full" style={getLifeGoalCategoryDotStyle(categoryColor)} />
+                      <span>{category}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            ) : null}
+          </span>
+        ) : null}
+      </>
+    )
+    const activeAtomsRoadmapMilestones = atomsRoadmapMilestones.map((milestone) => ({
+      ...milestone,
+      steps: milestone.steps.filter((step) => step.status !== 'completed'),
+    }))
+    const completedAtomsRoadmapMilestones = atomsRoadmapMilestones
+      .map((milestone) => ({
+        ...milestone,
+        steps: milestone.steps.filter((step) => step.status === 'completed'),
+      }))
+      .filter((milestone) => milestone.steps.length > 0)
+    const highPriorityTaskIds = new Set(
+      selectedGoalRuntimeTasks
+        .filter((task) => getPriorityScore(task) === 3)
+        .map((task) => task.id),
+    )
+    const displayAtomsRoadmapMilestones = roadmapHighPriorityFocus
+      ? activeAtomsRoadmapMilestones.map((milestone) => ({
+          ...milestone,
+          steps: milestone.steps.filter((step) => step.taskId && highPriorityTaskIds.has(step.taskId)),
+        }))
+      : activeAtomsRoadmapMilestones
+    const displayCompletedAtomsRoadmapMilestones = roadmapHighPriorityFocus
+      ? completedAtomsRoadmapMilestones
+          .map((milestone) => ({
+            ...milestone,
+            steps: milestone.steps.filter((step) => step.taskId && highPriorityTaskIds.has(step.taskId)),
+          }))
+          .filter((milestone) => milestone.steps.length > 0)
+      : completedAtomsRoadmapMilestones
+    const handleRoadmapViewChange = (value: 'roadmap' | 'milestones' | 'notes' | 'tasks') => {
+      setGoalDetailRoadmapViewSelection(value)
+      selectedRoadmapPanelActions?.onSetProgressView?.(
+        value === 'roadmap' ? 'tasks' : value,
+      )
+    }
+    const resetGoalDetailRoadmapControls = () => {
+      setRoadmapCompletedOpen(false)
+      setRoadmapHighPriorityFocus(false)
+      setGoalDetailRoadmapShowMilestones(true)
+      setGoalDetailRoadmapCompletedExpanded(false)
+      setGoalDetailRoadmapViewSelection('roadmap')
+      selectedRoadmapPanelActions?.onSetProgressView?.('tasks')
+    }
+    const roadmapControlsPanel = (
+      <div className="relative inline-flex items-center">
+        <IconButton
+          ref={goalDetailRoadmapControlsTriggerRef}
+          onClick={() => setGoalDetailRoadmapControlsPanelOpen((current) => !current)}
+          variant="muted"
+          size="sm"
+          ariaLabel={goalDetailRoadmapControlsPanelOpen ? 'Close roadmap controls' : 'Open roadmap controls'}
+          aria-expanded={goalDetailRoadmapControlsPanelOpen}
+          icon={<GoalDetailControlsIcon />}
+        />
+        <AnimatePresence>
+          {goalDetailRoadmapControlsPanelOpen ? (
+            <motion.aside
+              ref={goalDetailRoadmapControlsPanelRef}
+              className="absolute right-0 top-[calc(100%+10px)] z-[50] w-[320px] max-w-[calc(100vw-32px)]"
+              initial={{ opacity: 0, x: 12, y: -6 }}
+              animate={{ opacity: 1, x: 0, y: 0 }}
+              exit={{ opacity: 0, x: 12, y: -6 }}
+              transition={{ duration: 0.16, ease: 'easeOut' }}
+            >
+              <ControlsPanelShell
+                emphasis="strong"
+                scrollable
+                footer={
+                  <Button type="button" variant="panel-link" onClick={resetGoalDetailRoadmapControls}>
+                    Reset
+                  </Button>
+                }
+              >
+                <PanelSection>
+                  <PanelSectionTitle>
+                    Roadmap
+                  </PanelSectionTitle>
+                  <PanelActionRow>
+                    <PanelRowLabel>Show completed tasks</PanelRowLabel>
+                    <Toggle
+                      checked={roadmapCompletedOpen}
+                      onChange={() => {
+                        setRoadmapCompletedOpen((current) => {
+                          if (current) {
+                            setGoalDetailRoadmapCompletedExpanded(false)
+                          }
+                          return !current
+                        })
+                      }}
+                      role="switch"
+                      aria-checked={roadmapCompletedOpen}
+                    />
+                  </PanelActionRow>
+                  <PanelActionRow>
+                    <PanelRowLabel>Show milestones</PanelRowLabel>
+                    <Toggle
+                      checked={goalDetailRoadmapShowMilestones}
+                      onChange={setGoalDetailRoadmapShowMilestones}
+                      disabled={!isOutcomeGoal}
+                      role="switch"
+                      aria-checked={goalDetailRoadmapShowMilestones}
+                    />
+                  </PanelActionRow>
+                  <PanelActionRow>
+                    <PanelRowLabel>High priority only</PanelRowLabel>
+                    <Toggle
+                      checked={roadmapHighPriorityFocus}
+                      onChange={() => setRoadmapHighPriorityFocus((current) => !current)}
+                      role="switch"
+                      aria-checked={roadmapHighPriorityFocus}
+                    />
+                  </PanelActionRow>
+                  <PanelActionRow>
+                    <Button
+                      type="button"
+                      variant="panel-link"
+                      className="-mx-1 justify-start px-1 text-left"
+                      onClick={(event) => {
+                        addSelectedLifeGoalMilestone(event)
+                        setGoalDetailRoadmapControlsPanelOpen(false)
+                      }}
+                    >
+                      Add milestone
+                    </Button>
+                  </PanelActionRow>
+                </PanelSection>
+                <PanelSection>
+                  <PanelSectionTitle>
+                    View
+                  </PanelSectionTitle>
+                  <PanelFieldRow>
+                    <label className="text-[12px] text-[rgba(255,255,255,0.85)]">Mode</label>
+                    <div className="relative">
+                      <select
+                        value={goalDetailRoadmapViewSelection}
+                        onChange={(event) => handleRoadmapViewChange(event.target.value as 'roadmap' | 'milestones' | 'notes' | 'tasks')}
+                        className="h-9 w-[154px] appearance-none rounded-[14px] border border-white/[0.1] bg-white/[0.06] px-3 pr-9 text-[13px] text-[rgba(255,255,255,0.75)] outline-none transition hover:border-white/[0.12] hover:bg-white/[0.08]"
+                      >
+                        <option value="roadmap" className="bg-[#1E1E22] text-white">Roadmap</option>
+                        {selectedShowMilestoneProgressView ? (
+                          <option value="milestones" className="bg-[#1E1E22] text-white">Milestones</option>
+                        ) : null}
+                        <option value="notes" className="bg-[#1E1E22] text-white">Notes</option>
+                        <option value="tasks" className="bg-[#1E1E22] text-white">Tasks</option>
+                      </select>
+                      <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center">
+                        <ChevronRight className="h-3.5 w-3.5 rotate-90 text-white/26" aria-hidden="true" />
+                      </span>
+                    </div>
+                  </PanelFieldRow>
+                </PanelSection>
+              </ControlsPanelShell>
+            </motion.aside>
+          ) : null}
+        </AnimatePresence>
+      </div>
+    )
+    const openGoalDetailDatePicker = (
+      field: 'startDate' | 'targetDate',
+      event: React.MouseEvent<HTMLButtonElement>,
+    ) => {
+      const rect = event.currentTarget.getBoundingClientRect()
+      const width = Math.max(rect.width, 360)
+      setGoalDetailDatePickerField(field)
+      setGoalDetailDatePanelPosition({
+        top: rect.bottom + 8,
+        left: Math.max(16, Math.min(rect.left, window.innerWidth - width - 16)),
+        width,
+      })
+    }
+    const applyGoalDetailDate = (value: string) => {
+      if (!goalDetailDatePickerField) return
+      onUpdateLifeGoal(selectedLifeGoal.id, (goal) => ({
+        ...goal,
+        [goalDetailDatePickerField]: value,
+        updatedAt: new Date().toISOString(),
+      }))
+      setGoalDetailDatePickerField(null)
+      setGoalDetailDatePanelPosition(null)
+    }
+    const closeGoalDetailDatePicker = () => {
+      setGoalDetailDatePickerField(null)
+      setGoalDetailDatePanelPosition(null)
+    }
+    const goalDetailDatePicker = goalDetailDatePickerField ? (
+      <GoalDatePicker
+        ref={goalDetailDatePanelRef}
+        value={selectedLifeGoal[goalDetailDatePickerField] || ''}
+        anchorPosition={goalDetailDatePanelPosition}
+        label={goalDetailDatePickerField === 'startDate' ? 'Start date' : 'Target date'}
+        navigationStyle="bordered"
+        onChange={applyGoalDetailDate}
+        onClose={closeGoalDetailDatePicker}
+      />
+    ) : null
+    const resetGoalDetailControls = () => {
+      setAtomsShowIcon(Boolean(selectedGoalDetailContentVisibility.icon))
+      setAtomsShowCategory(Boolean(selectedGoalDetailContentVisibility.category))
+      setAtomsShowStatus(Boolean(selectedGoalDetailContentVisibility.status))
+    }
+
+    return (
+      <motion.div
+        key={`atoms-${selectedLifeGoal.id}`}
+        className="w-full space-y-6"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: prefersReducedMotion ? 0 : 0.2, ease: 'easeOut' }}
+      >
+        <div>
+          <button
+            type="button"
+            onClick={() => onChangeGoalsView(parentOverviewGoalsView)}
+            className="theme-text-muted text-sm transition hover:text-[rgb(var(--theme-text-primary-rgb))]"
+          >
+            ← Back to {isDirectionalGoal ? 'Directional Goals' : 'Outcome Goals'}
+          </button>
+        </div>
+
+        <div className="rounded-[28px] border border-[#1E2028] bg-[#12141A] p-6 shadow-[0_1px_14px_rgba(0,0,0,0.24)]">
+          <GoalHero
+            title={selectedLifeGoal.title}
+            emoji={getAtomsGoalEmoji(selectedLifeGoal)}
+            titleContent={atomsHeroTitleContent}
+            emojiContent={atomsHeroEmojiContent}
+            status={getAtomsGoalStatus(selectedLifeGoal)}
+            showEmoji={atomsShowIcon}
+            showStatus={atomsShowStatus}
+            isHighImpact={Boolean(selectedLifeGoal.isPrimary)}
+            progress={selectedLifeGoalProgress.percent}
+            isExpanded={isHeroExpanded}
+            nextTask={{
+              title:
+                selectedLifeGoal.status === 'complete'
+                  ? 'Goal complete'
+                  : atomsNextTask?.text ?? 'No next task currently planned',
+              category: atomsNextTask ? getAtomsTaskCategory(atomsNextTask) : selectedGoalCategory || 'Goal task',
+              estimatedTime: atomsNextTask ? getAtomsTaskEstimate(atomsNextTask) : 'Plan next action',
+            }}
+            lastProgressed={atomsLastActivity}
+            onToggleHighImpact={() =>
+              onUpdateLifeGoal(selectedLifeGoal.id, (goal) => ({
+                ...goal,
+                isPrimary: !Boolean(goal.isPrimary),
+                updatedAt: new Date().toISOString(),
+              }))
+            }
+            onToggleStatus={() =>
+              onUpdateLifeGoal(selectedLifeGoal.id, (goal) =>
+                goal.status === 'complete'
+                  ? goal
+                  : {
+                      ...goal,
+                      status: goal.status === 'paused' ? 'in-motion' : 'paused',
+                      updatedAt: new Date().toISOString(),
+                    },
+              )
+            }
+            actions={
+              <>
+                {atomsHeroChips}
+                <div className="relative inline-flex items-center">
+                  <IconButton
+                    ref={goalDetailControlsTriggerRef}
+                    onClick={() =>
+                      setGoalDetailControlsPanelOpen((current) => {
+                        if (current) {
+                          closeGoalDetailDatePicker()
+                        }
+                        return !current
+                      })
+                    }
+                    variant="muted"
+                    ariaLabel={goalDetailControlsPanelOpen ? 'Close goal detail controls' : 'Open goal detail controls'}
+                    aria-expanded={goalDetailControlsPanelOpen}
+                    icon={<GoalDetailControlsIcon />}
+                  />
+                  <AnimatePresence>
+                    {goalDetailControlsPanelOpen ? (
+                      <motion.aside
+                        ref={goalDetailControlsPanelRef}
+                        className="absolute right-0 top-[calc(100%+10px)] z-[50] w-[320px] max-w-[calc(100vw-32px)]"
+                        initial={{ opacity: 0, x: 12, y: -6 }}
+                        animate={{ opacity: 1, x: 0, y: 0 }}
+                        exit={{ opacity: 0, x: 12, y: -6 }}
+                        transition={{ duration: 0.16, ease: 'easeOut' }}
+                      >
+                        <ControlsPanelShell
+                          emphasis="strong"
+                          scrollable
+                          footer={
+                            <div className="flex w-full items-center justify-between gap-3">
+                              <Button type="button" variant="panel-link" onClick={resetGoalDetailControls}>
+                                Reset
+                              </Button>
+                              <div className="relative">
+                                <button
+                                  ref={goalDetailFooterMenuButtonRef}
+                                  type="button"
+                                  aria-haspopup="menu"
+                                  aria-expanded={goalDetailFooterMenuOpen}
+                                  onClick={() => setGoalDetailFooterMenuOpen((current) => !current)}
+                                  className="inline-flex h-7 w-7 items-center justify-center rounded-full text-[13px] leading-none text-white/42 transition hover:bg-white/[0.035] hover:text-white/70"
+                                  aria-label="More goal actions"
+                                >
+                                  •••
+                                </button>
+                                {goalDetailFooterMenuOpen ? (
+                                  <div
+                                    ref={goalDetailFooterMenuRef}
+                                    role="menu"
+                                    className="theme-popover absolute bottom-[calc(100%+8px)] right-0 z-[60] min-w-[168px] overflow-hidden rounded-[16px] border border-white/[0.06] bg-[rgb(var(--theme-surface-elevated-rgb)/0.98)] p-1.5 shadow-[0_18px_40px_rgba(15,23,42,0.28)]"
+                                  >
+                                    <button
+                                      type="button"
+                                      role="menuitem"
+                                      onClick={() => {
+                                        setGoalDetailFooterMenuOpen(false)
+                                        if (!window.confirm('Archive this goal? It will be removed from the active Life Goals workspace.')) return
+                                        onArchiveLifeGoal(selectedLifeGoal.id)
+                                        onChangeGoalsView(parentOverviewGoalsView)
+                                      }}
+                                      className="flex w-full items-center rounded-[12px] px-3 py-2 text-left text-sm text-white/74 transition hover:bg-white/[0.05] hover:text-white/92"
+                                    >
+                                      Archive Goal
+                                    </button>
+                                    <button
+                                      type="button"
+                                      role="menuitem"
+                                      onClick={() => {
+                                        setGoalDetailFooterMenuOpen(false)
+                                        if (!window.confirm('Delete this goal? This action cannot be undone.')) return
+                                        requestDeleteLifeGoal(selectedLifeGoal.id, 'detail')
+                                      }}
+                                      className="flex w-full items-center rounded-[12px] px-3 py-2 text-left text-sm text-[rgb(var(--theme-negative-rgb)/0.88)] transition hover:bg-[rgb(var(--theme-negative-rgb)/0.12)] hover:text-[rgb(var(--theme-negative-rgb)/0.98)]"
+                                    >
+                                      Delete Goal
+                                    </button>
+                                  </div>
+                                ) : null}
+                              </div>
+                            </div>
+                          }
+                        >
+                          <PanelSection>
+                            <PanelSectionTitle>
+                              Goal Details
+                            </PanelSectionTitle>
+                            <PanelFieldRow>
+                              <label className="text-[12px] text-[rgba(255,255,255,0.85)]">Category</label>
+                              <div className="relative">
+                                <select
+                                  value={selectedLifeGoal.category || ''}
+                                  onChange={(event) =>
+                                    onUpdateLifeGoal(selectedLifeGoal.id, (goal) => ({
+                                      ...goal,
+                                      category: event.target.value,
+                                      updatedAt: new Date().toISOString(),
+                                    }))
+                                  }
+                                  className="h-9 w-[154px] appearance-none rounded-[14px] border border-white/[0.1] bg-white/[0.06] px-3 pr-9 text-[13px] text-[rgba(255,255,255,0.75)] outline-none transition hover:border-white/[0.12] hover:bg-white/[0.08]"
+                                >
+                                  <option value="" className="bg-[#1E1E22] text-white">None</option>
+                                  {atomsCategoryOptions.map((category) => (
+                                    <option key={`atoms-category-${category}`} value={category} className="bg-[#1E1E22] text-white">
+                                      {category}
+                                    </option>
+                                  ))}
+                                </select>
+                                <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center">
+                                  <ChevronRight className="h-3.5 w-3.5 rotate-90 text-white/26" aria-hidden="true" />
+                                </span>
+                              </div>
+                            </PanelFieldRow>
+                            <PanelFieldRow>
+                              <label className="text-[12px] text-[rgba(255,255,255,0.85)]">Start date</label>
+                              <button
+                                ref={goalDetailStartDateButtonRef}
+                                type="button"
+                                onClick={(event) => openGoalDetailDatePicker('startDate', event)}
+                                className="h-9 w-[154px] rounded-[14px] border border-white/[0.1] bg-white/[0.06] px-3 text-left text-[13px] text-[rgba(255,255,255,0.75)] outline-none transition hover:border-white/[0.12] hover:bg-white/[0.08]"
+                              >
+                                {selectedLifeGoal.startDate ? formatDate(selectedLifeGoal.startDate) : 'No date'}
+                              </button>
+                            </PanelFieldRow>
+                            <PanelFieldRow>
+                              <label className="text-[12px] text-[rgba(255,255,255,0.85)]">Target date</label>
+                              <button
+                                ref={goalDetailTargetDateButtonRef}
+                                type="button"
+                                onClick={(event) => openGoalDetailDatePicker('targetDate', event)}
+                                className="h-9 w-[154px] rounded-[14px] border border-white/[0.1] bg-white/[0.06] px-3 text-left text-[13px] text-[rgba(255,255,255,0.75)] outline-none transition hover:border-white/[0.12] hover:bg-white/[0.08]"
+                              >
+                                {selectedLifeGoal.targetDate ? formatDate(selectedLifeGoal.targetDate) : 'No date'}
+                              </button>
+                            </PanelFieldRow>
+                            <PanelFieldRow>
+                              <label className="text-[12px] text-[rgba(255,255,255,0.85)]">Status</label>
+                              <div className="relative">
+                                <select
+                                  value={selectedLifeGoal.status === 'complete' ? 'complete' : selectedLifeGoal.status === 'paused' ? 'paused' : 'in-motion'}
+                                  onChange={(event) =>
+                                    onUpdateLifeGoal(selectedLifeGoal.id, (goal) => ({
+                                      ...goal,
+                                      status: event.target.value,
+                                      updatedAt: new Date().toISOString(),
+                                    }))
+                                  }
+                                  className="h-9 w-[154px] appearance-none rounded-[14px] border border-white/[0.1] bg-white/[0.06] px-3 pr-9 text-[13px] text-[rgba(255,255,255,0.75)] outline-none transition hover:border-white/[0.12] hover:bg-white/[0.08]"
+                                >
+                                  <option value="in-motion" className="bg-[#1E1E22] text-white">Active</option>
+                                  <option value="paused" className="bg-[#1E1E22] text-white">On Hold</option>
+                                  <option value="complete" className="bg-[#1E1E22] text-white">Completed</option>
+                                </select>
+                                <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center">
+                                  <ChevronRight className="h-3.5 w-3.5 rotate-90 text-white/26" aria-hidden="true" />
+                                </span>
+                              </div>
+                            </PanelFieldRow>
+                          </PanelSection>
+                          <PanelSection>
+                            <PanelSectionTitle>
+                              Presentation
+                            </PanelSectionTitle>
+                            <PanelActionRow>
+                              <PanelRowLabel>Show icon/emoji</PanelRowLabel>
+                              <Toggle
+                                checked={atomsShowIcon}
+                                onChange={setAtomsShowIcon}
+                                role="switch"
+                                aria-checked={atomsShowIcon}
+                              />
+                            </PanelActionRow>
+                            <PanelActionRow>
+                              <PanelRowLabel>Show category</PanelRowLabel>
+                              <Toggle
+                                checked={atomsShowCategory}
+                                onChange={setAtomsShowCategory}
+                                role="switch"
+                                aria-checked={atomsShowCategory}
+                              />
+                            </PanelActionRow>
+                            <PanelActionRow>
+                              <PanelRowLabel>Show status</PanelRowLabel>
+                              <Toggle
+                                checked={atomsShowStatus}
+                                onChange={setAtomsShowStatus}
+                                role="switch"
+                                aria-checked={atomsShowStatus}
+                              />
+                            </PanelActionRow>
+                          </PanelSection>
+                        </ControlsPanelShell>
+                      </motion.aside>
+                    ) : null}
+	                  </AnimatePresence>
+	                </div>
+	                <IconButton
+	                  onClick={() => setIsHeroExpanded((current) => !current)}
+	                  variant="muted"
+	                  size="sm"
+	                  ariaLabel={isHeroExpanded ? 'Collapse goal summary' : 'Expand goal summary'}
+	                  aria-expanded={isHeroExpanded}
+	                  icon={<ChevronDown className={`h-4 w-4 text-white/64 transition-transform duration-200 ${isHeroExpanded ? 'rotate-180' : ''}`} />}
+	                />
+	                {!isHeroExpanded ? (
+	                  <span className="text-xs font-semibold text-indigo-400 tabular-nums">
+	                    {selectedLifeGoalProgress.percent}%
+	                  </span>
+	                ) : null}
+	              </>
+	            }
+            onNextTaskClick={
+              atomsNextTask
+                ? (event) => openTaskPeek(atomsNextTask.id, event.currentTarget)
+                : undefined
+            }
+          />
+        </div>
+
+        <div className="grid h-[clamp(720px,115vh,900px)] min-h-0 items-stretch gap-6 xl:grid-cols-[minmax(0,1.18fr)_minmax(320px,0.82fr)]">
+          <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[28px] border border-[#1E2028] bg-[#12141A] p-6 shadow-[0_1px_14px_rgba(0,0,0,0.24)]">
+            <GoalRoadmap
+              milestones={displayAtomsRoadmapMilestones}
+              completedMilestones={displayCompletedAtomsRoadmapMilestones}
+              completedCount={selectedLifeGoalProgress.completedTasks}
+              totalCount={selectedLifeGoalProgress.totalTasks}
+              lastActivity={atomsLastActivity}
+              showMilestones={goalDetailRoadmapShowMilestones}
+              showCompletedFooter={roadmapCompletedOpen}
+              completedExpanded={goalDetailRoadmapCompletedExpanded}
+              onAddTask={(event) => openNewTaskPeek(event.currentTarget)}
+              onAddTaskToMilestone={(milestone, event) =>
+                openNewTaskPeek(event.currentTarget, {
+                  milestoneId: milestone.id,
+                  milestoneTitle: milestone.label,
+                })
+              }
+              onStepClick={(taskId, event) => openTaskPeek(taskId, event.currentTarget)}
+              onToggleCompletedExpanded={() => setGoalDetailRoadmapCompletedExpanded((current) => !current)}
+              headerActions={roadmapControlsPanel}
+            />
+          </div>
+
+          <div className="flex h-full min-h-0 flex-col gap-6">
+            <div className="flex min-h-0 flex-1 flex-col rounded-[28px] border border-[#1E2028] bg-[#12141A] p-6 shadow-[0_1px_14px_rgba(0,0,0,0.24)]">
+              <input
+                ref={visionUploadInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={async (event) => {
+                  if (!event.target.files?.length) return
+                  await handleAtomsVisionFileSelected(event.target.files)
+                  event.target.value = ''
+                }}
+              />
+              <GoalVision
+                imageUrl={getAtomsVisionImageUrl(selectedLifeGoal)}
+                text={getAtomsVisionText(selectedLifeGoal)}
+                notes={selectedLifeGoal.notes?.trim() || undefined}
+                canUploadImage={selectedLifeGoalCanUploadVisionImages}
+                hasImage={selectedLifeGoal.visionImages.length > 0}
+                onUploadImage={handleVisionUploadClick}
+                onRemoveImage={handleAtomsVisionImageRemove}
+                onTextChange={(value) =>
+                  onUpdateLifeGoal(selectedLifeGoal.id, (goal) => ({
+                    ...goal,
+                    visionStatement: value,
+                    updatedAt: new Date().toISOString(),
+                  }))
+                }
+                imageClassName="min-h-[300px] max-h-[380px]"
+                imageFit="contain"
+                imageBrightness={atomsVisionBrightness}
+                imageSaturation={0.98}
+                imageOpacityClassName="opacity-90"
+                imageOverlayBackground="linear-gradient(180deg, transparent 0%, rgba(10,11,15,0.22) 100%)"
+                onImageBrightnessChange={updateAtomsVisionBrightness}
+              />
+            </div>
+
+            <div className="shrink-0 rounded-[28px] border border-[#1E2028] bg-[#12141A] p-6 shadow-[0_1px_14px_rgba(0,0,0,0.24)]">
+              <GoalInsights
+                percentComplete={selectedLifeGoalProgress.percent}
+                tasksCompleted={selectedLifeGoalProgress.completedTasks}
+                tasksRemaining={selectedLifeGoalProgress.plannedTasks.length}
+                lastActivity={atomsLastActivity}
+                chartData={atomsChartData}
+                trend={getAtomsInsightTrend(selectedLifeGoal, selectedLifeGoalProgress)}
+              />
+            </div>
+          </div>
+        </div>
+        {goalDetailDatePicker}
+      </motion.div>
+    )
+  }
 
   if (isRoadmapMode) {
     return (

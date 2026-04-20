@@ -245,23 +245,27 @@ export interface Task {
   text: string
   order: number
   dueDate: string | null
-  dueTime: string | null
-  taskTag: string | null
-  starred: boolean
-  important: boolean
+  dueTime?: string | null
+  isSomeday?: boolean
+  taskTag?: string | null
+  starred?: boolean
   linkedGoalId?: string | null
   linkedDirectionId?: string | null
   completed: boolean
-  completedAt: string | null
-  description: string
+  completedAt?: string | null
   notes: string
+  externalLinks?: Array<{
+    id: string
+    url: string
+    label?: string
+  }>
+  tagColor?: string | null
   priority: LifeGoalTaskPriority
-  tags: string[]
   subtasks: LifeGoalTaskSubtask[]
   milestoneId?: string | null
   phase?: string | null
-  createdAt: string
-  updatedAt: string | null
+  createdAt?: string
+  updatedAt?: string | null
 }
 
 export interface Note {
@@ -344,11 +348,11 @@ export interface LifeGoalTask {
   text: string
   milestoneId?: string | null
   phase?: string
-  description: string
   notes: string
   dueDate: string | null
+  taskTag: string | null
+  tagColor?: string | null
   priority: LifeGoalTaskPriority
-  tags: string[]
   subtasks: LifeGoalTaskSubtask[]
   completed: boolean
   completedAt: string | null
@@ -378,6 +382,7 @@ export interface LifeGoal {
   notes: string
   visionStatement: string
   visionImages: string[]
+  visionImageBrightness?: number
   visionMode?: 'images' | 'statement' | 'images-statement'
   visionCollapsed?: boolean
   minimumVersion: string

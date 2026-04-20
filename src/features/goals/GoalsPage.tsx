@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion, useMotionValue, useReducedMotion, useSpring } from 'framer-motion'
 import EmojiPicker, { EmojiStyle, Theme as EmojiPickerTheme, SuggestionMode, type EmojiClickData } from 'emoji-picker-react'
-import { Flag, Pin, icons, type LucideIcon } from 'lucide-react'
+import { ChevronRight, Flag, Pin, icons, type LucideIcon } from 'lucide-react'
 import { DetailDrawer } from '../../components/layout/DetailDrawer'
 import { ResponsiveGrid, SectionCard } from '../../components/layout/LayoutPrimitives'
 import {
@@ -19,10 +19,9 @@ import {
   useReturnFocusOnClose,
 } from '../../components/layout/OverlayPrimitives'
 import { Button } from '../../components/ui/Button'
+import Toggle from '../../components/ui/Toggle'
 import { readJsonStorage, writeJsonStorage } from '../../lib/persistence/storage'
 import {
-  getAchievementDetailLabel,
-  getTrackerGoalLabel,
   getTrackerGoalProgress,
   getLiveTrackerStreak,
   isHabitTrackerActiveOnDate,
@@ -53,21 +52,22 @@ import {
   getRoadmapTaskSections,
   getRoadmapTaskVisualState,
   normalizeTaskTag,
-  normalizeTaskTags,
   normalizeLifeGoalPhaseValue,
   sortTasksForDisplay,
   suggestPhase,
 } from './lib/taskDerivations'
 import { useRoadmapSections } from './hooks/useGoalTaskDerivations'
+import { HabitGoalsTab } from './components/HabitGoalsTab'
 import { LifeGoalFocusCard } from './components/LifeGoalFocusCard'
 import { GoalProgressTimelineChart } from './components/GoalProgressTimelineChart'
 import { LifeGoalNotesEditor } from './components/LifeGoalNotesEditor'
 import { LifeGoalRoadmapPanel } from './components/LifeGoalRoadmapPanel'
-import { LifeGoalTaskPeek } from './components/LifeGoalTaskPeek'
 import { LifeGoalVisionCard } from './components/LifeGoalVisionCard'
 import { LifeGoalDetailPage } from './components/LifeGoalDetailPage'
 import { LifeGoalOverviewPanel } from './LifeGoalOverviewPanel'
 import { GoalDatePicker } from './GoalDatePicker'
+import TaskPeek, { type TaskData as TaskPeekTaskData } from '../../components/tasks/TaskPeek'
+import { lifeGoalTaskToTaskPeekData, taskPeekDataToLifeGoalTask } from '../../lib/taskAdapters'
 import {
   canGoalTypeLinkToGoalType,
   formatCalendarDayValue,
@@ -80,6 +80,8 @@ import {
   formatTaskDueDate,
   getCalendarDays,
   getCalendarMonthDate,
+  GOAL_OVERVIEW_ROW_ACTIONS_STORAGE_KEY,
+  GOAL_OVERVIEW_VIEW_CONTROLS_STORAGE_KEY,
   getLifeGoalAccentBarStyle,
   getLifeGoalAnchorText,
   getLifeGoalCategoryChipStyle,
@@ -235,13 +237,18 @@ function getRoadmapTasksGroupedByMilestone(
 
   return milestones
     .map((milestone) => {
-      const tasks = sortedPlannedTasks.filter((task) => {
-        const assignedMilestoneId = task.milestoneId && milestoneIds.has(task.milestoneId) ? task.milestoneId : currentMilestoneId
-        return assignedMilestoneId === milestone.id
-      })
+      const tasks = sortedPlannedTasks.filter((task) => task.milestoneId && milestoneIds.has(task.milestoneId) && task.milestoneId === milestone.id)
       return tasks.length > 0 ? { milestone, tasks } : null
     })
     .filter((group): group is { milestone: GoalMilestone; tasks: LifeGoalTask[] } => Boolean(group))
+}
+
+function getStartOfWeek(date: Date) {
+  const start = new Date(date)
+  const day = (start.getDay() + 6) % 7
+  start.setHours(0, 0, 0, 0)
+  start.setDate(start.getDate() - day)
+  return start
 }
 
 type LifeGoalDraftTask = {
@@ -249,11 +256,11 @@ type LifeGoalDraftTask = {
   text: string
   milestoneId?: string | null
   phase?: string
-  description: string
   notes: string
   dueDate: string | null
+  taskTag: string | null
+  tagColor?: string | null
   priority: LifeGoalTaskPriority
-  tags: string[]
   subtasks: Array<{
     id: string
     text: string
@@ -299,6 +306,13 @@ type CompletionUndoState =
       message: string
     }
   | {
+      kind: 'delete-task'
+      goalId: string
+      goalType: LifeGoalType
+      task: LifeGoalTask
+      message: string
+    }
+  | {
       kind: 'subtask'
       goalId: string
       taskId: string
@@ -315,8 +329,6 @@ type CompletionPulseState = {
 type LifeGoalVisionMode = 'images' | 'statement' | 'images-statement'
 type LifeGoalVisionEditMode = LifeGoalVisionMode | 'hide'
 
-const GOAL_OVERVIEW_VIEW_CONTROLS_STORAGE_KEY = 'goals-overview-view-controls-v1'
-const GOAL_OVERVIEW_ROW_ACTIONS_STORAGE_KEY = 'goals-overview-row-actions-v1'
 const GOAL_DETAIL_CONTENT_VISIBILITY_STORAGE_KEY = 'goal-detail-content-visibility-v1'
 const GOAL_OVERVIEW_COLUMN_ORDER: GoalOverviewColumnKey[] = [
   'completion',
@@ -483,11 +495,11 @@ function createLifeGoalDraftTask(text = ''): LifeGoalDraftTask {
     text,
     milestoneId: null,
     phase: suggestPhase(text) ?? '',
-    description: '',
     notes: '',
     dueDate: null,
+    taskTag: null,
+    tagColor: null,
     priority: 'none',
-    tags: [],
     subtasks: [],
     completed: false,
     completedAt: null,
@@ -538,11 +550,11 @@ function createEmptyLifeGoalTask(): LifeGoalTask {
     text: '',
     milestoneId: null,
     phase: undefined,
-    description: '',
     notes: '',
     dueDate: null,
+    taskTag: null,
+    tagColor: null,
     priority: 'none',
-    tags: [],
     subtasks: [],
     completed: false,
     completedAt: null,
@@ -553,10 +565,8 @@ type OutcomeGoalTaskRecord = Task & {
   dueDate: string | null
   dueTime?: string | null
   taskTag?: string | null
-  description?: string
   notes?: string
   priority?: LifeGoalTaskPriority
-  tags?: string[]
   subtasks?: LifeGoalTask['subtasks']
   milestoneId?: string | null
   phase?: string | null
@@ -576,13 +586,27 @@ function isLifeGoalTaskDraftEmpty(task: LifeGoalTask) {
   const normalizedPhase = normalizeLifeGoalPhaseValue(task.phase)
   return (
     !task.text.trim() &&
-    !task.description.trim() &&
     !task.notes.trim() &&
     !task.dueDate &&
+    !task.taskTag &&
     task.priority === 'none' &&
-    task.tags.length === 0 &&
     task.subtasks.length === 0 &&
     normalizedPhase === 'general'
+  )
+}
+
+function isTaskPeekDraftDataEmpty(task: TaskPeekTaskData) {
+  return (
+    !task.title.trim() &&
+    !(task.details?.trim()) &&
+    !task.dueDate &&
+    !task.dueTime &&
+    !task.tag &&
+    task.priority === 'none' &&
+    (task.subtasks?.length ?? 0) === 0 &&
+    (task.externalLinks?.length ?? 0) === 0 &&
+    !task.linkedGoalId &&
+    !task.linkedDirectionId
   )
 }
 
@@ -613,30 +637,6 @@ function createEmptyLifeGoalDraft(): LifeGoalDraft {
 }
 
 const LIFE_GOAL_WEEKDAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const
-
-function getTargetLabel(tracker: HabitTracker, target: number, goalType: HabitTrackerAchievement['goalType']) {
-  switch (goalType) {
-    case 'streak':
-      return `${target} days`
-    case 'times-per-week':
-      return `${target} times / week`
-    case 'target-value':
-      return tracker.habitType === 'number' ? `${target} target value` : `${target} target`
-    case 'minutes-target':
-      return `${target} minutes`
-  }
-}
-
-function getGoalStatusLabel(item: GoalDetailItem) {
-  if (item.kind === 'completed') return 'Completed'
-  if (item.progress.scheduled) return 'Scheduled'
-  return 'Active'
-}
-
-function getGoalAccentColor(item: GoalDetailItem) {
-  return item.tracker.color
-}
-
 
 function renderCalendarAddIcon(size = 18) {
   return (
@@ -702,11 +702,11 @@ function normalizeLifeGoalDraftTasks(tasks: LifeGoalDraftTask[]): LifeGoalTask[]
       text,
       milestoneId: task.milestoneId ?? null,
       phase: normalizeLifeGoalPhaseValue(task.phase),
-      description: task.description.trim(),
       notes: task.notes,
       dueDate: task.dueDate && isValidIsoDate(task.dueDate) ? task.dueDate : null,
+      taskTag: task.taskTag ? normalizeTaskTag(task.taskTag) : null,
+      tagColor: task.tagColor ?? null,
       priority: task.priority,
-      tags: normalizeTaskTags(task.tags),
       subtasks: task.subtasks
         .map((subtask) => ({
           id: subtask.id,
@@ -759,11 +759,11 @@ function createLifeGoalDraftFromGoal(goal: LifeGoal, runtimeTasks: LifeGoalTask[
             text: task.text,
             milestoneId: task.milestoneId ?? null,
             phase: normalizeLifeGoalPhaseValue(task.phase),
-            description: task.description,
             notes: task.notes,
             dueDate: task.dueDate,
+            taskTag: task.taskTag ?? null,
+            tagColor: task.tagColor ?? null,
             priority: task.priority,
-            tags: task.tags,
             subtasks: task.subtasks,
             completed: task.completed,
             completedAt: task.completedAt,
@@ -1216,6 +1216,7 @@ export function GoalsPage({
   onUpdateTasks,
   onOpenGlobalTasks,
   onOpenHabitTracker,
+  taskPeekRightOffset = 0,
 }: {
   habitTrackers: HabitTracker[]
   lifeGoals: LifeGoal[]
@@ -1245,6 +1246,7 @@ export function GoalsPage({
   onUpdateTasks: (updater: (tasks: Task[]) => Task[]) => void
   onOpenGlobalTasks: () => void
   onOpenHabitTracker: (trackerId: string) => void
+  taskPeekRightOffset?: number
 }) {
   const safeHabitTrackers = habitTrackers ?? []
   const safeLifeGoals = lifeGoals ?? []
@@ -1293,24 +1295,8 @@ export function GoalsPage({
   const [selectedRoadmapTaskId, setSelectedRoadmapTaskId] = useState<string | null>(null)
   const [selectedTaskPeekId, setSelectedTaskPeekId] = useState<string | null>(null)
   const [taskPeekLockedMilestoneContext, setTaskPeekLockedMilestoneContext] = useState<{ id: string; title: string } | null>(null)
-  const [taskPeekSubtaskDraft, setTaskPeekSubtaskDraft] = useState('')
-  const [taskPeekTagDraft, setTaskPeekTagDraft] = useState('')
-  const [taskPeekSubtaskEntryOpen, setTaskPeekSubtaskEntryOpen] = useState(false)
-  const [draggedSubtaskId, setDraggedSubtaskId] = useState<string | null>(null)
-  const [dragOverSubtaskId, setDragOverSubtaskId] = useState<string | null>(null)
-  const [pendingSubtaskFocusId, setPendingSubtaskFocusId] = useState<string | null>(null)
-  const [taskPeekNotesOpen, setTaskPeekNotesOpen] = useState(false)
-  const [taskPeekCompletedSubtasksOpen, setTaskPeekCompletedSubtasksOpen] = useState(false)
-  const [taskPeekDatePickerOpen, setTaskPeekDatePickerOpen] = useState(false)
-  const [taskPeekDateViewMonth, setTaskPeekDateViewMonth] = useState(() => startOfCalendarMonth(getCalendarMonthDate()))
-  const [taskPeekDatePanelPosition, setTaskPeekDatePanelPosition] = useState<FloatingPanelPosition | null>(null)
   const [milestoneDatePickerMilestoneId, setMilestoneDatePickerMilestoneId] = useState<string | null>(null)
   const [milestoneDatePanelPosition, setMilestoneDatePanelPosition] = useState<FloatingPanelPosition | null>(null)
-  const [taskPeekDeleteConfirmation, setTaskPeekDeleteConfirmation] = useState<
-    | { kind: 'task'; taskId: string }
-    | { kind: 'subtask'; taskId: string; subtaskId: string; subtaskText: string }
-    | null
-  >(null)
   const [completionUndo, setCompletionUndo] = useState<CompletionUndoState | null>(null)
   const [completionPulse, setCompletionPulse] = useState<CompletionPulseState | null>(null)
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null)
@@ -1467,15 +1453,10 @@ export function GoalsPage({
   const createRelatedGoalsAvailableListRef = useRef<HTMLDivElement | null>(null)
   const lifeGoalDraftTaskInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
   const visionUploadInputRef = useRef<HTMLInputElement | null>(null)
-  const taskPeekPanelRef = useRef<HTMLDivElement | null>(null)
-  const taskPeekTitleRef = useRef<HTMLTextAreaElement | null>(null)
   const taskPeekTriggerRef = useRef<HTMLElement | null>(null)
-  const taskPeekDateFieldRef = useRef<HTMLDivElement | null>(null)
-  const taskPeekDatePanelRef = useRef<HTMLDivElement | null>(null)
+  const latestTaskPeekDraftRef = useRef<TaskPeekTaskData | null>(null)
   const milestoneDateFieldRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const milestoneDatePanelRef = useRef<HTMLDivElement | null>(null)
-  const taskPeekSubtaskDraftRef = useRef<HTMLInputElement | null>(null)
-  const taskPeekSubtaskInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
   const roadmapTaskRowRefs = useRef<Record<string, HTMLElement | null>>({})
   const completionUndoTimeoutRef = useRef<number | null>(null)
   const completionPulseTimeoutRef = useRef<number | null>(null)
@@ -1485,8 +1466,6 @@ export function GoalsPage({
   const taskMomentumTransitionTimeoutRef = useRef<number | null>(null)
   const lifeGoalActionFeedbackTimeoutRef = useRef<number | null>(null)
   const goalCompletionFlashTimeoutRef = useRef<number | null>(null)
-  const taskPeekDeleteDialogRef = useRef<HTMLDivElement | null>(null)
-  const taskPeekDeleteTriggerRef = useRef<HTMLElement | null>(null)
   const suppressGoalOverviewRowClickRef = useRef(false)
   const goalOverviewControlsDismissUntilRef = useRef(0)
   const goalOverviewStatusDismissUntilRef = useRef(0)
@@ -1530,6 +1509,42 @@ export function GoalsPage({
       }),
     [directionalGoalCategoryFilter, goalsView, outcomeGoalCategoryFilter, safeLifeGoals],
   )
+  const goalHeaderDate = useMemo(() => new Date(), [])
+  const goalHeaderDateLabel = useMemo(
+    () =>
+      goalHeaderDate.toLocaleDateString('en-IE', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'short',
+      }),
+    [goalHeaderDate],
+  )
+  const overviewGoalIdSet = useMemo(() => new Set(overviewLifeGoals.map((goal) => goal.id)), [overviewLifeGoals])
+  const overviewGoalTasks = useMemo(
+    () =>
+      safeTasks.filter((task) => {
+        const linkedGoalId = task.linkedGoalId ?? task.linkedDirectionId ?? null
+        return Boolean(linkedGoalId && overviewGoalIdSet.has(linkedGoalId))
+      }),
+    [overviewGoalIdSet, safeTasks],
+  )
+  const goalTasksDueTodayCount = useMemo(
+    () => overviewGoalTasks.filter((task) => !task.completed && task.dueDate === getTodayIsoDate()).length,
+    [overviewGoalTasks],
+  )
+  const goalTasksCompletedThisWeekCount = useMemo(() => {
+    const weekStart = getStartOfWeek(goalHeaderDate)
+    return overviewGoalTasks.filter((task) => {
+      if (!task.completed || !task.completedAt) return false
+      const completedAt = new Date(task.completedAt)
+      return !Number.isNaN(completedAt.getTime()) && completedAt >= weekStart
+    }).length
+  }, [goalHeaderDate, overviewGoalTasks])
+  const goalsOnHoldCount = useMemo(
+    () => overviewLifeGoals.filter((goal) => goal.status === 'paused').length,
+    [overviewLifeGoals],
+  )
+  const goalsHeaderSummaryLine = `${goalHeaderDateLabel} — ${goalTasksDueTodayCount} goal ${goalTasksDueTodayCount === 1 ? 'task' : 'tasks'} due today`
 
   useEffect(() => {
     if (sortedLifeGoals.length === 0) {
@@ -1680,17 +1695,15 @@ export function GoalsPage({
             order: index,
             dueDate: task.dueDate ?? null,
             dueTime: existing?.dueTime ?? null,
-            taskTag: existing?.taskTag ?? null,
+            taskTag: task.taskTag ?? existing?.taskTag ?? null,
+            tagColor: task.tagColor ?? existing?.tagColor ?? null,
             starred: existing?.starred ?? false,
-            important: existing?.important ?? false,
             linkedGoalId: goalId,
             linkedDirectionId: existing?.linkedDirectionId ?? null,
             completed: task.completed,
             completedAt: task.completed ? task.completedAt ?? existing?.completedAt ?? timestamp : null,
-            description: task.description,
             notes: task.notes,
             priority: task.priority,
-            tags: normalizeTaskTags(task.tags),
             subtasks: task.subtasks.map((subtask) => ({
               id: subtask.id,
               text: subtask.text,
@@ -1727,17 +1740,15 @@ export function GoalsPage({
             order: index,
             dueDate: task.dueDate ?? null,
             dueTime: existing?.dueTime ?? null,
-            taskTag: existing?.taskTag ?? null,
+            taskTag: task.taskTag ?? existing?.taskTag ?? null,
+            tagColor: task.tagColor ?? existing?.tagColor ?? null,
             starred: existing?.starred ?? false,
-            important: existing?.important ?? false,
             linkedGoalId: null,
             linkedDirectionId: goalId,
             completed: task.completed,
             completedAt: task.completed ? task.completedAt ?? existing?.completedAt ?? timestamp : null,
-            description: task.description,
             notes: task.notes,
             priority: task.priority,
-            tags: normalizeTaskTags(task.tags),
             subtasks: task.subtasks.map((subtask) => ({
               id: subtask.id,
               text: subtask.text,
@@ -1794,11 +1805,11 @@ export function GoalsPage({
         text: seed?.text ?? '',
         milestoneId: seed?.milestoneId ?? null,
         phase: normalizeLifeGoalPhaseValue(seed?.phase),
-        description: seed?.description ?? '',
         notes: seed?.notes ?? '',
         dueDate: seed?.dueDate ?? null,
+        taskTag: seed?.taskTag ? normalizeTaskTag(seed.taskTag) : null,
+        tagColor: seed?.tagColor ?? null,
         priority: seed?.priority ?? 'none',
-        tags: normalizeTaskTags(seed?.tags ?? []),
         subtasks: seed?.subtasks ?? [],
         completed: seed?.completed ?? false,
         completedAt: seed?.completed ? seed.completedAt ?? new Date().toISOString() : null,
@@ -1921,11 +1932,11 @@ export function GoalsPage({
         text: seed?.text ?? '',
         milestoneId: seed?.milestoneId ?? null,
         phase: normalizeLifeGoalPhaseValue(seed?.phase),
-        description: seed?.description ?? '',
         notes: seed?.notes ?? '',
         dueDate: seed?.dueDate ?? null,
+        taskTag: seed?.taskTag ? normalizeTaskTag(seed.taskTag) : null,
+        tagColor: seed?.tagColor ?? null,
         priority: seed?.priority ?? 'none',
-        tags: normalizeTaskTags(seed?.tags ?? []),
         subtasks: seed?.subtasks ?? [],
         completed: seed?.completed ?? false,
         completedAt: seed?.completed ? seed.completedAt ?? new Date().toISOString() : null,
@@ -2243,6 +2254,7 @@ export function GoalsPage({
     const sortedUpcomingTasks = sortTasksForDisplay(roadmapSections.upcoming, taskListSortMode)
     const sortedCompletedTasks = sortTasksForDisplay(roadmapSections.completed, taskListSortMode)
     const sortedPlannedTasks = roadmapSections.current ? [roadmapSections.current, ...sortedUpcomingTasks] : sortedUpcomingTasks
+    const milestoneIds = new Set(selectedLifeGoalMilestones.map((milestone) => milestone.id))
     const explicitlyAssignedTasksByMilestone = new Map(
       selectedLifeGoalMilestones.map((milestone) => [
         milestone.id,
@@ -2253,11 +2265,15 @@ export function GoalsPage({
       selectedGoalIsOutcome && selectedGoalMilestonesEnabled
         ? getRoadmapTasksGroupedByMilestone(selectedLifeGoalMilestones, sortedPlannedTasks, currentMilestone?.id ?? null)
         : []
+    const roadmapTasksWithoutMilestone =
+      selectedGoalIsOutcome && selectedGoalMilestonesEnabled
+        ? sortedPlannedTasks.filter((task) => !task.milestoneId || !milestoneIds.has(task.milestoneId))
+        : []
     const roadmapRemainingCount = roadmapSections.current ? roadmapSections.upcoming.length + 1 : 0
     const roadmapHasHighPriorityTasks =
       (roadmapSections.current ? getPriorityScore(roadmapSections.current) === 3 : false) ||
       roadmapSections.upcoming.some((task) => getPriorityScore(task) === 3)
-    const roadmapHasTaggedTasks = selectedGoalTaskSource.some((task) => normalizeTaskTags(task.tags).length > 0)
+    const roadmapHasTaggedTasks = selectedGoalTaskSource.some((task) => Boolean(task.taskTag && normalizeTaskTag(task.taskTag)))
     const goalProgress = selectedLifeGoalProgress
     const goalReadyToComplete = goalProgress
       ? goalProgress.totalTasks > 0 &&
@@ -2271,6 +2287,7 @@ export function GoalsPage({
       sortedPlannedTasks,
       explicitlyAssignedTasksByMilestone,
       roadmapTasksGroupedByMilestone,
+      roadmapTasksWithoutMilestone,
       roadmapRemainingCount,
       roadmapHasHighPriorityTasks,
       roadmapHasTaggedTasks,
@@ -2295,17 +2312,6 @@ export function GoalsPage({
       : selectedRoadmapPanelView === 'notes'
         ? 'notes'
         : 'tasks'
-  const taskPeekRefs = useMemo(
-    () => ({
-      panelRef: taskPeekPanelRef,
-      titleRef: taskPeekTitleRef,
-      dateFieldRef: taskPeekDateFieldRef,
-      datePanelRef: taskPeekDatePanelRef,
-      subtaskDraftRef: taskPeekSubtaskDraftRef,
-      deleteDialogRef: taskPeekDeleteDialogRef,
-    }),
-    [],
-  )
 
   useEffect(() => {
     if (selectedLifeGoalShowVisionEditUI && selectedLifeGoalVisionEditShowsImages) return
@@ -2682,86 +2688,14 @@ export function GoalsPage({
     if (!selectedLifeGoal || !selectedTaskPeekId) {
       setCreatingTaskPeekId(null)
       setSelectedTaskPeekId(null)
-      setTaskPeekSubtaskDraft('')
-      setTaskPeekTagDraft('')
-      setTaskPeekSubtaskEntryOpen(false)
-      setTaskPeekDeleteConfirmation(null)
       return
     }
 
     if (!selectedGoalTaskSource.some((task) => task.id === selectedTaskPeekId)) {
       setCreatingTaskPeekId(null)
       setSelectedTaskPeekId(null)
-      setTaskPeekSubtaskDraft('')
-      setTaskPeekTagDraft('')
-      setTaskPeekSubtaskEntryOpen(false)
-      setTaskPeekDeleteConfirmation(null)
     }
   }, [selectedGoalTaskSource, selectedLifeGoal, selectedTaskPeekId])
-
-  useEffect(() => {
-    if (!selectedTaskPeek) {
-      setTaskPeekDatePickerOpen(false)
-      setTaskPeekNotesOpen(false)
-      setTaskPeekTagDraft('')
-      setTaskPeekSubtaskEntryOpen(false)
-      setTaskPeekDeleteConfirmation(null)
-      return
-    }
-
-    const frame = window.requestAnimationFrame(() => {
-      taskPeekTitleRef.current?.focus()
-      taskPeekTitleRef.current?.setSelectionRange(
-        taskPeekTitleRef.current.value.length,
-        taskPeekTitleRef.current.value.length,
-      )
-    })
-
-    return () => window.cancelAnimationFrame(frame)
-  }, [selectedTaskPeek?.id])
-
-  useEffect(() => {
-    if (!selectedTaskPeek) return
-    setTaskPeekNotesOpen(Boolean(selectedTaskPeek.notes.trim()))
-    setTaskPeekCompletedSubtasksOpen(false)
-    setTaskPeekTagDraft('')
-  }, [selectedTaskPeek?.id])
-
-  useEffect(() => {
-    if (!taskPeekSubtaskEntryOpen) return
-    const frame = window.requestAnimationFrame(() => {
-      taskPeekSubtaskDraftRef.current?.focus()
-    })
-    return () => window.cancelAnimationFrame(frame)
-  }, [taskPeekSubtaskEntryOpen])
-
-  useEffect(() => {
-    if (!pendingSubtaskFocusId) return
-    const frame = window.requestAnimationFrame(() => {
-      const target = taskPeekSubtaskInputRefs.current[pendingSubtaskFocusId]
-      if (target) {
-        target.focus()
-        target.setSelectionRange(target.value.length, target.value.length)
-      }
-      setPendingSubtaskFocusId(null)
-    })
-    return () => window.cancelAnimationFrame(frame)
-  }, [pendingSubtaskFocusId, selectedTaskPeek])
-
-  useEffect(() => {
-    if (!taskPeekDatePickerOpen) return
-
-    const handlePointerDown = (event: MouseEvent) => {
-      const target = event.target as Node
-      if (!taskPeekDateFieldRef.current?.contains(target) && !taskPeekDatePanelRef.current?.contains(target)) {
-        setTaskPeekDatePickerOpen(false)
-        setTaskPeekDatePanelPosition(null)
-      }
-    }
-
-    document.addEventListener('mousedown', handlePointerDown)
-    return () => document.removeEventListener('mousedown', handlePointerDown)
-  }, [taskPeekDatePickerOpen])
 
   useEffect(() => {
     if (!milestoneDatePickerMilestoneId) return
@@ -2779,42 +2713,6 @@ export function GoalsPage({
     return () => document.removeEventListener('mousedown', handlePointerDown)
   }, [milestoneDatePickerMilestoneId])
 
-  useEffect(() => {
-    if (!taskPeekDeleteConfirmation) return
-
-    taskPeekDeleteTriggerRef.current =
-      document.activeElement instanceof HTMLElement ? document.activeElement : taskPeekTriggerRef.current
-
-    const frame = window.requestAnimationFrame(() => {
-      const focusable = taskPeekDeleteDialogRef.current ? getFocusableElements(taskPeekDeleteDialogRef.current) : []
-      focusable[0]?.focus()
-    })
-
-    return () => window.cancelAnimationFrame(frame)
-  }, [taskPeekDeleteConfirmation])
-
-  useEffect(() => {
-    if (!taskPeekDatePickerOpen || !taskPeekDateFieldRef.current) return
-
-    const updatePosition = () => {
-      if (!taskPeekDateFieldRef.current) return
-      setTaskPeekDatePanelPosition(
-        getFloatingPanelPosition(taskPeekDateFieldRef.current, {
-          minWidth: 320,
-          preferredWidth: 348,
-          estimatedHeight: 360,
-        }),
-      )
-    }
-
-    updatePosition()
-    window.addEventListener('resize', updatePosition)
-    window.addEventListener('scroll', updatePosition, true)
-    return () => {
-      window.removeEventListener('resize', updatePosition)
-      window.removeEventListener('scroll', updatePosition, true)
-    }
-  }, [taskPeekDatePickerOpen])
 
   useEffect(() => {
     if (!milestoneDatePickerMilestoneId) return
@@ -3353,11 +3251,11 @@ export function GoalsPage({
 
   const openTaskPeek = useCallback((taskId: string, trigger?: HTMLElement | null) => {
     taskPeekTriggerRef.current = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null)
+    latestTaskPeekDraftRef.current = null
     setCreatingTaskPeekId(null)
     setTaskPeekLockedMilestoneContext(null)
     setSelectedTaskPeekId(taskId)
     setSelectedRoadmapTaskId(taskId)
-    setTaskPeekSubtaskDraft('')
   }, [])
 
   const openNewTaskPeek = useCallback((
@@ -3377,6 +3275,7 @@ export function GoalsPage({
           : null,
     }
     taskPeekTriggerRef.current = trigger ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null)
+    latestTaskPeekDraftRef.current = null
     if (selectedLifeGoal.goalType === 'outcome') {
       createOutcomeGoalTask(selectedLifeGoal.id, nextTask)
     } else {
@@ -3390,10 +3289,6 @@ export function GoalsPage({
     )
     setSelectedTaskPeekId(nextTask.id)
     setSelectedRoadmapTaskId(nextTask.id)
-    setTaskPeekSubtaskDraft('')
-    setTaskPeekSubtaskEntryOpen(false)
-    setTaskPeekCompletedSubtasksOpen(false)
-    setTaskPeekNotesOpen(false)
   }, [createDirectionalGoalTask, createOutcomeGoalTask, selectedLifeGoal])
 
   const openMilestonePeek = (milestoneId: string) => {
@@ -3413,7 +3308,19 @@ export function GoalsPage({
   }
 
   const closeTaskPeek = useCallback(() => {
-    if (selectedLifeGoal && selectedTaskPeek && creatingTaskPeekId === selectedTaskPeek.id && isLifeGoalTaskDraftEmpty(selectedTaskPeek)) {
+    const latestTaskPeekDraft = latestTaskPeekDraftRef.current
+    const latestDraftIsEmpty =
+      latestTaskPeekDraft && selectedTaskPeek && latestTaskPeekDraft.id === selectedTaskPeek.id
+        ? isTaskPeekDraftDataEmpty(latestTaskPeekDraft)
+        : null
+    const persistedDraftIsEmpty = selectedTaskPeek ? isLifeGoalTaskDraftEmpty(selectedTaskPeek) : false
+
+    if (
+      selectedLifeGoal &&
+      selectedTaskPeek &&
+      creatingTaskPeekId === selectedTaskPeek.id &&
+      (latestDraftIsEmpty ?? persistedDraftIsEmpty)
+    ) {
       if (selectedLifeGoal.goalType === 'outcome') {
         deleteOutcomeGoalTask(selectedTaskPeek.id)
       } else {
@@ -3425,39 +3332,14 @@ export function GoalsPage({
     }
     setCreatingTaskPeekId(null)
     setTaskPeekLockedMilestoneContext(null)
+    latestTaskPeekDraftRef.current = null
     setSelectedTaskPeekId(null)
-    setTaskPeekSubtaskDraft('')
   }, [creatingTaskPeekId, deleteDirectionalGoalTask, deleteOutcomeGoalTask, selectedLifeGoal, selectedRoadmapTaskId, selectedTaskPeek])
 
   const updateSelectedTaskPeek = useCallback((updater: (task: LifeGoalTask) => LifeGoalTask) => {
     if (!selectedLifeGoal || !selectedTaskPeekId) return
     updateLifeGoalTask(selectedLifeGoal.id, selectedTaskPeekId, updater)
   }, [selectedLifeGoal, selectedTaskPeekId, updateLifeGoalTask])
-
-  const addTagToSelectedTaskPeek = useCallback(() => {
-    const normalizedTag = normalizeTaskTag(taskPeekTagDraft)
-    if (!normalizedTag) return
-
-    updateSelectedTaskPeek((task) => {
-      const nextTags = normalizeTaskTags([...task.tags, normalizedTag])
-      if (nextTags.join('|') === normalizeTaskTags(task.tags).join('|')) {
-        return task
-      }
-      return {
-        ...task,
-        tags: nextTags,
-      }
-    })
-    setTaskPeekTagDraft('')
-  }, [taskPeekTagDraft, updateSelectedTaskPeek])
-
-  const removeTagFromSelectedTaskPeek = useCallback((tagToRemove: string) => {
-    const normalizedTag = normalizeTaskTag(tagToRemove)
-    updateSelectedTaskPeek((task) => ({
-      ...task,
-      tags: normalizeTaskTags(task.tags).filter((tag) => tag !== normalizedTag),
-    }))
-  }, [updateSelectedTaskPeek])
 
   const completeTaskById = useCallback((goalId: string, taskId: string, mode: 'close' | 'next' = 'close', sourceElement?: HTMLElement | null) => {
     const goal = sortedLifeGoals.find((item) => item.id === goalId)
@@ -3488,17 +3370,56 @@ export function GoalsPage({
     if (currentTaskIndex === -1) return
 
     const currentTask = goalTasks[currentTaskIndex]
+    const latestTaskPeekDraft = latestTaskPeekDraftRef.current
+    const latestDraftIsEmpty = latestTaskPeekDraft?.id === taskId ? isTaskPeekDraftDataEmpty(latestTaskPeekDraft) : null
+    const latestTask =
+      latestTaskPeekDraft?.id === taskId
+        ? taskPeekDataToLifeGoalTask(currentTask, latestTaskPeekDraft)
+        : currentTask
+
+    if (creatingTaskPeekId === taskId && (latestDraftIsEmpty ?? isLifeGoalTaskDraftEmpty(latestTask))) {
+      if ((goal.goalType ?? 'outcome') === 'outcome') {
+        deleteOutcomeGoalTask(taskId)
+      } else {
+        deleteDirectionalGoalTask(taskId)
+      }
+      setSelectedRoadmapTaskId(null)
+      closeTaskPeek()
+      return
+    }
+
     const updatedTasks = goalTasks.map((task) =>
       task.id === taskId
         ? {
-            ...task,
+            ...latestTask,
             completed: true,
-            completedAt: task.completedAt ?? new Date().toISOString(),
+            completedAt: latestTask.completedAt ?? new Date().toISOString(),
           }
         : task,
     )
     if (!currentTask.completed) {
-      toggleTaskCompletion(goalId, taskId, sourceElement)
+      if ((goal.goalType ?? 'outcome') === 'outcome') {
+        replaceOutcomeGoalTaskStore(goalId, updatedTasks)
+      } else {
+        replaceDirectionalGoalTaskStore(goalId, updatedTasks)
+      }
+      setSelectedRoadmapTaskId(null)
+      setTaskMomentumTransition({ completedTaskId: taskId, nextTaskId: null })
+      showLifeGoalActionFeedback('Step complete', 1350)
+      if (taskMomentumTransitionTimeoutRef.current) {
+        window.clearTimeout(taskMomentumTransitionTimeoutRef.current)
+      }
+      taskMomentumTransitionTimeoutRef.current = window.setTimeout(() => {
+        setTaskMomentumTransition((current) => (current?.completedTaskId === taskId ? null : current))
+        taskMomentumTransitionTimeoutRef.current = null
+      }, 1150)
+      showCompletionPulse(sourceElement)
+      showCompletionUndo({
+        kind: 'task',
+        goalId,
+        taskId,
+        message: 'Task completed',
+      })
     }
 
     if (mode === 'next') {
@@ -3506,13 +3427,27 @@ export function GoalsPage({
       if (nextTask) {
         setSelectedRoadmapTaskId(nextTask.id)
         setSelectedTaskPeekId(nextTask.id)
-        setTaskPeekSubtaskDraft('')
         return
       }
     }
 
     closeTaskPeek()
-  }, [closeTaskPeek, safeTasks, selectedDirectionalGoalTasks, selectedLifeGoal, selectedOutcomeGoalTasks, sortedLifeGoals, toggleTaskCompletion])
+  }, [
+    closeTaskPeek,
+    creatingTaskPeekId,
+    deleteDirectionalGoalTask,
+    deleteOutcomeGoalTask,
+    replaceDirectionalGoalTaskStore,
+    replaceOutcomeGoalTaskStore,
+    safeTasks,
+    selectedDirectionalGoalTasks,
+    selectedLifeGoal,
+    selectedOutcomeGoalTasks,
+    showCompletionPulse,
+    showCompletionUndo,
+    showLifeGoalActionFeedback,
+    sortedLifeGoals,
+  ])
 
   const completeTaskFromPeek = useCallback((mode: 'close' | 'next', sourceElement?: HTMLElement | null) => {
     if (!selectedLifeGoal || !selectedTaskPeekId) return
@@ -3523,77 +3458,6 @@ export function GoalsPage({
     if (!selectedLifeGoal || !selectedTaskPeekId) return
     toggleTaskCompletion(selectedLifeGoal.id, selectedTaskPeekId, sourceElement)
   }, [selectedLifeGoal, selectedTaskPeekId, toggleTaskCompletion])
-
-  const addSelectedTaskPeekSubtask = useCallback(() => {
-    const text = taskPeekSubtaskDraft.trim()
-    if (!text) return
-    const nextSubtaskId = `life-goal-subtask-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
-    updateSelectedTaskPeek((task) => ({
-      ...task,
-      subtasks: [...task.subtasks, { id: nextSubtaskId, text, completed: false }],
-    }))
-    setTaskPeekSubtaskDraft('')
-    setTaskPeekSubtaskEntryOpen(false)
-  }, [taskPeekSubtaskDraft, updateSelectedTaskPeek])
-
-  const focusNextIncompleteSubtask = useCallback((subtasks: LifeGoalTask['subtasks'], fromSubtaskId: string) => {
-    const currentIndex = subtasks.findIndex((subtask) => subtask.id === fromSubtaskId)
-    if (currentIndex === -1) return
-    const nextIncomplete =
-      subtasks.find((subtask, index) => index > currentIndex && !subtask.completed) ??
-      subtasks.find((subtask) => !subtask.completed && subtask.id !== fromSubtaskId)
-    if (nextIncomplete) {
-      setPendingSubtaskFocusId(nextIncomplete.id)
-    }
-  }, [])
-
-  const toggleSelectedTaskPeekSubtaskCompletion = useCallback((subtaskId: string, sourceElement?: HTMLElement | null) => {
-    if (!selectedTaskPeek || !selectedLifeGoal) return
-    const currentSubtask = selectedTaskPeek.subtasks.find((subtask) => subtask.id === subtaskId)
-    if (!currentSubtask) return
-    const nextSubtasks = selectedTaskPeek.subtasks.map((subtask) =>
-      subtask.id === subtaskId ? { ...subtask, completed: !subtask.completed } : subtask,
-    )
-    updateSelectedTaskPeek((task) => ({
-      ...task,
-      subtasks: nextSubtasks,
-    }))
-    if (!currentSubtask.completed) {
-      showCompletionPulse(sourceElement)
-      focusNextIncompleteSubtask(nextSubtasks, subtaskId)
-      showCompletionUndo({
-        kind: 'subtask',
-        goalId: selectedLifeGoal.id,
-        taskId: selectedTaskPeek.id,
-        subtaskId,
-        message: 'Subtask completed',
-      })
-    } else if (
-      completionUndo?.kind === 'subtask' &&
-      completionUndo.goalId === selectedLifeGoal.id &&
-      completionUndo.taskId === selectedTaskPeek.id &&
-      completionUndo.subtaskId === subtaskId
-    ) {
-      clearCompletionUndo()
-    }
-  }, [clearCompletionUndo, completionUndo, focusNextIncompleteSubtask, selectedLifeGoal, selectedTaskPeek, showCompletionPulse, showCompletionUndo, updateSelectedTaskPeek])
-
-  const reorderSelectedTaskPeekSubtasks = useCallback((draggedId: string, targetId: string) => {
-    if (draggedId === targetId) return
-    updateSelectedTaskPeek((task) => {
-      const fromIndex = task.subtasks.findIndex((subtask) => subtask.id === draggedId)
-      const toIndex = task.subtasks.findIndex((subtask) => subtask.id === targetId)
-      if (fromIndex === -1 || toIndex === -1) return task
-      const nextSubtasks = [...task.subtasks]
-      const [moved] = nextSubtasks.splice(fromIndex, 1)
-      nextSubtasks.splice(toIndex, 0, moved)
-      return {
-        ...task,
-        subtasks: nextSubtasks,
-      }
-    })
-    setPendingSubtaskFocusId(draggedId)
-  }, [updateSelectedTaskPeek])
 
   const deleteSelectedTaskPeek = useCallback(() => {
     if (!selectedLifeGoal || !selectedTaskPeekId) return
@@ -3608,8 +3472,6 @@ export function GoalsPage({
     } else {
       deleteDirectionalGoalTask(selectedTaskPeekId)
     }
-
-    setTaskPeekDeleteConfirmation(null)
     if (creatingTaskPeekId === selectedTaskPeekId) {
       setCreatingTaskPeekId(null)
     }
@@ -3620,46 +3482,8 @@ export function GoalsPage({
     }
   }, [closeTaskPeek, creatingTaskPeekId, deleteDirectionalGoalTask, deleteOutcomeGoalTask, selectedDirectionalGoalTasks, selectedLifeGoal, selectedOutcomeGoalTasks, selectedTaskPeekId])
 
-  const deleteSelectedTaskPeekSubtask = useCallback((subtaskId: string) => {
-    updateSelectedTaskPeek((task) => ({
-      ...task,
-      subtasks: task.subtasks.filter((subtask) => subtask.id !== subtaskId),
-    }))
-    setTaskPeekDeleteConfirmation(null)
-  }, [updateSelectedTaskPeek])
-
-  const confirmTaskPeekDelete = useCallback(() => {
-    if (!taskPeekDeleteConfirmation) return
-    if (taskPeekDeleteConfirmation.kind === 'task') {
-      deleteSelectedTaskPeek()
-      return
-    }
-    deleteSelectedTaskPeekSubtask(taskPeekDeleteConfirmation.subtaskId)
-  }, [deleteSelectedTaskPeek, deleteSelectedTaskPeekSubtask, taskPeekDeleteConfirmation])
-
-  const closeTaskPeekDeleteConfirmation = useCallback(() => {
-    setTaskPeekDeleteConfirmation(null)
-  }, [])
-
-  useOverlayScrollLock(Boolean(selectedTaskPeek || taskPeekDeleteConfirmation))
+  useOverlayScrollLock(Boolean(selectedTaskPeek))
   useReturnFocusOnClose(Boolean(selectedTaskPeek), taskPeekTriggerRef, [selectedTaskPeek?.id])
-  useReturnFocusOnClose(Boolean(taskPeekDeleteConfirmation), taskPeekDeleteTriggerRef, [
-    taskPeekDeleteConfirmation?.kind,
-    taskPeekDeleteConfirmation?.taskId,
-  ])
-  useFocusTrap(Boolean(selectedTaskPeek) && !taskPeekDeleteConfirmation, taskPeekPanelRef, {
-    onEscape: () => {
-      if (taskPeekDatePickerOpen) {
-        setTaskPeekDatePickerOpen(false)
-        setTaskPeekDatePanelPosition(null)
-        return
-      }
-      closeTaskPeek()
-    },
-  })
-  useFocusTrap(Boolean(taskPeekDeleteConfirmation), taskPeekDeleteDialogRef, {
-    onEscape: closeTaskPeekDeleteConfirmation,
-  })
 
   const restoreTask = (goalId: string, taskId: string) => {
     const goal = sortedLifeGoals.find((item) => item.id === goalId)
@@ -3686,13 +3510,24 @@ export function GoalsPage({
       return
     }
 
+    if (completionUndo.kind === 'delete-task') {
+      if ((completionUndo.goalType ?? 'outcome') === 'outcome') {
+        createOutcomeGoalTask(completionUndo.goalId, completionUndo.task)
+      } else {
+        createDirectionalGoalTask(completionUndo.goalId, completionUndo.task)
+      }
+      setSelectedTaskPeekId(completionUndo.task.id)
+      setSelectedRoadmapTaskId(completionUndo.task.id)
+      clearCompletionUndo()
+      return
+    }
+
     updateLifeGoalTask(completionUndo.goalId, completionUndo.taskId, (task) => ({
       ...task,
       subtasks: task.subtasks.map((subtask) =>
         subtask.id === completionUndo.subtaskId ? { ...subtask, completed: false } : subtask,
       ),
     }))
-    setPendingSubtaskFocusId(completionUndo.subtaskId)
     clearCompletionUndo()
   }
 
@@ -3708,207 +3543,17 @@ export function GoalsPage({
     openTaskPeek(taskId, event.currentTarget)
   }
 
-  const openTaskPeekDatePicker = useCallback(() => {
-    setTaskPeekDateViewMonth(startOfCalendarMonth(getCalendarMonthDate(selectedTaskPeek?.dueDate ?? undefined)))
-    setTaskPeekDatePickerOpen(true)
-  }, [selectedTaskPeek?.dueDate])
+  const useSharedGoalTaskPeek = Boolean(
+    (selectedLifeGoal?.goalType === 'outcome' || selectedLifeGoal?.goalType === 'directional')
+      && selectedTaskPeek
+  )
 
-  const applyTaskPeekDate = useCallback((date: string) => {
-    updateSelectedTaskPeek((task) => ({
-      ...task,
-      dueDate: date || null,
-    }))
-    if (date && isValidIsoDate(date)) {
-      setTaskPeekDateViewMonth(startOfCalendarMonth(getCalendarMonthDate(date)))
-    }
-    setTaskPeekDatePickerOpen(false)
-    setTaskPeekDatePanelPosition(null)
-  }, [updateSelectedTaskPeek])
-
-  const taskPeekData = useMemo(
-    () => ({
-      task: selectedTaskPeek,
-      activeSubtasks: selectedTaskPeekActiveSubtasks,
-      completedSubtasks: selectedTaskPeekCompletedSubtasks,
-      datePanelPosition: taskPeekDatePanelPosition,
-      dateViewMonth: taskPeekDateViewMonth,
-      priorityOptions: taskPriorityOptions,
-      milestoneOptions: selectedTaskPeekMilestoneOptions,
-      showMilestoneField: Boolean(selectedLifeGoal?.goalType === 'outcome' && selectedLifeGoal?.milestonesEnabled),
-      lockedMilestoneLabel: taskPeekLockedMilestoneContext?.title ?? null,
-      relativeDueMeta: selectedTaskPeekRelativeDueMeta,
-      weekdayLabels: LIFE_GOAL_WEEKDAY_LABELS,
-      todayIsoDate: getTodayIsoDate(),
-    }),
-    [
-      selectedLifeGoal?.goalType,
-      selectedLifeGoal?.milestonesEnabled,
-      selectedTaskPeek,
-      selectedTaskPeekActiveSubtasks,
-      selectedTaskPeekCompletedSubtasks,
-      taskPeekDatePanelPosition,
-      taskPeekDateViewMonth,
-      taskPeekLockedMilestoneContext?.title,
-      taskPriorityOptions,
-      selectedTaskPeekMilestoneOptions,
-      selectedTaskPeekRelativeDueMeta,
-    ],
-  )
-  const taskPeekUiState = useMemo(
-    () => ({
-      open: Boolean(selectedTaskPeek),
-      completedSubtasksOpen: taskPeekCompletedSubtasksOpen,
-      subtaskEntryOpen: taskPeekSubtaskEntryOpen,
-      subtaskDraft: taskPeekSubtaskDraft,
-      notesOpen: taskPeekNotesOpen,
-      datePickerOpen: taskPeekDatePickerOpen,
-      deleteConfirmation: taskPeekDeleteConfirmation,
-      canMarkAsNext: Boolean(
-        !selectedTaskPeek?.completed && selectedLifeGoal && selectedLifeGoalProgress && selectedLifeGoalProgress.nextTask?.id !== selectedTaskPeek?.id,
-      ),
-      draggedSubtaskId,
-      dragOverSubtaskId,
-    }),
-    [
-      dragOverSubtaskId,
-      draggedSubtaskId,
-      selectedLifeGoal,
-      selectedLifeGoalProgress,
-      selectedTaskPeek,
-      taskPeekCompletedSubtasksOpen,
-      taskPeekDatePickerOpen,
-      taskPeekDeleteConfirmation,
-      taskPeekNotesOpen,
-      taskPeekSubtaskDraft,
-      taskPeekSubtaskEntryOpen,
-    ],
-  )
-  const taskPeekActions = useMemo(
-    () => ({
-      setCompletedSubtasksOpen: setTaskPeekCompletedSubtasksOpen,
-      setSubtaskEntryOpen: setTaskPeekSubtaskEntryOpen,
-      setSubtaskDraft: setTaskPeekSubtaskDraft,
-      setNotesOpen: setTaskPeekNotesOpen,
-      setTaskDeleteConfirmation: setTaskPeekDeleteConfirmation,
-      onClose: closeTaskPeek,
-      onTitleChange: (value: string) => updateSelectedTaskPeek((task) => ({ ...task, text: value })),
-      onDescriptionChange: (value: string) => updateSelectedTaskPeek((task) => ({ ...task, description: value })),
-      onNotesChange: (value: string) => updateSelectedTaskPeek((task) => ({ ...task, notes: value })),
-      onMilestoneChange: (value: string | null) => updateSelectedTaskPeek((task) => ({ ...task, milestoneId: value })),
-      onPriorityChange: (value: LifeGoalTaskPriority) => updateSelectedTaskPeek((task) => ({ ...task, priority: value })),
-      tagDraft: taskPeekTagDraft,
-      setTagDraft: setTaskPeekTagDraft,
-      onTagKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => {
-        if (event.key === 'Enter' && !event.shiftKey && !event.metaKey && !event.ctrlKey) {
-          event.preventDefault()
-          addTagToSelectedTaskPeek()
-        }
-      },
-      onAddTag: addTagToSelectedTaskPeek,
-      onRemoveTag: removeTagFromSelectedTaskPeek,
-      onOpenDatePicker: () => {
-        if (taskPeekDatePickerOpen) {
-          setTaskPeekDatePickerOpen(false)
-          setTaskPeekDatePanelPosition(null)
-          return
-        }
-        openTaskPeekDatePicker()
-      },
-      onCloseDatePicker: () => {
-        setTaskPeekDatePickerOpen(false)
-        setTaskPeekDatePanelPosition(null)
-      },
-      onApplyDate: applyTaskPeekDate,
-      onShiftDateMonth: (delta: number) => setTaskPeekDateViewMonth((current) => shiftCalendarMonth(current, delta)),
-      getCalendarDays,
-      formatCalendarDayValue,
-      formatCalendarMonthLabel,
-      formatDate,
-      formatTaskDueDate,
-      formatTaskCompletedDate,
-      setSubtaskInputRef: (id: string, element: HTMLInputElement | null) => {
-        taskPeekSubtaskInputRefs.current[id] = element
-      },
-      onSubtaskTextChange: (id: string, value: string) =>
-        updateSelectedTaskPeek((task) => ({
-          ...task,
-          subtasks: task.subtasks.map((item) => (item.id === id ? { ...item, text: value } : item)),
-        })),
-      onSubtaskKeyDown: (event: React.KeyboardEvent<HTMLInputElement>, id: string) => {
-        if (event.key === 'Enter') {
-          event.preventDefault()
-          const currentIndex = selectedTaskPeekActiveSubtasks.findIndex((candidate) => candidate.id === id)
-          const nextSubtask = currentIndex >= 0 ? selectedTaskPeekActiveSubtasks[currentIndex + 1] ?? null : null
-          if (nextSubtask) {
-            setPendingSubtaskFocusId(nextSubtask.id)
-          } else {
-            setTaskPeekSubtaskEntryOpen(true)
-          }
-        }
-      },
-      onSubtaskToggle: toggleSelectedTaskPeekSubtaskCompletion,
-      onSubtaskRemoveRequest: (subtaskId: string, subtaskText: string) =>
-        setTaskPeekDeleteConfirmation({
-          kind: 'subtask',
-          taskId: selectedTaskPeek?.id ?? '',
-          subtaskId,
-          subtaskText,
-        }),
-      onSubtaskReorderStart: (id: string) => setDraggedSubtaskId(id),
-      onSubtaskReorderOver: (event: React.DragEvent<HTMLDivElement>, id: string) => {
-        event.preventDefault()
-        if (dragOverSubtaskId !== id) setDragOverSubtaskId(id)
-      },
-      onSubtaskReorderDrop: (event: React.DragEvent<HTMLDivElement>, id: string) => {
-        event.preventDefault()
-        if (draggedSubtaskId) reorderSelectedTaskPeekSubtasks(draggedSubtaskId, id)
-        setDraggedSubtaskId(null)
-        setDragOverSubtaskId(null)
-      },
-      onSubtaskReorderEnd: () => {
-        setDraggedSubtaskId(null)
-        setDragOverSubtaskId(null)
-      },
-      onAddSubtask: addSelectedTaskPeekSubtask,
-      onToggleDeleteConfirmation: (kind: 'task') => {
-        taskPeekDeleteTriggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : taskPeekTriggerRef.current
-        setTaskPeekDeleteConfirmation({ kind, taskId: selectedTaskPeek?.id ?? '' })
-      },
-      onSetAsNext: () => {
-        if (!selectedLifeGoal || !selectedTaskPeek) return
-        setTaskAsNext(selectedLifeGoal.id, selectedTaskPeek.id)
-      },
-      onRestoreTask: (source: HTMLElement) => {
-        if (!selectedLifeGoal || !selectedTaskPeek) return
-        restoreTask(selectedLifeGoal.id, selectedTaskPeek.id)
-        showCompletionPulse(source)
-      },
-      onCompleteNext: (source: HTMLElement) => completeTaskFromPeek('next', source),
-      onCompleteTask: (source: HTMLElement) => completeTaskFromPeek('close', source),
-      onConfirmDelete: confirmTaskPeekDelete,
-    }),
-    [
-      addSelectedTaskPeekSubtask,
-      addTagToSelectedTaskPeek,
-      applyTaskPeekDate,
-      closeTaskPeek,
-      completeTaskFromPeek,
-      confirmTaskPeekDelete,
-      dragOverSubtaskId,
-      draggedSubtaskId,
-      openTaskPeekDatePicker,
-      removeTagFromSelectedTaskPeek,
-      reorderSelectedTaskPeekSubtasks,
-      setTaskAsNext,
-      selectedLifeGoal,
-      selectedTaskPeek,
-      selectedTaskPeekActiveSubtasks,
-      taskPeekDatePickerOpen,
-      taskPeekTagDraft,
-      toggleSelectedTaskPeekSubtaskCompletion,
-      updateSelectedTaskPeek,
-    ],
-  )
+  const selectedTaskPeekData = useMemo<TaskPeekTaskData | null>(() => {
+    if (!useSharedGoalTaskPeek || !selectedTaskPeek) return null
+    return lifeGoalTaskToTaskPeekData(selectedTaskPeek, {
+      title: creatingTaskPeekId === selectedTaskPeek.id ? '' : selectedTaskPeek.text,
+    })
+  }, [creatingTaskPeekId, selectedTaskPeek, useSharedGoalTaskPeek])
   const toggleRoadmapHighPriorityFocus = useCallback(() => {
     setRoadmapHighPriorityFocus((current) => !current)
   }, [])
@@ -4806,10 +4451,8 @@ export function GoalsPage({
           </option>
         ))}
       </select>
-      <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-white/26">
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-          <path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
+      <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center">
+        <ChevronRight className="h-3.5 w-3.5 rotate-90 text-white/26" aria-hidden="true" />
       </span>
     </div>
   )
@@ -5237,10 +4880,8 @@ export function GoalsPage({
             <span className={lifeGoalDraft.category ? 'theme-text-primary' : 'theme-text-muted'}>
               {lifeGoalDraft.category || 'Select category'}
             </span>
-            <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-white/26">
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                <path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
+            <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center">
+              <ChevronRight className="h-3.5 w-3.5 rotate-90 text-white/26" aria-hidden="true" />
             </span>
           </button>
 
@@ -5394,10 +5035,8 @@ export function GoalsPage({
             <span className={lifeGoalDraft.startDate ? 'theme-text-primary' : 'theme-text-muted'}>
               {lifeGoalDraft.startDate ? formatDate(lifeGoalDraft.startDate) : 'Start today'}
             </span>
-            <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-white/26">
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                <path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
+            <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center">
+              <ChevronRight className="h-3.5 w-3.5 rotate-90 text-white/26" aria-hidden="true" />
             </span>
           </button>
         </div>
@@ -5426,10 +5065,8 @@ export function GoalsPage({
                   ? 'Optional horizon'
                   : 'Optional deadline'}
             </span>
-            <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-white/26">
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                <path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
+            <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center">
+              <ChevronRight className="h-3.5 w-3.5 rotate-90 text-white/26" aria-hidden="true" />
             </span>
           </button>
         </div>
@@ -5449,10 +5086,8 @@ export function GoalsPage({
             <option value="paused">Paused</option>
             <option value="complete">Completed</option>
           </select>
-          <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-white/26">
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+          <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center">
+            <ChevronRight className="h-3.5 w-3.5 rotate-90 text-white/26" aria-hidden="true" />
           </span>
         </div>
       </div>
@@ -5485,23 +5120,14 @@ export function GoalsPage({
                   <div>
                     <p className={editPanelLabelClassName}>Milestones</p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setLifeGoalDraft((current) => ({ ...current, milestonesEnabled: !current.milestonesEnabled }))}
-                    className={`inline-flex h-5 w-9 rounded-full border p-[2px] transition ${
-                      lifeGoalDraft.milestonesEnabled
-                        ? 'border-white/[0.12] bg-transparent'
-                        : 'border-white/[0.06] bg-transparent'
-                    }`}
+                  <Toggle
+                    checked={lifeGoalDraft.milestonesEnabled}
+                    onChange={() => setLifeGoalDraft((current) => ({ ...current, milestonesEnabled: !current.milestonesEnabled }))}
+                    variant="accent"
+                    track="outline"
                     aria-label={`${lifeGoalDraft.milestonesEnabled ? 'Disable' : 'Enable'} milestones`}
                     aria-pressed={lifeGoalDraft.milestonesEnabled}
-                  >
-                    <span
-                      className={`h-full w-4 rounded-full transition ${
-                        lifeGoalDraft.milestonesEnabled ? 'translate-x-[14px] bg-[rgb(var(--theme-accent-rgb)/0.88)]' : 'bg-white/70'
-                      }`}
-                    />
-                  </button>
+                  />
                 </div>
               </div>
             ) : null}
@@ -5510,9 +5136,9 @@ export function GoalsPage({
               <div>
                 <p className={editPanelLabelClassName}>Vision board</p>
               </div>
-              <button
-                type="button"
-                onClick={() => {
+              <Toggle
+                checked={selectedGoalDetailContentVisibility.vision}
+                onChange={() => {
                   if (!selectedLifeGoal) return
                   const nextVisible = !selectedGoalDetailContentVisibility.vision
                   setGoalDetailContentVisibilityByGoal((current) => ({
@@ -5526,29 +5152,20 @@ export function GoalsPage({
                     setSelectedLifeGoalVisionEditorOpen(false)
                   }
                 }}
-                className={`inline-flex h-5 w-9 rounded-full border p-[2px] transition ${
-                  selectedGoalDetailContentVisibility.vision
-                    ? 'border-white/[0.12] bg-transparent'
-                    : 'border-white/[0.06] bg-transparent'
-                }`}
+                variant="accent"
+                track="outline"
                 aria-label={`${selectedGoalDetailContentVisibility.vision ? 'Hide' : 'Show'} vision board`}
                 aria-pressed={selectedGoalDetailContentVisibility.vision}
-              >
-                <span
-                  className={`h-full w-4 rounded-full transition ${
-                    selectedGoalDetailContentVisibility.vision ? 'translate-x-[14px] bg-[rgb(var(--theme-accent-rgb)/0.88)]' : 'bg-white/70'
-                  }`}
-                />
-              </button>
+              />
             </div>
 
             <div className="flex items-center justify-between gap-3 rounded-[14px] border border-white/[0.05] bg-white/[0.018] px-3 py-2.5">
               <div>
                 <p className={editPanelLabelClassName}>Metrics</p>
               </div>
-              <button
-                type="button"
-                onClick={() => {
+              <Toggle
+                checked={selectedGoalDetailContentVisibility.metrics}
+                onChange={() => {
                   if (!selectedLifeGoal) return
                   const nextVisible = !selectedGoalDetailContentVisibility.metrics
                   setGoalDetailContentVisibilityByGoal((current) => ({
@@ -5559,20 +5176,11 @@ export function GoalsPage({
                     },
                   }))
                 }}
-                className={`inline-flex h-5 w-9 rounded-full border p-[2px] transition ${
-                  selectedGoalDetailContentVisibility.metrics
-                    ? 'border-white/[0.12] bg-transparent'
-                    : 'border-white/[0.06] bg-transparent'
-                }`}
+                variant="accent"
+                track="outline"
                 aria-label={`${selectedGoalDetailContentVisibility.metrics ? 'Hide' : 'Show'} metrics`}
                 aria-pressed={selectedGoalDetailContentVisibility.metrics}
-              >
-                <span
-                  className={`h-full w-4 rounded-full transition ${
-                    selectedGoalDetailContentVisibility.metrics ? 'translate-x-[14px] bg-[rgb(var(--theme-accent-rgb)/0.88)]' : 'bg-white/70'
-                  }`}
-                />
-              </button>
+              />
             </div>
 
             <section className="space-y-2">
@@ -5611,9 +5219,9 @@ export function GoalsPage({
                       >
                         {label}
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => {
+                      <Toggle
+                        checked={isVisible}
+                        onChange={() => {
                           if (!selectedLifeGoal) return
                           setGoalDetailContentVisibilityByGoal((current) => ({
                             ...current,
@@ -5623,13 +5231,8 @@ export function GoalsPage({
                             },
                           }))
                         }}
-                        className={`inline-flex h-5 w-9 rounded-full border p-[2px] transition ${
-                          isVisible ? 'border-white/[0.12] bg-white/[0.08]' : 'border-white/[0.06] bg-transparent'
-                        }`}
                         aria-label={`${isVisible ? 'Hide' : 'Show'} ${label.toLowerCase()}`}
-                      >
-                        <span className={`h-full w-4 rounded-full bg-white/70 transition ${isVisible ? 'translate-x-[14px]' : ''}`} />
-                      </button>
+                      />
                     </div>
                   )
                 })}
@@ -5731,16 +5334,24 @@ export function GoalsPage({
 const renderLifeGoalOverviewPage = () => {
       return (
         <div className="space-y-3">
-          <div className="flex min-w-0 items-center gap-2 px-1 text-sm">
-            <button
-              type="button"
-              onClick={onOpenDashboard}
-              className="truncate text-white/46 transition hover:text-white/72"
-            >
-              Life Dashboard
-            </button>
-            <span className="text-zinc-500">/</span>
-            <span className="truncate text-zinc-500">Goals</span>
+          <div className="flex flex-col gap-3 px-1 lg:flex-row lg:items-end lg:justify-between">
+            <div className="min-w-0">
+              <h1 className="truncate text-[22px] font-semibold tracking-[-0.02em] text-white">
+                Goals — Meaningful work, kept visible
+              </h1>
+              <p className="mt-1 text-[15px] text-zinc-500">{goalsHeaderSummaryLine}</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-5 text-[13px] text-zinc-500">
+              <div className="inline-flex items-center gap-2">
+                <span className="h-[7px] w-[7px] rounded-full bg-emerald-400/90" />
+                <span>{goalTasksCompletedThisWeekCount} completed this week</span>
+              </div>
+              <div className="inline-flex items-center gap-2">
+                <span className="h-[7px] w-[7px] rounded-full bg-amber-400/90" />
+                <span>{goalsOnHoldCount} on hold</span>
+              </div>
+              <div id="goals-header-controls-slot" className="flex h-9 min-w-[86px] shrink-0 items-center justify-end gap-2" />
+            </div>
           </div>
           <LifeGoalOverviewPanel
             lifeGoals={overviewLifeGoals}
@@ -5930,276 +5541,6 @@ const renderLifeGoalOverviewPage = () => {
     />
   )
 
-  const renderHabitGoalsTab = () => (
-    <div className="space-y-4">
-      <div className="mx-auto flex max-w-[1160px] flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="theme-section-title">Habit goals</p>
-          <h3 className="theme-page-title mt-2">Active targets and completed wins</h3>
-        </div>
-        <Button variant="ghost" onClick={() => onChangeGoalsView('life-overview')}>
-          Life Goals
-        </Button>
-      </div>
-      <ResponsiveGrid columns="two-uneven">
-        <SectionCard className="space-y-4">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-xs uppercase tracking-[0.24em] text-mist/70">Active habit goals</p>
-              <h3 className="mt-2 text-3xl font-semibold text-white">Current targets</h3>
-            </div>
-            <div className="rounded-2xl border border-white/5 bg-white/[0.03] px-3 py-2 text-sm text-mist">
-              {activeGoals.length} live
-            </div>
-          </div>
-
-          {activeGoals.length === 0 ? (
-            <div className="rounded-2xl border border-white/5 bg-panelSoft/40 p-4 text-sm text-mist">
-              No active habit goals yet. Set a goal on any custom habit heatmap to start tracking it here.
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {activeGoals.map((item) => (
-                <button
-                  key={`${item.tracker.id}-active`}
-                  type="button"
-                  onClick={() => setSelectedGoal(item)}
-                  className="w-full rounded-2xl border border-white/5 bg-panelSoft/45 p-4 text-left transition hover:border-white/10 hover:bg-panelSoft/60"
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className="h-2.5 w-2.5 rounded-full"
-                          style={{ backgroundColor: getGoalAccentColor(item) }}
-                        />
-                        <p className="truncate text-base font-semibold text-white">{item.tracker.title}</p>
-                      </div>
-                      <p className="mt-1 text-sm text-mist">{getTrackerGoalLabel(item.tracker.goal)}</p>
-                    </div>
-                    <span className="rounded-full border border-white/5 bg-white/[0.03] px-2.5 py-1 text-xs uppercase tracking-[0.16em] text-mist/80">
-                      {getGoalStatusLabel(item)}
-                    </span>
-                  </div>
-
-                  <div className="mt-4 flex items-center gap-3">
-                    <div className="flex h-2.5 flex-1 gap-1.5">
-                      {Array.from({ length: Math.max(item.progress.target, 1) }, (_, index) => {
-                        const isFilled = index < item.progress.current
-                        const isMissed = item.progress.missed && index === 0 && !isFilled
-                        return (
-                          <div
-                            key={index}
-                            className={`h-full flex-1 rounded-full ${isMissed ? 'bg-[#8D3D37]' : !isFilled ? 'bg-[#262626]' : ''}`}
-                            style={isFilled ? { backgroundColor: getGoalAccentColor(item) } : undefined}
-                          />
-                        )
-                      })}
-                    </div>
-                    <span className="shrink-0 text-sm font-semibold text-white">{item.progress.progressText}</span>
-                  </div>
-
-                  <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm text-mist/85">
-                    <span>Type: {getTrackerGoalLabel(item.tracker.goal)}</span>
-                    <span>Target: {getTargetLabel(item.tracker, item.progress.target, item.tracker.goal!.type)}</span>
-                    <span>Start: {formatDate(item.progress.startDate)}</span>
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-        </SectionCard>
-
-        <SectionCard className="space-y-4">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-xs uppercase tracking-[0.24em] text-mist/70">Completed habit goals</p>
-              <h3 className="mt-2 text-3xl font-semibold text-white">Achievement archive</h3>
-            </div>
-            <div className="rounded-2xl border border-white/5 bg-white/[0.03] px-3 py-2 text-sm text-mist">
-              {completedGoals.length} total
-            </div>
-          </div>
-
-          {completedGoals.length === 0 ? (
-            <div className="rounded-2xl border border-white/5 bg-panelSoft/40 p-4 text-sm text-mist">
-              Completed goals will stay here even after they roll off the habit card trophy shelf.
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {completedGoals.map((item) => (
-                <button
-                  key={item.achievement.id}
-                  type="button"
-                  onClick={() => setSelectedGoal(item)}
-                  className="w-full rounded-2xl border border-white/5 bg-panelSoft/45 p-4 text-left transition hover:border-white/10 hover:bg-panelSoft/60"
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[15px] text-[#F2C76B]">Trophy</span>
-                        <p className="truncate text-base font-semibold text-white">{item.tracker.title}</p>
-                      </div>
-                      <p className="mt-1 text-sm text-mist">{getAchievementDetailLabel(item.achievement)}</p>
-                    </div>
-                    <span className="rounded-full border border-[#3B2E15] bg-[#20180C] px-2.5 py-1 text-xs uppercase tracking-[0.16em] text-[#E7C976]">
-                      Completed
-                    </span>
-                  </div>
-
-                  <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm text-mist/85">
-                    <span>Target: {getTargetLabel(item.tracker, item.achievement.target, item.achievement.goalType)}</span>
-                    <span>Started: {formatDate(item.achievement.startedDate)}</span>
-                    <span>Completed: {formatDate(item.achievement.completedDate)}</span>
-                    <span>Duration: {item.achievement.durationDays} days</span>
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-        </SectionCard>
-      </ResponsiveGrid>
-
-      <DetailDrawer
-        open={Boolean(selectedGoal)}
-        onClose={() => setSelectedGoal(null)}
-        size="md"
-        subtitle={selectedGoal ? `${selectedGoal.tracker.title} goal history` : 'Goal detail'}
-        title={
-          !selectedGoal
-            ? 'Goal detail'
-            : selectedGoal.kind === 'active'
-              ? getTrackerGoalLabel(selectedGoal.tracker.goal) ?? 'Active goal'
-              : getAchievementDetailLabel(selectedGoal.achievement)
-        }
-      >
-        {selectedGoal ? (
-          <div className="space-y-5">
-            <div className="rounded-2xl border border-white/5 bg-panelSoft/40 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-mist/60">Status</p>
-                  <p className="mt-2 text-xl font-semibold text-white">{getGoalStatusLabel(selectedGoal)}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="h-3 w-3 rounded-full" style={{ backgroundColor: getGoalAccentColor(selectedGoal) }} />
-                  <span className="text-sm text-mist">{selectedGoal.tracker.title}</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="rounded-2xl border border-white/5 bg-panelSoft/40 p-4">
-                <p className="text-xs uppercase tracking-[0.2em] text-mist/60">Goal snapshot</p>
-                <div className="mt-3 space-y-2 text-sm text-mist">
-                  <p>
-                    <span className="text-white">Type:</span>{' '}
-                    {selectedGoal.kind === 'active'
-                      ? getTrackerGoalLabel(selectedGoal.tracker.goal)
-                      : getAchievementDetailLabel(selectedGoal.achievement)}
-                  </p>
-                  <p>
-                    <span className="text-white">Target:</span>{' '}
-                    {selectedGoal.kind === 'active'
-                      ? getTargetLabel(selectedGoal.tracker, selectedGoal.progress.target, selectedGoal.tracker.goal!.type)
-                      : getTargetLabel(
-                          selectedGoal.tracker,
-                          selectedGoal.achievement.target,
-                          selectedGoal.achievement.goalType,
-                        )}
-                  </p>
-                  <p>
-                    <span className="text-white">Start date:</span>{' '}
-                    {formatDate(
-                      selectedGoal.kind === 'active'
-                        ? selectedGoal.progress.startDate
-                        : selectedGoal.achievement.startedDate,
-                    )}
-                  </p>
-                  {selectedGoal.kind === 'completed' ? (
-                    <>
-                      <p>
-                        <span className="text-white">Completed:</span> {formatDate(selectedGoal.achievement.completedDate)}
-                      </p>
-                      <p>
-                        <span className="text-white">Duration:</span> {selectedGoal.achievement.durationDays} days
-                      </p>
-                    </>
-                  ) : (
-                    <p>
-                      <span className="text-white">Progress:</span> {selectedGoal.progress.progressText}
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-white/5 bg-panelSoft/40 p-4">
-                <p className="text-xs uppercase tracking-[0.2em] text-mist/60">
-                  {selectedGoal.kind === 'completed' ? 'Achievement' : 'Live progress'}
-                </p>
-                {selectedGoal.kind === 'completed' ? (
-                  <div className="mt-3 space-y-2 text-sm text-mist">
-                    <p className="text-[#E7C976]">Trophy earned and preserved in your goal history.</p>
-                    <p>
-                      <span className="text-white">Completion day:</span> {formatDate(selectedGoal.achievement.completedDate)}
-                    </p>
-                    <p>
-                      <span className="text-white">History record:</span> {selectedGoal.achievement.id}
-                    </p>
-                  </div>
-                ) : (
-                  <div className="mt-3">
-                    <div className="flex h-2.5 gap-1.5">
-                      {Array.from({ length: Math.max(selectedGoal.progress.target, 1) }, (_, index) => {
-                        const isFilled = index < selectedGoal.progress.current
-                        const isMissed = selectedGoal.progress.missed && index === 0 && !isFilled
-                        return (
-                          <div
-                            key={index}
-                            className={`h-full flex-1 rounded-full ${isMissed ? 'bg-[#8D3D37]' : !isFilled ? 'bg-[#262626]' : ''}`}
-                            style={isFilled ? { backgroundColor: getGoalAccentColor(selectedGoal) } : undefined}
-                          />
-                        )
-                      })}
-                    </div>
-                    <p className="mt-3 text-sm text-mist">
-                      {selectedGoal.progress.scheduled
-                        ? `This goal starts on ${formatDate(selectedGoal.progress.startDate)}.`
-                        : selectedGoal.progress.completed
-                          ? 'This goal is currently completed.'
-                          : selectedGoal.progress.missed
-                            ? 'The goal has been reset after a missed day.'
-                            : 'Progress is tracked live from the goal start date.'}
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-white/5 bg-panelSoft/40 p-4">
-              <p className="text-xs uppercase tracking-[0.2em] text-mist/60">Relevant completion dates</p>
-              {selectedGoal.completionDates.length > 0 ? (
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {selectedGoal.completionDates.slice(-18).map((date) => (
-                    <span key={date} className="rounded-full border border-white/5 bg-white/[0.03] px-2.5 py-1 text-xs text-mist">
-                      {formatDate(date)}
-                    </span>
-                  ))}
-                </div>
-              ) : (
-                <p className="mt-3 text-sm text-mist">No qualifying completion dates recorded yet.</p>
-              )}
-            </div>
-
-            <div className="flex justify-end">
-              <Button onClick={() => setSelectedGoal(null)}>Close</Button>
-            </div>
-          </div>
-        ) : null}
-      </DetailDrawer>
-    </div>
-  )
-
   const renderEditGoalSidePanel = () => (
     <AnimatePresence>
       {lifeGoalComposerOpen && lifeGoalComposerMode === 'edit' ? (
@@ -6253,7 +5594,7 @@ const renderLifeGoalOverviewPage = () => {
                   {editGoalActionsMenuOpen ? (
                     <div
                       ref={editGoalActionsMenuRef}
-                      className="theme-popover absolute bottom-[calc(100%+8px)] right-0 z-40 min-w-[176px] overflow-hidden rounded-[18px] border border-white/[0.06] bg-[rgb(var(--theme-surface-elevated-rgb)/0.98)] p-1.5 shadow-[0_18px_40px_rgba(15,23,42,0.28)]"
+                      className="theme-popover absolute right-0 top-[calc(100%+8px)] z-40 min-w-[176px] overflow-hidden rounded-[18px] border border-white/[0.06] bg-[rgb(var(--theme-surface-elevated-rgb)/0.98)] p-1.5 shadow-[0_18px_40px_rgba(15,23,42,0.28)]"
                     >
                       <button
                         type="button"
@@ -6295,7 +5636,16 @@ const renderLifeGoalOverviewPage = () => {
   return (
     <div className="space-y-4">
       {goalsView === 'habit-goals'
-        ? renderHabitGoalsTab()
+        ? (
+            <HabitGoalsTab
+              activeGoals={activeGoals}
+              completedGoals={completedGoals}
+              selectedGoal={selectedGoal}
+              onChangeGoalsView={onChangeGoalsView}
+              onCloseGoal={() => setSelectedGoal(null)}
+              onSelectGoal={setSelectedGoal}
+            />
+          )
         : goalsView === 'life-detail'
           ? renderLifeGoalDetailPage()
           : renderLifeGoalOverviewPage()}
@@ -6375,7 +5725,7 @@ const renderLifeGoalOverviewPage = () => {
                     <span className={selectedMilestone.targetDate ? 'theme-text-primary' : 'theme-text-muted'}>
                       {selectedMilestone.targetDate ? formatDate(selectedMilestone.targetDate) : 'Optional date'}
                     </span>
-                    <span className="theme-text-faint text-xs">▾</span>
+                    <ChevronRight className="h-3.5 w-3.5 rotate-90 theme-text-faint" />
                   </button>
                 </div>
               </label>
@@ -6466,7 +5816,61 @@ const renderLifeGoalOverviewPage = () => {
         ) : null}
       </DetailDrawer>
 
-      <LifeGoalTaskPeek data={taskPeekData} uiState={taskPeekUiState} refs={taskPeekRefs} actions={taskPeekActions} />
+      {useSharedGoalTaskPeek && selectedTaskPeekData && selectedLifeGoal ? (
+        <TaskPeek
+          task={selectedTaskPeekData}
+          open={true}
+          rightOffset={taskPeekRightOffset}
+          autoSelectTitle={creatingTaskPeekId === selectedTaskPeek.id}
+          onClose={closeTaskPeek}
+          onComplete={() => {
+            if (selectedTaskPeek?.completed) {
+              toggleSelectedTaskPeekCompletion()
+              closeTaskPeek()
+              return
+            }
+            completeTaskFromPeek('close')
+          }}
+          onDelete={() => {
+            if (selectedLifeGoal && selectedTaskPeek) {
+              showCompletionUndo({
+                kind: 'delete-task',
+                goalId: selectedLifeGoal.id,
+                goalType: selectedLifeGoal.goalType,
+                task: selectedTaskPeek,
+                message: 'Task deleted',
+              })
+            }
+            deleteSelectedTaskPeek()
+          }}
+          onUpdate={(updatedTask) => {
+            latestTaskPeekDraftRef.current = updatedTask
+            updateSelectedTaskPeek((task) => taskPeekDataToLifeGoalTask(task, updatedTask))
+          }}
+          goalOptions={[]}
+          directionOptions={[]}
+          goalContext={{
+            title: selectedLifeGoal.title,
+            goalType: selectedLifeGoal.goalType,
+          }}
+          milestoneField={
+            selectedLifeGoal.goalType === 'outcome'
+              ? {
+                  options: selectedTaskPeekMilestoneOptions.map((option) => ({
+                    id: option.value,
+                    label: option.label,
+                  })),
+                  value: selectedTaskPeek?.milestoneId ?? undefined,
+                  lockedLabel: taskPeekLockedMilestoneContext?.title ?? undefined,
+                  onChange: (value) => updateSelectedTaskPeek((task) => ({ ...task, milestoneId: value ?? null })),
+                }
+              : undefined
+          }
+          showDueTime={false}
+          showExternalLinks={false}
+          showLinkSection={false}
+        />
+      ) : null}
 
       <AnimatePresence>
         {completionUndo ? (

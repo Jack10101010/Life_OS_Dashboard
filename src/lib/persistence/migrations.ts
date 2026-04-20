@@ -45,11 +45,11 @@ type LegacyEmbeddedLifeGoalTask = {
   text: string
   milestoneId: string | null
   phase?: string
-  description: string
   notes: string
   dueDate: string | null
+  taskTag: string | null
+  tagColor?: string | null
   priority: LifeGoalTaskPriority
-  tags: string[]
   subtasks: Array<{
     id: string
     text: string
@@ -71,6 +71,35 @@ type LegacyNormalizedLifeGoal = LifeGoal & {
 function normalizeLifeGoalTaskPhase(phase: unknown) {
   const trimmed = typeof phase === 'string' ? phase.trim() : ''
   return LIFE_GOAL_PHASE_OPTIONS.has(trimmed) ? trimmed : null
+}
+
+function normalizeTaskLongformFields(task: { notes?: unknown }) {
+  return typeof task.notes === 'string' ? task.notes.trim() : ''
+}
+
+function normalizeSingleTaskTag(task: Record<string, unknown>) {
+  const directTag = typeof task.taskTag === 'string' ? task.taskTag.trim().toLowerCase().replace(/\s+/g, ' ') : ''
+  if (directTag) return directTag
+
+  const legacyTags = task['tags']
+  if (!Array.isArray(legacyTags)) return null
+
+  for (const tag of legacyTags) {
+    if (typeof tag !== 'string') continue
+    const normalizedTag = tag.trim().toLowerCase().replace(/\s+/g, ' ')
+    if (normalizedTag) return normalizedTag
+  }
+
+  return null
+}
+
+function normalizeTaskSomedayState(task: Record<string, unknown>, normalizedTaskTag: string | null) {
+  const explicitSomeday = task.isSomeday === true
+  const legacySomedayTag = normalizedTaskTag === 'someday'
+  return {
+    isSomeday: explicitSomeday || legacySomedayTag,
+    taskTag: legacySomedayTag ? null : normalizedTaskTag,
+  }
 }
 
 function getUnifiedTaskPhase1Id(
@@ -107,6 +136,9 @@ function normalizeUnifiedTaskPhase1(
   } = { prefix: 'global' },
 ): UnifiedTaskPhase1 {
   const task = (input ?? {}) as Record<string, unknown>
+  const notes = normalizeTaskLongformFields(task)
+  const normalizedTaskTag = normalizeSingleTaskTag(task)
+  const somedayState = normalizeTaskSomedayState(task, normalizedTaskTag)
   const linkedGoalId =
     options.linkedGoalIdOverride !== undefined
       ? options.linkedGoalIdOverride
@@ -147,19 +179,15 @@ function normalizeUnifiedTaskPhase1(
     order,
     dueDate: typeof task.dueDate === 'string' && task.dueDate.trim().length > 0 ? task.dueDate.trim() : null,
     dueTime: typeof task.dueTime === 'string' && task.dueTime.trim().length > 0 ? task.dueTime.trim() : null,
-    taskTag: typeof task.taskTag === 'string' && task.taskTag.trim().length > 0 ? task.taskTag.trim() : null,
+    isSomeday: somedayState.isSomeday,
+    taskTag: somedayState.taskTag,
     starred: options.starredOverride ?? (typeof task.starred === 'boolean' ? task.starred : false),
-    important: typeof task.important === 'boolean' ? task.important : priority === 'high',
     linkedGoalId,
     linkedDirectionId,
     completed: Boolean(task.completed),
     completedAt,
-    description: typeof task.description === 'string' ? task.description.trim() : '',
-    notes: typeof task.notes === 'string' ? task.notes : '',
+    notes,
     priority,
-    tags: Array.isArray(task.tags)
-      ? task.tags.filter((tag): tag is string => typeof tag === 'string').map((tag) => tag.trim()).filter(Boolean)
-      : [],
     subtasks: Array.isArray(task.subtasks)
       ? task.subtasks
           .map((subtask, subtaskIndex) => {
@@ -246,7 +274,6 @@ export function repairOutcomeGoalTaskFieldsFromEmbedded<T extends Record<string,
       priority: LifeGoalTaskPriority
       subtasks: Array<{ id: string; text: string; completed: boolean }>
       milestoneId: string | null
-      description: string
       notes: string
     }>
   >()
@@ -261,7 +288,6 @@ export function repairOutcomeGoalTaskFieldsFromEmbedded<T extends Record<string,
       priority: LifeGoalTaskPriority
       subtasks: Array<{ id: string; text: string; completed: boolean }>
       milestoneId: string | null
-      description: string
       notes: string
     }>()
 
@@ -293,6 +319,8 @@ export function repairOutcomeGoalTaskFieldsFromEmbedded<T extends Record<string,
             .filter((subtask) => subtask.text.length > 0)
         : []
 
+      const notes = normalizeTaskLongformFields(candidate)
+
       taskMap.set(taskId, {
         priority,
         subtasks,
@@ -300,8 +328,7 @@ export function repairOutcomeGoalTaskFieldsFromEmbedded<T extends Record<string,
           typeof candidate.milestoneId === 'string' && candidate.milestoneId.trim().length > 0
             ? candidate.milestoneId.trim()
             : null,
-        description: typeof candidate.description === 'string' ? candidate.description.trim() : '',
-        notes: typeof candidate.notes === 'string' ? candidate.notes : '',
+        notes,
       })
     })
 
@@ -316,7 +343,6 @@ export function repairOutcomeGoalTaskFieldsFromEmbedded<T extends Record<string,
     priority: 0,
     subtasks: 0,
     milestoneId: 0,
-    description: 0,
     notes: 0,
   }
 
@@ -369,13 +395,6 @@ export function repairOutcomeGoalTaskFieldsFromEmbedded<T extends Record<string,
       repairCounts.milestoneId += 1
     }
 
-    const topDescription = typeof candidate.description === 'string' ? candidate.description.trim() : ''
-    if (topDescription.length === 0 && embeddedTask.description.length > 0) {
-      nextTask.description = embeddedTask.description
-      changed = true
-      repairCounts.description += 1
-    }
-
     const topNotes = typeof candidate.notes === 'string' ? candidate.notes : ''
     if (topNotes.trim().length === 0 && embeddedTask.notes.trim().length > 0) {
       nextTask.notes = embeddedTask.notes
@@ -410,10 +429,9 @@ export function repairDirectionalGoalTaskFieldsFromEmbedded<T extends Record<str
     Map<string, {
       priority: LifeGoalTaskPriority
       subtasks: Array<{ id: string; text: string; completed: boolean }>
-      description: string
       notes: string
       dueDate: string | null
-      tags: string[]
+      taskTag: string | null
       phase: string | null
     }>
   >()
@@ -427,10 +445,9 @@ export function repairDirectionalGoalTaskFieldsFromEmbedded<T extends Record<str
     const taskMap = new Map<string, {
       priority: LifeGoalTaskPriority
       subtasks: Array<{ id: string; text: string; completed: boolean }>
-      description: string
       notes: string
       dueDate: string | null
-      tags: string[]
+      taskTag: string | null
       phase: string | null
     }>()
 
@@ -462,18 +479,17 @@ export function repairDirectionalGoalTaskFieldsFromEmbedded<T extends Record<str
             .filter((subtask) => subtask.text.length > 0)
         : []
 
+      const notes = normalizeTaskLongformFields(candidate)
+
       taskMap.set(taskId, {
         priority,
         subtasks,
-        description: typeof candidate.description === 'string' ? candidate.description.trim() : '',
-        notes: typeof candidate.notes === 'string' ? candidate.notes : '',
+        notes,
         dueDate:
           typeof candidate.dueDate === 'string' && candidate.dueDate.trim().length > 0
             ? candidate.dueDate.trim()
             : null,
-        tags: Array.isArray(candidate.tags)
-          ? candidate.tags.filter((tag): tag is string => typeof tag === 'string').map((tag) => tag.trim()).filter(Boolean)
-          : [],
+        taskTag: normalizeSingleTaskTag(candidate),
         phase: normalizeLifeGoalTaskPhase(candidate.phase),
       })
     })
@@ -487,11 +503,10 @@ export function repairDirectionalGoalTaskFieldsFromEmbedded<T extends Record<str
 
   const repairCounts = {
     notes: 0,
-    description: 0,
     priority: 0,
     dueDate: 0,
     subtasks: 0,
-    tags: 0,
+    taskTag: 0,
     phase: 0,
     linkage: 0,
   }
@@ -520,13 +535,6 @@ export function repairDirectionalGoalTaskFieldsFromEmbedded<T extends Record<str
       nextTask.notes = embeddedTask.notes
       changed = true
       repairCounts.notes += 1
-    }
-
-    const topDescription = typeof candidate.description === 'string' ? candidate.description.trim() : ''
-    if (topDescription.length === 0 && embeddedTask.description.length > 0) {
-      nextTask.description = embeddedTask.description
-      changed = true
-      repairCounts.description += 1
     }
 
     const topPriority: LifeGoalTaskPriority =
@@ -559,11 +567,11 @@ export function repairDirectionalGoalTaskFieldsFromEmbedded<T extends Record<str
       repairCounts.subtasks += 1
     }
 
-    const topTags = Array.isArray(candidate.tags) ? candidate.tags.filter((tag): tag is string => typeof tag === 'string' && tag.trim().length > 0) : []
-    if (topTags.length === 0 && embeddedTask.tags.length > 0) {
-      nextTask.tags = [...embeddedTask.tags]
+    const topTaskTag = normalizeSingleTaskTag(candidate)
+    if (topTaskTag == null && embeddedTask.taskTag) {
+      nextTask.taskTag = embeddedTask.taskTag
       changed = true
-      repairCounts.tags += 1
+      repairCounts.taskTag += 1
     }
 
     const topPhase = normalizeLifeGoalTaskPhase(candidate.phase)
@@ -1178,7 +1186,7 @@ function normalizeLifeGoal(goal: LegacyPersistedLifeGoalRecord, index: number): 
         : '',
     visionStatement:
       typeof (goal as Partial<LifeGoal> & { visionStatement?: unknown }).visionStatement === 'string'
-        ? ((goal as Partial<LifeGoal> & { visionStatement?: string }).visionStatement ?? '').trim().slice(0, 120)
+        ? ((goal as Partial<LifeGoal> & { visionStatement?: string }).visionStatement ?? '').trim()
         : '',
     visionImages:
       Array.isArray((goal as Partial<LifeGoal> & { visionImages?: unknown[] }).visionImages)
@@ -1186,6 +1194,11 @@ function normalizeLifeGoal(goal: LegacyPersistedLifeGoalRecord, index: number): 
             .filter((image): image is string => typeof image === 'string' && image.length > 0)
             .slice(0, 6)
         : [],
+    visionImageBrightness:
+      typeof (goal as Partial<LifeGoal> & { visionImageBrightness?: unknown }).visionImageBrightness === 'number' &&
+      Number.isFinite((goal as Partial<LifeGoal> & { visionImageBrightness?: number }).visionImageBrightness)
+        ? Math.min(1, Math.max(0.45, (goal as Partial<LifeGoal> & { visionImageBrightness?: number }).visionImageBrightness ?? 0.7))
+        : undefined,
     visionMode:
       (goal as Partial<LifeGoal> & { visionMode?: unknown }).visionMode === 'images' ||
       (goal as Partial<LifeGoal> & { visionMode?: unknown }).visionMode === 'statement' ||
@@ -1217,7 +1230,6 @@ function normalizeLifeGoal(goal: LegacyPersistedLifeGoalRecord, index: number): 
           text?: unknown
           milestoneId?: unknown
           phase?: unknown
-          description?: unknown
           notes?: unknown
           dueDate?: unknown
           priority?: unknown
@@ -1242,13 +1254,11 @@ function normalizeLifeGoal(goal: LegacyPersistedLifeGoalRecord, index: number): 
           text: typeof candidate.text === 'string' ? candidate.text.trim() : '',
           milestoneId: typeof candidate.milestoneId === 'string' && candidate.milestoneId ? candidate.milestoneId : null,
           phase: normalizeLifeGoalTaskPhase(candidate.phase) ?? undefined,
-          description: typeof candidate.description === 'string' ? candidate.description.trim() : '',
-          notes: typeof candidate.notes === 'string' ? candidate.notes : '',
+          notes: normalizeTaskLongformFields(candidate),
           dueDate: typeof candidate.dueDate === 'string' && candidate.dueDate ? candidate.dueDate : null,
+          taskTag: normalizeSingleTaskTag(candidate),
+          tagColor: null,
           priority,
-          tags: Array.isArray(candidate.tags)
-            ? candidate.tags.filter((tag): tag is string => typeof tag === 'string').map((tag) => tag.trim()).filter(Boolean)
-            : [],
           subtasks: Array.isArray(candidate.subtasks)
             ? candidate.subtasks
                 .map((subtask) => {
@@ -1322,6 +1332,7 @@ function normalizeLifeGoalCategories(
 }
 
 function normalizeTask(task: Partial<Task>, index = 0): Task {
+  const notes = normalizeTaskLongformFields(task)
   const priority: LifeGoalTaskPriority =
     (task as Partial<Task> & { priority?: unknown }).priority === 'none' ||
     (task as Partial<Task> & { priority?: unknown }).priority === 'low' ||
@@ -1343,6 +1354,8 @@ function normalizeTask(task: Partial<Task>, index = 0): Task {
       : null
   const linkedGoalId = rawLinkedGoalId
   const linkedDirectionId = linkedGoalId ? null : rawLinkedDirectionId
+  const normalizedTaskTag = normalizeSingleTaskTag(task as Record<string, unknown>)
+  const somedayState = normalizeTaskSomedayState(task as Record<string, unknown>, normalizedTaskTag)
 
   return {
     id: task.id ?? `task-${Date.now().toString(36)}`,
@@ -1358,22 +1371,15 @@ function normalizeTask(task: Partial<Task>, index = 0): Task {
       typeof (task as Partial<Task> & { dueTime?: unknown }).dueTime === 'string'
         ? (task as Partial<Task> & { dueTime: string }).dueTime.trim() || null
         : null,
-    taskTag:
-      typeof (task as Partial<Task> & { taskTag?: unknown }).taskTag === 'string'
-        ? (task as Partial<Task> & { taskTag: string }).taskTag.trim() || null
-        : null,
-    starred: (task as Partial<Task> & { starred?: boolean }).starred ?? task.important ?? false,
-    important: (task as Partial<Task> & { important?: boolean }).important ?? false,
+    isSomeday: somedayState.isSomeday,
+    taskTag: somedayState.taskTag,
+    starred: (task as Partial<Task> & { starred?: boolean }).starred ?? false,
     linkedGoalId,
     linkedDirectionId,
     completed: task.completed ?? false,
     completedAt: typeof task.completedAt === 'string' ? task.completedAt : null,
-    description: typeof (task as Partial<Task> & { description?: unknown }).description === 'string' ? (task as Partial<Task> & { description: string }).description : '',
-    notes: typeof (task as Partial<Task> & { notes?: unknown }).notes === 'string' ? (task as Partial<Task> & { notes: string }).notes : '',
+    notes,
     priority,
-    tags: Array.isArray((task as Partial<Task> & { tags?: unknown[] }).tags)
-      ? (task as Partial<Task> & { tags: unknown[] }).tags.filter((tag): tag is string => typeof tag === 'string').map((tag) => tag.trim()).filter(Boolean)
-      : [],
     subtasks: Array.isArray((task as Partial<Task> & { subtasks?: unknown[] }).subtasks)
       ? (task as Partial<Task> & { subtasks: unknown[] }).subtasks
           .map((subtask, subtaskIndex) => {

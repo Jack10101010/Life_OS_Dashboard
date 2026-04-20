@@ -10,17 +10,21 @@ import type {
   LifeGoalType,
   Task,
 } from '../../types'
+import { taskToLifeGoalTask } from '../../lib/taskAdapters'
 import { normalizeLifeGoalPhaseValue } from './lib/taskDerivations'
 
-type RuntimeTaskRecord = Task & {
-  milestoneId?: string | null
-  phase?: string | null
-  description?: string
-  notes?: string
-  priority?: LifeGoalTaskPriority
-  tags?: string[]
-  subtasks?: LifeGoalTask['subtasks']
+export type GoalOverviewGroupBy = 'none' | 'status' | 'category' | 'life-direction'
+export type GoalOverviewSortBy = 'manual' | 'due' | 'priority' | 'updated'
+export type GoalOverviewOrderingControls = {
+  groupBy: GoalOverviewGroupBy
+  sortBy: GoalOverviewSortBy
 }
+export type GoalOverviewOrderingRowActions = {
+  pinnedGoalIds: string[]
+}
+
+export const GOAL_OVERVIEW_VIEW_CONTROLS_STORAGE_KEY = 'goals-overview-view-controls-v1'
+export const GOAL_OVERVIEW_ROW_ACTIONS_STORAGE_KEY = 'goals-overview-row-actions-v1'
 
 export function canGoalTypeLinkToGoalType(sourceType: LifeGoalType, targetType: LifeGoalType) {
   if (sourceType === 'directional') {
@@ -232,27 +236,7 @@ export function getLifeGoalProgress(goal: LifeGoal, tasks: LifeGoalTask[]) {
 }
 
 export function normalizeTaskRecordToLifeGoalTask(task: Task): LifeGoalTask {
-  const runtimeTask = task as RuntimeTaskRecord
-  return {
-    id: task.id,
-    text: task.text,
-    milestoneId: runtimeTask.milestoneId ?? null,
-    phase: normalizeLifeGoalPhaseValue(runtimeTask.phase),
-    description: runtimeTask.description ?? '',
-    notes: runtimeTask.notes ?? '',
-    dueDate: task.dueDate ?? null,
-    priority: runtimeTask.priority ?? (task.important ? 'high' : 'none'),
-    tags: Array.isArray(runtimeTask.tags) ? runtimeTask.tags : [],
-    subtasks: Array.isArray(runtimeTask.subtasks)
-      ? runtimeTask.subtasks.map((subtask) => ({
-          id: subtask.id,
-          text: subtask.text,
-          completed: subtask.completed,
-        }))
-      : [],
-    completed: task.completed,
-    completedAt: task.completedAt,
-  }
+  return taskToLifeGoalTask(task)
 }
 
 export function getLifeGoalRuntimeTasks(goal: LifeGoal, tasks: Task[]): LifeGoalTask[] {
@@ -609,6 +593,76 @@ export function sortLifeGoals(goals: LifeGoal[]) {
     if (left.order !== right.order) return left.order - right.order
     return right.updatedAt.localeCompare(left.updatedAt)
   })
+}
+
+export function getVisibleGoalOverviewOrder(
+  goals: LifeGoal[],
+  options: {
+    controls: GoalOverviewOrderingControls
+    rowActions?: GoalOverviewOrderingRowActions | null
+    baseManualGoals?: LifeGoal[]
+    manualGoalIds?: string[] | null
+    getPriorityValue?: (goal: LifeGoal) => number
+    getGroupLabel?: (goal: LifeGoal) => string
+  },
+) {
+  const pinnedGoalIds = options.rowActions?.pinnedGoalIds ?? []
+  const pinnedGoalSet = new Set(pinnedGoalIds)
+  const pinnedGoalIndexById = new Map(pinnedGoalIds.map((goalId, index) => [goalId, index]))
+  const baseManualGoalIds = (options.baseManualGoals ?? goals)
+    .slice()
+    .sort((left, right) => (left.order !== right.order ? left.order - right.order : 0))
+    .map((goal) => goal.id)
+  const manualGoalIds = options.manualGoalIds ?? baseManualGoalIds
+  const previewIndexByGoalId = new Map(manualGoalIds.map((goalId, index) => [goalId, index]))
+
+  const applyPinnedPriority = (sortedGoals: LifeGoal[]) => {
+    if (options.controls.sortBy !== 'manual' || options.controls.groupBy !== 'none') return sortedGoals
+    return [...sortedGoals].sort((left, right) => {
+      const leftPinned = pinnedGoalSet.has(left.id) ? 1 : 0
+      const rightPinned = pinnedGoalSet.has(right.id) ? 1 : 0
+      if (leftPinned !== rightPinned) return rightPinned - leftPinned
+      if (leftPinned === 1 && rightPinned === 1) {
+        return (pinnedGoalIndexById.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (pinnedGoalIndexById.get(right.id) ?? Number.MAX_SAFE_INTEGER)
+      }
+      return (previewIndexByGoalId.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (previewIndexByGoalId.get(right.id) ?? Number.MAX_SAFE_INTEGER)
+    })
+  }
+
+  const sortedGoals = (() => {
+    switch (options.controls.sortBy) {
+      case 'due':
+        return sortLifeGoalsByDue(goals)
+      case 'priority':
+        return [...goals].sort((left, right) => {
+          const priorityDiff = (options.getPriorityValue?.(right) ?? 0) - (options.getPriorityValue?.(left) ?? 0)
+          if (priorityDiff !== 0) return priorityDiff
+          return right.updatedAt.localeCompare(left.updatedAt)
+        })
+      case 'updated':
+        return [...goals].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      case 'manual':
+      default:
+        return applyPinnedPriority(
+          [...goals].sort(
+            (left, right) =>
+              (previewIndexByGoalId.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
+              (previewIndexByGoalId.get(right.id) ?? Number.MAX_SAFE_INTEGER),
+          ),
+        )
+    }
+  })()
+
+  if (options.controls.groupBy === 'none' || !options.getGroupLabel) return sortedGoals
+
+  const grouped = new Map<string, LifeGoal[]>()
+  sortedGoals.forEach((goal) => {
+    const label = options.getGroupLabel?.(goal) ?? ''
+    if (!grouped.has(label)) grouped.set(label, [])
+    grouped.get(label)!.push(goal)
+  })
+
+  return Array.from(grouped.values()).flat()
 }
 
 export function sortLifeGoalsByDue(goals: LifeGoal[]) {

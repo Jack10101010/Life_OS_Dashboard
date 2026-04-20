@@ -160,7 +160,7 @@ export const defaultSettings: SettingsState = {
   startDayOfWeek: 'monday',
   defaultColorMode: 'overall',
   moodLabels: ['Rough', 'Low', 'Steady', 'Good', 'Great'],
-  panelHue: 'blue',
+  panelHue: 'none',
   panelHueIntensity: 100,
   enableBadHabitTracking: true,
   enableMedicationTracking: true,

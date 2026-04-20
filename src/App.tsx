@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Sidebar } from './components/layout/Sidebar'
+import { Sidebar, type SidebarBadHabitStreak, type SidebarFocusTask, type SidebarTodayTask } from './components/layout/Sidebar'
 import { TopBar } from './components/layout/TopBar'
+import { AppPageRouter } from './components/layout/AppPageRouter'
 import { PageContainer } from './components/layout/LayoutPrimitives'
 import { DayDrawer } from './components/tracker/DayDrawer'
 import { HabitTrackerEntryModal } from './components/tracker/HabitTrackerEntryModal'
@@ -29,20 +30,10 @@ import { useAppShellState } from './hooks/useAppShellState'
 import { useHabitTrackerState } from './hooks/useHabitTrackerState'
 import { useSettingsState } from './hooks/useSettingsState'
 import { useTrackerState } from './hooks/useTrackerState'
-import { DashboardPage } from './features/dashboard/DashboardPage'
-import { GoalsPage } from './features/goals/GoalsPage'
-import { HabitMapsPage } from './features/habit-maps/HabitMapsPage'
-import { JournalPage } from './features/journal/JournalPage'
-import { PlaceholderPage } from './features/placeholder/PlaceholderPage'
-import { SettingsPage } from './features/settings/SettingsPage'
-import { TaskSuperPage } from './features/tasks/TaskSuperPage'
-import { TrackerWorkspace } from './features/tracker/TrackerWorkspace'
-import { YourDaysPage } from './features/your-days/YourDaysPage'
 import { APP_STATE_STORAGE_KEY } from './lib/persistence/keys'
 import { repairDirectionalGoalTaskFieldsFromEmbedded } from './lib/persistence/migrations'
 import { readJsonStorage } from './lib/persistence/storage'
-import { getLifeGoalRuntimeTasks } from './features/goals/goalUtils'
-import { LifeGoal, LifeGoalCategoryColor, LifeGoalCategoryDefinition, PageId, Task } from './types'
+import { LifeGoal, LifeGoalCategoryDefinition, PageId, Task } from './types'
 
 type GoalsView = 'life-overview' | 'directional-overview' | 'life-detail' | 'habit-goals'
 type GoalDetailOrigin = 'tasks' | null
@@ -157,6 +148,7 @@ export default function App() {
   const [goalDetailOrigin, setGoalDetailOrigin] = useState<GoalDetailOrigin>(null)
   const [outcomeGoalCategoryFilter, setOutcomeGoalCategoryFilter] = useState<string | null>(null)
   const [directionalGoalCategoryFilter, setDirectionalGoalCategoryFilter] = useState<string | null>(null)
+  const [taskPeekRightOffset, setTaskPeekRightOffset] = useState(0)
   const isApplyingHistoryRef = useRef(false)
   const hasInitializedHistoryRef = useRef(false)
   const hasCreatedStartupSnapshotRef = useRef(false)
@@ -166,6 +158,7 @@ export default function App() {
   const pendingSnapshotFingerprintRef = useRef<string | null>(null)
   const hasCompletedStartupHydrationRef = useRef(false)
   const hasAttemptedDirectionalLegacyRepairRef = useRef(false)
+  const appShellRef = useRef<HTMLDivElement | null>(null)
 
   const { settings, setSettings, hydrate: hydrateSettings } = settingsState
   const {
@@ -174,13 +167,26 @@ export default function App() {
     sidebarCollapsed,
     setSidebarCollapsed,
     sidebarOrder,
-    setSidebarOrder,
     sidebarLabels,
-    setSidebarLabels,
     pageDevNotes,
-    setPageDevNotes,
     hydrate: hydrateAppShell,
   } = appShell
+
+  useEffect(() => {
+    const updateTaskPeekRightOffset = () => {
+      if (typeof window === 'undefined') return
+      const shellRect = appShellRef.current?.getBoundingClientRect()
+      if (!shellRect) {
+        setTaskPeekRightOffset(0)
+        return
+      }
+      setTaskPeekRightOffset(Math.max(0, Math.round(window.innerWidth - shellRect.right)))
+    }
+
+    updateTaskPeekRightOffset()
+    window.addEventListener('resize', updateTaskPeekRightOffset)
+    return () => window.removeEventListener('resize', updateTaskPeekRightOffset)
+  }, [hasHydratedFromStorage, sidebarCollapsed])
   const {
     dataByYear,
     habits,
@@ -240,6 +246,150 @@ export default function App() {
     deleteDayEntry,
     hydrate: hydrateTracker,
   } = trackerState
+  const todayIso = useMemo(() => new Date().toISOString().slice(0, 10), [])
+  const sidebarTodayTaskPool = useMemo(() => {
+    const getPriorityRank = (priority: Task['priority']) => {
+      switch (priority) {
+        case 'high':
+          return 0
+        case 'medium':
+          return 1
+        case 'low':
+          return 2
+        default:
+          return 3
+      }
+    }
+
+    const getDueRank = (task: Task) => {
+      if (!task.dueDate) return 2
+      if (task.dueDate < todayIso) return 0
+      if (task.dueDate === todayIso) return 1
+      return 3
+    }
+
+    const incompleteActiveTasks = tasks.filter((task) => !task.completed && task.isSomeday !== true)
+    const actionableDueTasks = incompleteActiveTasks
+      .filter((task) => task.dueDate !== null && task.dueDate <= todayIso)
+      .slice()
+      .sort((left, right) => {
+        const dueRankDiff = getDueRank(left) - getDueRank(right)
+        if (dueRankDiff !== 0) return dueRankDiff
+
+        const priorityDiff = getPriorityRank(left.priority) - getPriorityRank(right.priority)
+        if (priorityDiff !== 0) return priorityDiff
+
+        if (left.dueDate && right.dueDate && left.dueDate !== right.dueDate) {
+          return left.dueDate.localeCompare(right.dueDate)
+        }
+        if (left.dueDate && !right.dueDate) return -1
+        if (!left.dueDate && right.dueDate) return 1
+
+        return left.order - right.order
+      })
+
+    if (actionableDueTasks.length > 0) {
+      return actionableDueTasks
+    }
+
+    return incompleteActiveTasks
+      .filter((task) => task.dueDate === null && task.priority === 'high')
+      .slice()
+      .sort((left, right) => left.order - right.order)
+      .slice(0, 2)
+  }, [tasks, todayIso])
+  const sidebarTodayTasks = useMemo<SidebarTodayTask[]>(
+    () =>
+      sidebarTodayTaskPool.slice(0, 5).map((task) => ({
+        id: task.id,
+        text: task.text,
+        dueDate: task.dueDate,
+        priority: task.priority,
+      })),
+    [sidebarTodayTaskPool],
+  )
+  const sidebarTodayTaskCount = sidebarTodayTaskPool.length
+  const sidebarFocusTask = useMemo<SidebarFocusTask | null>(() => {
+    const incompleteActiveTasks = tasks.filter((task) => !task.completed && task.isSomeday !== true)
+
+    const explicitFocusTask =
+      incompleteActiveTasks
+        .filter((task) => task.starred)
+        .slice()
+        .sort((left, right) => left.order - right.order)[0] ?? null
+
+    const overdueHighPriorityTask =
+      incompleteActiveTasks
+        .filter((task) => task.priority === 'high' && task.dueDate !== null && task.dueDate < todayIso)
+        .slice()
+        .sort((left, right) => {
+          if (left.dueDate && right.dueDate && left.dueDate !== right.dueDate) {
+            return left.dueDate.localeCompare(right.dueDate)
+          }
+          return left.order - right.order
+        })[0] ?? null
+
+    const dueTodayTask =
+      incompleteActiveTasks
+        .filter((task) => task.dueDate === todayIso)
+        .slice()
+        .sort((left, right) => {
+          const leftPriority = left.priority === 'high' ? 0 : left.priority === 'medium' ? 1 : left.priority === 'low' ? 2 : 3
+          const rightPriority = right.priority === 'high' ? 0 : right.priority === 'medium' ? 1 : right.priority === 'low' ? 2 : 3
+          if (leftPriority !== rightPriority) return leftPriority - rightPriority
+          return left.order - right.order
+        })[0] ?? null
+
+    const highPriorityTask =
+      incompleteActiveTasks
+        .filter((task) => task.priority === 'high')
+        .slice()
+        .sort((left, right) => {
+          if (left.dueDate && right.dueDate && left.dueDate !== right.dueDate) {
+            return left.dueDate.localeCompare(right.dueDate)
+          }
+          if (left.dueDate && !right.dueDate) return -1
+          if (!left.dueDate && right.dueDate) return 1
+          return left.order - right.order
+        })[0] ?? null
+
+    const selectedTask = explicitFocusTask ?? overdueHighPriorityTask ?? dueTodayTask ?? highPriorityTask
+
+    return selectedTask
+      ? {
+          id: selectedTask.id,
+          text: selectedTask.text,
+          dueDate: selectedTask.dueDate,
+          priority: selectedTask.priority,
+          starred: selectedTask.starred,
+        }
+      : null
+  }, [tasks, todayIso])
+  const sidebarBadHabitStreak = useMemo<SidebarBadHabitStreak | null>(() => {
+    const alcoholVisibleStreak = visibleBadHabitStreaks.find(({ habit }) => habit.id === 'alcohol')
+    if (alcoholVisibleStreak) {
+      return {
+        label: 'Alcohol-free',
+        streak: alcoholVisibleStreak.streak,
+      }
+    }
+
+    return null
+  }, [visibleBadHabitStreaks])
+  const handleCompleteSidebarTodayTask = useCallback((taskId: string) => {
+    setTasks((current) =>
+      current.map((task) =>
+        task.id === taskId
+          ? {
+              ...task,
+              completed: true,
+              completedAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            }
+          : task,
+      ),
+    )
+  }, [])
   const availableYears = useMemo(
     () =>
       Array.from(new Set([...Object.keys(dataByYear).map((year) => Number(year)), currentYear]))
@@ -768,474 +918,10 @@ export default function App() {
     })
   }, [updateDayByDate])
 
-  const renderPage = () => {
-    if (page === 'dashboard') {
-      return (
-        <ErrorBoundary title="Dashboard unavailable" description="The dashboard could not be displayed right now.">
-          <DashboardPage
-            weeks={computedWeeks}
-            days={dataset.days}
-            tags={tags}
-            tasks={tasks}
-            lifeGoals={lifeGoals}
-            habitTrackers={habitTrackers}
-            year={filters.year}
-            badHabitStreaks={visibleBadHabitStreaks}
-            showBadHabitTracking={settings.enableBadHabitTracking}
-            onUpdateDay={updateDay}
-            onAddTask={(text) =>
-              setTasks((current) => [
-                {
-                  id: `task-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
-                  text: text.trim(),
-                  order: current.length,
-                  dueDate: new Date().toISOString().slice(0, 10),
-                  dueTime: null,
-                  taskTag: null,
-                  starred: false,
-                  important: false,
-                  linkedGoalId: null,
-                  linkedDirectionId: null,
-                  completed: false,
-                  completedAt: null,
-                  description: '',
-                  notes: '',
-                  priority: 'none',
-                  tags: [],
-                  subtasks: [],
-                  milestoneId: null,
-                  phase: null,
-                  createdAt: new Date().toISOString(),
-                  updatedAt: new Date().toISOString(),
-                },
-                ...current,
-              ])
-            }
-            onToggleTaskStarred={(taskId) =>
-              setTasks((current) =>
-                current.map((task) =>
-                  task.id === taskId
-                    ? {
-                        ...task,
-                        starred: !task.starred,
-                      }
-                    : task,
-                ),
-              )
-            }
-            onToggleTaskImportant={(taskId) =>
-              setTasks((current) =>
-                current.map((task) =>
-                  task.id === taskId
-                    ? {
-                        ...task,
-                        important: !task.important,
-                      }
-                    : task,
-                ),
-              )
-            }
-            onToggleTask={(taskId) =>
-              setTasks((current) =>
-                current.map((task) =>
-                  task.id === taskId
-                    ? {
-                        ...task,
-                        completed: !task.completed,
-                        completedAt: !task.completed ? new Date().toISOString() : null,
-                      }
-                    : task,
-                ),
-              )
-            }
-            onDeleteTask={(taskId) => setTasks((current) => current.filter((task) => task.id !== taskId))}
-            onUpdateTask={(taskId, updater) =>
-              setTasks((current) =>
-                current.map((task) => (task.id === taskId ? updater(task) : task)),
-              )
-            }
-            onOpenToday={() => openToday(false, setPage)}
-            onOpenFullNote={() => openToday(true, setPage)}
-            onOpenTracker={() => {
-              setPage('tracker')
-              setViewMode('days')
-            }}
-            onOpenGoals={() => setPage('goals')}
-            onOpenDay={(day) => openSpecificDay(Number(day.date.slice(0, 4)), day.id, day.linkedWeek)}
-            onOpenWeek={(week) => {
-              setSelectedWeekId(week.id)
-              setOpenDrawer('week')
-            }}
-            onGoToTrackerWeek={(week) => {
-              setPage('tracker')
-              setViewMode('weeks')
-              setSelectedWeekId(week.id)
-              setOpenDrawer('week')
-            }}
-          />
-        </ErrorBoundary>
-      )
-    }
-
-    if (page === 'tracker') {
-      return (
-        <TrackerWorkspace
-          trackerPage={{
-            viewMode,
-            onViewModeChange: setViewMode,
-            colorMode,
-            onColorModeChange: setColorMode,
-            year: filters.year,
-            onYearChange: (year) => setFilters((current) => ({ ...current, year })),
-            years: availableYears,
-            filters,
-            onFiltersChange: setFilters,
-            allWeeks: computedWeeks,
-            weeks: filteredWeeks,
-            days: filteredDays,
-            allDays: dataset.days,
-            habits,
-            badHabits,
-            habitTrackers,
-            tags,
-            selectedWeek,
-            selectedWeekDays,
-            selectedDay,
-            moodHeatmapFocusDate,
-            onMoodHeatmapFocusDateChange: setMoodHeatmapFocusDate,
-            moodHeatmapCalendarRange,
-            onMoodHeatmapCalendarRangeChange: setMoodHeatmapCalendarRange,
-            moodHighlightCurrentWeek,
-            onMoodHighlightCurrentWeekChange: setMoodHighlightCurrentWeek,
-            moodShowBadHabitMarkers: moodShowAlcoholMarkers,
-            onMoodShowAlcoholMarkersChange: setMoodShowAlcoholMarkers,
-            moodShowHabitMarkers,
-            onMoodShowHabitMarkersChange: setMoodShowHabitMarkers,
-            enableBadHabitTracking: settings.enableBadHabitTracking,
-            badHabitDateMap,
-            onLogToday: () => openToday(false, setPage),
-            onSelectWeek: (week) => {
-              setSelectedWeekId(week.id)
-              setOpenDrawer('week')
-            },
-            onPreviewWeek: (week) => {
-              setSelectedWeekId(week.id)
-            },
-            onSelectDay: (day) => {
-              setSelectedDayId(day.id)
-              setOpenDrawer('day')
-            },
-          }}
-          customTrackers={{
-            tags,
-            heatmapLayout,
-            year: filters.year,
-            habitTrackers,
-            badHabitDateMap,
-            enableBadHabitTracking: settings.enableBadHabitTracking,
-            habitTrackerPeriodView,
-            habitTrackerFocusDate,
-            habitTrackerCalendarRangeByTracker,
-            habitEntryDraft,
-            collapsedTrackers,
-            onCreateTracker: createTracker,
-            onPeriodViewChange: setHabitTrackerPeriodView,
-            onToggleCollapse: (trackerId) =>
-              setCollapsedTrackers((current) => ({ ...current, [trackerId]: !current[trackerId] })),
-            onShiftPeriod: setHabitTrackerFocusDate,
-            onCalendarRangeChange: (trackerId, next) =>
-              setHabitTrackerCalendarRangeByTracker((current) => ({ ...current, [trackerId]: next })),
-            onSelectDate: (tracker, date) => {
-              const entry = tracker.entries[date]
-              setHabitTrackerFocusDate(date)
-              setHabitEntryDraft({
-                trackerId: tracker.id,
-                date,
-                completed: entry?.completed ?? false,
-                paused: entry?.paused ?? false,
-                value: entry?.value ?? null,
-                note: entry?.note ?? '',
-              })
-            },
-            onOpenSettings: setEditingTracker,
-            onOpenGoalSetup: setGoalEditingTracker,
-            onUseStreakPause: (tracker, date) => useStreakPauseForToday(tracker.id, date),
-          }}
-        />
-      )
-    }
-
-    if (page === 'habit-maps') {
-      return (
-        <HabitMapsPage
-          tags={tags}
-          heatmapLayout={heatmapLayout}
-          year={filters.year}
-          habitTrackers={habitTrackers}
-          badHabitDateMap={badHabitDateMap}
-          enableBadHabitTracking={settings.enableBadHabitTracking}
-          habitTrackerPeriodView={habitTrackerPeriodView}
-          habitTrackerFocusDate={habitTrackerFocusDate}
-          habitTrackerCalendarRangeByTracker={habitTrackerCalendarRangeByTracker}
-          habitEntryDraft={habitEntryDraft}
-          collapsedTrackers={collapsedTrackers}
-          onCreateTracker={createTracker}
-          onPeriodViewChange={setHabitTrackerPeriodView}
-          onToggleCollapse={(trackerId) =>
-            setCollapsedTrackers((current) => ({ ...current, [trackerId]: !current[trackerId] }))
-          }
-          onShiftPeriod={setHabitTrackerFocusDate}
-          onCalendarRangeChange={(trackerId, next) =>
-            setHabitTrackerCalendarRangeByTracker((current) => ({ ...current, [trackerId]: next }))
-          }
-          onSelectDate={(tracker, date) => {
-            const entry = tracker.entries[date]
-            setHabitTrackerFocusDate(date)
-            setHabitEntryDraft({
-              trackerId: tracker.id,
-              date,
-              completed: entry?.completed ?? false,
-              paused: entry?.paused ?? false,
-              value: entry?.value ?? null,
-              note: entry?.note ?? '',
-            })
-          }}
-          onOpenSettings={setEditingTracker}
-          onOpenGoalSetup={setGoalEditingTracker}
-          onUseStreakPause={(tracker, date) => useStreakPauseForToday(tracker.id, date)}
-        />
-      )
-    }
-
-    if (page === 'your-days') {
-      return (
-        <YourDaysPage
-          days={dataset.days}
-          tags={tags}
-          onOpenDay={(day) => {
-            setPage('tracker')
-            setSelectedDayId(day.id)
-            setSelectedWeekId(day.linkedWeek)
-            setOpenDrawer('day')
-          }}
-        />
-      )
-    }
-
-    if (page === 'journal-recordings' || page === 'gratitude' || page === 'vision-board') {
-      return (
-        <JournalPage
-          entries={dataset.days}
-          initialSection={page === 'gratitude' ? 'gratitude' : page === 'vision-board' ? 'vision-board' : 'journal'}
-          onUpdateDay={updateDay}
-          onOpenDay={(day) => {
-            setPage('tracker')
-            setSelectedDayId(day.id)
-            setSelectedWeekId(day.linkedWeek)
-            setOpenDrawer('day')
-          }}
-        />
-      )
-    }
-
-    if (page === 'settings') {
-      return (
-        <SettingsPage
-          settings={settings}
-          habits={habits}
-          badHabits={badHabits}
-          onUpdateSettings={setSettings}
-          onCreateBadHabit={createBadHabit}
-          onUpdateBadHabit={updateBadHabit}
-          onArchiveBadHabit={archiveBadHabit}
-          onExportState={handleExportState}
-          onImportState={handleImportState}
-          snapshots={snapshots}
-          snapshotsLoading={snapshotsLoading}
-          onCreateBackupNow={handleCreateBackupNow}
-          onRestoreSnapshot={handleRestoreSnapshot}
-          onDeleteSnapshot={handleDeleteSnapshot}
-        />
-      )
-    }
-
-    if (page === 'tasks') {
-      return (
-        <ErrorBoundary title="Tasks unavailable" description="The task workspace could not be displayed right now.">
-          <TaskSuperPage
-            tasks={tasks}
-            lifeGoals={lifeGoals}
-            lifeGoalCategories={lifeGoalCategories}
-            onUpdateTasks={(updater) => setTasks((current) => updater(current))}
-            onAddCurrentFocusToTodayLog={handleAddCurrentFocusToTodayLog}
-            onOpenDashboard={() => setPage('dashboard')}
-            onOpenLifeGoal={(goalId) => {
-              setGoalDetailOrigin('tasks')
-              setSelectedLifeGoalId(goalId)
-              setGoalsView('life-detail')
-              setPage('goals')
-            }}
-          />
-        </ErrorBoundary>
-      )
-    }
-
-    if (page === 'goals') {
-      return (
-        <ErrorBoundary title="Goals unavailable" description="The goals workspace could not be displayed right now.">
-          <GoalsPage
-            habitTrackers={habitTrackers}
-            lifeGoals={lifeGoals}
-            lifeGoalCategories={lifeGoalCategories}
-            tasks={tasks}
-            days={dataset.days}
-            badHabitDateMap={badHabitDateMap}
-            year={filters.year}
-            goalsView={goalsView}
-            outcomeGoalCategoryFilter={outcomeGoalCategoryFilter}
-            directionalGoalCategoryFilter={directionalGoalCategoryFilter}
-            selectedLifeGoalId={selectedLifeGoalId}
-            goalDetailOrigin={goalDetailOrigin}
-            onSelectLifeGoal={setSelectedLifeGoalId}
-            onChangeGoalsView={setGoalsView}
-            onOpenDashboard={() => setPage('dashboard')}
-            onOpenTasks={() => setPage('tasks')}
-            onCreateHabitTracker={saveTracker}
-            onCreateLifeGoal={(goal) =>
-              {
-                if (goal.category.trim()) {
-                  setLifeGoalCategories((current) =>
-                    current.some((item) => item.name.trim().toLowerCase() === goal.category.trim().toLowerCase())
-                      ? current
-                      : [...current, { name: goal.category.trim(), color: 'neutral' }],
-                  )
-                }
-                setLifeGoals((current) => {
-                  const nextGoals = [
-                    { ...goal, order: 0 },
-                    ...current.map((item) => ({ ...item, order: item.order + 1 })),
-                  ]
-                  return nextGoals
-                })
-              }
-            }
-            onUpdateLifeGoal={(goalId, updater) =>
-              setLifeGoals((current) => {
-                const nextGoals = current.map((goal) => (goal.id === goalId ? updater(goal) : goal))
-                const updatedGoal = nextGoals.find((goal) => goal.id === goalId)
-                if (updatedGoal?.category.trim()) {
-                  setLifeGoalCategories((existing) =>
-                    existing.some((item) => item.name.trim().toLowerCase() === updatedGoal.category.trim().toLowerCase())
-                      ? existing
-                      : [...existing, { name: updatedGoal.category.trim(), color: 'neutral' }],
-                  )
-                }
-                return nextGoals
-              })
-            }
-            onEnsureLifeGoalCategory={(name) =>
-              setLifeGoalCategories((current) =>
-                current.some((item) => item.name.trim().toLowerCase() === name.trim().toLowerCase())
-                  ? current
-                  : [...current, { name: name.trim(), color: 'neutral' }],
-              )
-            }
-            onSetLifeGoalCategoryColor={(name, color) =>
-              setLifeGoalCategories((current) => {
-                const normalizedName = name.trim().toLowerCase()
-                const existing = current.some((item) => item.name.trim().toLowerCase() === normalizedName)
-                if (!existing) {
-                  return [...current, { name: name.trim(), color }]
-                }
-                return current.map((item) =>
-                  item.name.trim().toLowerCase() === normalizedName ? { ...item, name: name.trim(), color } : item,
-                )
-              })
-            }
-            onReorderLifeGoals={(goalIds) =>
-              setLifeGoals((current) => {
-                const orderMap = new Map(goalIds.map((id, index) => [id, index]))
-                return current.map((goal) => ({
-                  ...goal,
-                  order: orderMap.get(goal.id) ?? goal.order,
-                }))
-              })
-            }
-            onArchiveLifeGoal={(goalId) =>
-              setLifeGoals((current) =>
-                current.map((goal) =>
-                  goal.id === goalId
-                    ? {
-                        ...goal,
-                        archivedAt: new Date().toISOString(),
-                        updatedAt: new Date().toISOString(),
-                      }
-                    : goal,
-                ),
-              )
-            }
-            onDeleteLifeGoal={(goalId) => setLifeGoals((current) => current.filter((goal) => goal.id !== goalId))}
-            onSetLifeGoalAsTodayTask={(goal, tasksOverride) => {
-              const todayIso = new Date().toISOString().slice(0, 10)
-              const runtimeTasks = tasksOverride ?? getLifeGoalRuntimeTasks(goal, tasks)
-              const nextTask = runtimeTasks.find((task) => !task.completed)?.text.trim() || goal.minimumVersion
-              updateDayByDate(todayIso, (day) => ({
-                ...day,
-                isLogged: true,
-                dashboardExecution: {
-                  ...day.dashboardExecution,
-                  goal: goal.title,
-                  whyItMatters: goal.whyItMatters,
-                  todayTask: nextTask,
-                  nextAction: nextTask,
-                  minimumVersion: goal.minimumVersion,
-                },
-              }))
-            }}
-            onUpdateTasks={(updater) => setTasks((current) => updater(current))}
-            onOpenGlobalTasks={() => setPage('tasks')}
-            onOpenHabitTracker={(trackerId) => {
-              const tracker = habitTrackers.find((item) => item.id === trackerId)
-              if (!tracker) return
-              setPage('tracker')
-              setEditingTracker(tracker)
-            }}
-          />
-        </ErrorBoundary>
-      )
-    }
-
-    const placeholderMap: Record<
-      Exclude<PageId, 'dashboard' | 'tracker' | 'habit-maps' | 'your-days' | 'settings' | 'journal-recordings' | 'gratitude' | 'vision-board' | 'goals' | 'tasks'>,
-      { title: string; description: string; highlights: string[] }
-    > = {
-      notes: {
-        title: 'Notes',
-        description: 'Notes will become the flexible writing layer for journal entries, references, and reflections linked back to weeks and tags.',
-        highlights: ['Linked daily notes', 'Search and tagging', 'Review snippets from tracker data'],
-      },
-      analytics: {
-        title: 'Analytics',
-        description: 'Once enough data accumulates, this section will turn patterns into feedback with clean correlations and review summaries.',
-        highlights: ['Mood vs habits correlation', 'Alcohol impact analysis', 'Rolling consistency reports'],
-      },
-      'trade-log': {
-        title: 'Trade Log',
-        description: 'Trade review is planned as a dedicated module so decisions, discipline, and emotional state can be tracked without muddying the core dashboard.',
-        highlights: ['Trade entry journal', 'Setup tagging', 'Performance and process review'],
-      },
-    }
-
-    const placeholder = placeholderMap[
-      page as Exclude<PageId, 'dashboard' | 'tracker' | 'habit-maps' | 'your-days' | 'settings' | 'journal-recordings' | 'gratitude' | 'vision-board' | 'goals' | 'tasks'>
-    ]
-    return <PlaceholderPage {...placeholder} />
-  }
-
   if (!hasHydratedFromStorage) {
     return (
       <div className="app-grid theme-text-primary min-h-screen bg-ink" style={{ minHeight: '100vh' }}>
-        <div className="flex min-h-screen w-full items-center justify-center px-6">
+        <div className="mx-auto flex min-h-screen w-full max-w-[1720px] items-center justify-center px-6 2xl:max-w-[1840px]">
           <div className="theme-surface-soft rounded-2xl border px-5 py-3 text-sm theme-text-muted">
             Loading your dashboard…
           </div>
@@ -1246,42 +932,116 @@ export default function App() {
 
   return (
     <div className="app-grid theme-text-primary min-h-screen bg-ink" style={{ minHeight: '100vh' }}>
-      <div className="flex min-h-screen w-full flex-col lg:flex-row lg:items-start">
+      <div ref={appShellRef} className="mx-auto flex min-h-screen w-full max-w-[1720px] flex-col lg:flex-row lg:items-start 2xl:max-w-[1840px]">
         <Sidebar
-          currentPage={page}
-          collapsed={sidebarCollapsed}
-          pageOrder={sidebarOrder}
-          pageLabels={sidebarLabels}
-          lifeGoals={lifeGoals}
-          goalsView={goalsView}
-          outcomeGoalCategoryFilter={outcomeGoalCategoryFilter}
-          directionalGoalCategoryFilter={directionalGoalCategoryFilter}
-          selectedGoalType={lifeGoals.find((goal) => goal.id === selectedLifeGoalId)?.goalType ?? null}
-          onNavigate={(nextPage) => {
+          page={page}
+          setPage={(nextPage) => {
             setPage(nextPage)
             setOpenDrawer(null)
           }}
-          onSetGoalsView={setGoalsView}
-          onSetOutcomeGoalCategoryFilter={setOutcomeGoalCategoryFilter}
-          onSetDirectionalGoalCategoryFilter={setDirectionalGoalCategoryFilter}
-          onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
-          onReorderPages={setSidebarOrder}
-          onRenamePage={(pageId, label) =>
-            setSidebarLabels((current) => ({
-              ...current,
-              [pageId]: label,
-            }))
-          }
-          badHabitStreaks={visibleBadHabitStreaks}
-          showBadHabitTracking={settings.enableBadHabitTracking}
+          goalsView={goalsView}
+          setGoalsView={setGoalsView}
+          openToday={openToday}
+          sidebarCollapsed={sidebarCollapsed}
+          setSidebarCollapsed={setSidebarCollapsed}
+          todayTasks={sidebarTodayTasks}
+          todayTaskCount={sidebarTodayTaskCount}
+          focusTask={sidebarFocusTask}
+          showBadHabitStreak={settings.enableBadHabitTracking}
+          badHabitStreak={sidebarBadHabitStreak}
+          onCompleteTodayTask={handleCompleteSidebarTodayTask}
         />
 
         <div className="min-w-0 flex-1">
-          <TopBar page={page} onOpenToday={() => openToday(false, setPage)} sidebarCollapsed={sidebarCollapsed} goalsView={goalsView} />
+          <TopBar page={page} onOpenToday={() => openToday(false, setPage)} goalsView={goalsView} />
           <main className="py-5 sm:py-6">
-            <PageContainer width="wide" className={sidebarCollapsed ? 'lg:pl-16' : ''}>
-              <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.28 }}>
-                {renderPage()}
+            <PageContainer width="wide">
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.28 }}>
+                <AppPageRouter
+                  page={page}
+                  computedWeeks={computedWeeks}
+                  dataset={dataset}
+                  tags={tags}
+                  tasks={tasks}
+                  lifeGoals={lifeGoals}
+                  lifeGoalCategories={lifeGoalCategories}
+                  habitTrackers={habitTrackers}
+                  filters={filters}
+                  visibleBadHabitStreaks={visibleBadHabitStreaks}
+                  settings={settings}
+                  updateDay={updateDay}
+                  setTasks={setTasks}
+                  openToday={openToday}
+                  setPage={setPage}
+                  setViewMode={setViewMode}
+                  setFilters={setFilters}
+                  openSpecificDay={openSpecificDay}
+                  setSelectedWeekId={setSelectedWeekId}
+                  setSelectedDayId={setSelectedDayId}
+                  setOpenDrawer={setOpenDrawer}
+                  viewMode={viewMode}
+                  colorMode={colorMode}
+                  setColorMode={setColorMode}
+                  availableYears={availableYears}
+                  filteredWeeks={filteredWeeks}
+                  filteredDays={filteredDays}
+                  habits={habits}
+                  badHabits={badHabits}
+                  selectedWeek={selectedWeek}
+                  selectedWeekDays={selectedWeekDays}
+                  selectedDay={selectedDay}
+                  moodHeatmapFocusDate={moodHeatmapFocusDate}
+                  setMoodHeatmapFocusDate={setMoodHeatmapFocusDate}
+                  moodHeatmapCalendarRange={moodHeatmapCalendarRange}
+                  setMoodHeatmapCalendarRange={setMoodHeatmapCalendarRange}
+                  moodHighlightCurrentWeek={moodHighlightCurrentWeek}
+                  setMoodHighlightCurrentWeek={setMoodHighlightCurrentWeek}
+                  moodShowAlcoholMarkers={moodShowAlcoholMarkers}
+                  setMoodShowAlcoholMarkers={setMoodShowAlcoholMarkers}
+                  moodShowHabitMarkers={moodShowHabitMarkers}
+                  setMoodShowHabitMarkers={setMoodShowHabitMarkers}
+                  badHabitDateMap={badHabitDateMap}
+                  heatmapLayout={heatmapLayout}
+                  habitTrackerPeriodView={habitTrackerPeriodView}
+                  setHabitTrackerPeriodView={setHabitTrackerPeriodView}
+                  habitTrackerFocusDate={habitTrackerFocusDate}
+                  setHabitTrackerFocusDate={setHabitTrackerFocusDate}
+                  habitTrackerCalendarRangeByTracker={habitTrackerCalendarRangeByTracker}
+                  setHabitTrackerCalendarRangeByTracker={setHabitTrackerCalendarRangeByTracker}
+                  habitEntryDraft={habitEntryDraft}
+                  setHabitEntryDraft={setHabitEntryDraft}
+                  collapsedTrackers={collapsedTrackers}
+                  setCollapsedTrackers={setCollapsedTrackers}
+                  createTracker={createTracker}
+                  setEditingTracker={setEditingTracker}
+                  setGoalEditingTracker={setGoalEditingTracker}
+                  useStreakPauseForToday={useStreakPauseForToday}
+                  saveTracker={saveTracker}
+                  updateDayByDate={updateDayByDate}
+                  createBadHabit={createBadHabit}
+                  updateBadHabit={updateBadHabit}
+                  archiveBadHabit={archiveBadHabit}
+                  setSettings={setSettings}
+                  handleExportState={handleExportState}
+                  handleImportState={handleImportState}
+                  snapshots={snapshots}
+                  snapshotsLoading={snapshotsLoading}
+                  handleCreateBackupNow={handleCreateBackupNow}
+                  handleRestoreSnapshot={handleRestoreSnapshot}
+                  handleDeleteSnapshot={handleDeleteSnapshot}
+                  taskPeekRightOffset={taskPeekRightOffset}
+                  setLifeGoals={setLifeGoals}
+                  handleAddCurrentFocusToTodayLog={handleAddCurrentFocusToTodayLog}
+                  setGoalDetailOrigin={setGoalDetailOrigin}
+                  setSelectedLifeGoalId={setSelectedLifeGoalId}
+                  setGoalsView={setGoalsView}
+                  goalsView={goalsView}
+                  outcomeGoalCategoryFilter={outcomeGoalCategoryFilter}
+                  directionalGoalCategoryFilter={directionalGoalCategoryFilter}
+                  selectedLifeGoalId={selectedLifeGoalId}
+                  goalDetailOrigin={goalDetailOrigin}
+                  setLifeGoalCategories={setLifeGoalCategories}
+                />
               </motion.div>
             </PageContainer>
           </main>

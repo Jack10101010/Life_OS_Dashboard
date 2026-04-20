@@ -11,7 +11,7 @@ const labels: Record<PageId, string> = {
   'your-days': 'Your Days',
   'journal-recordings': 'Journal',
   gratitude: 'Journal',
-  goals: 'Goals — Meaningful work, kept visible',
+  goals: 'Goals',
   tasks: 'Tasks',
   notes: 'Notes',
   'vision-board': 'Journal',
@@ -44,22 +44,22 @@ const descriptions: Record<PageId, ReactNode> = {
 export function TopBar({
   page,
   onOpenToday,
-  sidebarCollapsed,
   goalsView,
 }: {
   page: PageId
   onOpenToday: () => void
-  sidebarCollapsed: boolean
   goalsView?: GoalsView
 }) {
   const [pushedToday, setPushedToday] = useState(false)
   const isGoalsPage = page === 'goals'
   const isGoalDetailPage = isGoalsPage && goalsView === 'life-detail'
+  const isGoalsLandingPage = isGoalsPage && (goalsView === 'life-overview' || goalsView === 'directional-overview')
   const isTasksPage = page === 'tasks'
+  const isDashboardPage = page === 'dashboard'
   const showDescription = !isGoalsPage
   const showTodayCard = !isGoalsPage
 
-  if (isGoalDetailPage || isTasksPage) {
+  if (isGoalDetailPage || isGoalsLandingPage || isTasksPage || isDashboardPage) {
     return null
   }
 
@@ -70,7 +70,7 @@ export function TopBar({
       }`}
       style={isGoalsPage ? { borderBottomColor: 'rgba(255,255,255,0.055)' } : undefined}
     >
-      <PageContainer width="wide" className={sidebarCollapsed ? 'lg:pl-16' : ''}>
+      <PageContainer width="wide">
         <div className={`flex flex-col ${isGoalsPage ? 'gap-2' : 'gap-4'} lg:flex-row lg:items-center lg:justify-between`}>
           <div className="min-w-0">
             <h2

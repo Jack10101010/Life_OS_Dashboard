@@ -10,7 +10,6 @@ export const DEFAULT_SIDEBAR_ITEMS: Array<{ id: PageId; label: string }> = [
   { id: 'analytics', label: 'Analytics' },
   { id: 'tasks', label: 'Priorities & Tasks' },
   { id: 'notes', label: 'Notes & Reflections' },
-  { id: 'trade-log', label: 'Trade Log' },
   { id: 'settings', label: 'Settings' },
 ]
 

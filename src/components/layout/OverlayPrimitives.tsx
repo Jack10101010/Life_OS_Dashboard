@@ -37,10 +37,15 @@ export function getFloatingPanelPosition(
     Math.max(viewportPadding, rect.left + rect.width / 2 - width / 2),
     window.innerWidth - viewportPadding - width,
   )
-  const showAbove =
-    rect.bottom + gap + estimatedHeight > window.innerHeight - viewportPadding &&
-    rect.top - gap - estimatedHeight >= viewportPadding
-  const top = showAbove ? rect.top - gap - estimatedHeight : rect.bottom + gap
+  const availableBelow = window.innerHeight - viewportPadding - (rect.bottom + gap)
+  const availableAbove = rect.top - gap - viewportPadding
+  const canFitBelow = availableBelow >= estimatedHeight
+  const canFitAbove = availableAbove >= estimatedHeight
+  const preferAbove = !canFitBelow && canFitAbove
+  const preferredTop = preferAbove ? rect.top - gap - estimatedHeight : rect.bottom + gap
+  const minTop = viewportPadding
+  const maxTop = Math.max(minTop, window.innerHeight - viewportPadding - estimatedHeight)
+  const top = Math.min(Math.max(preferredTop, minTop), maxTop)
 
   return { top, left, width }
 }

@@ -1811,7 +1811,7 @@ export function TaskSuperPage({
         <section
           className={`mt-1 ${
             pageLayoutMode === 'columns'
-              ? 'flex flex-col xl:flex-row w-full gap-4 overflow-visible ' + (areAllColumnsCollapsed ? '' : 'h-[520px] 2xl:h-[720px]')
+              ? `flex flex-col xl:flex-row w-full gap-4 overflow-visible ${areAllColumnsCollapsed ? '' : 'h-[520px] 2xl:h-[720px]'}`
               : 'flex w-full max-w-full flex-col gap-6'
           }`}
         >
@@ -1820,7 +1820,7 @@ export function TaskSuperPage({
               compact
               className={`flex flex-col px-0 py-3.5 sm:px-0 sm:py-4 [--card-bg:#12141A] ${
                 pageLayoutMode === 'columns'
-                  ? 'flex flex-col flex-1 min-h-0 min-w-0 ' + (collapsedStacks.general ? 'self-start' : '')
+                  ? `flex flex-col flex-1 min-h-0 min-w-0 ${collapsedStacks.general ? 'self-start' : ''}`
                   : 'w-full max-w-full'
               }`}
             >
@@ -2513,12 +2513,13 @@ export function TaskSuperPage({
               )}
             </SectionCard>
 
+            {showDirectionalColumn ? (
             <SectionCard
               shell="task"
               compact
               className={`flex flex-col px-0 py-3.5 sm:px-0 sm:py-4 [--card-bg:#12141A] ${
                 pageLayoutMode === 'columns'
-                  ? 'flex flex-col flex-1 min-h-0 min-w-0 ' + (collapsedStacks.outcome ? 'self-start' : '')
+                  ? `flex flex-col flex-1 min-h-0 min-w-0 ${collapsedStacks.outcome ? 'self-start' : ''}`
                   : 'w-full max-w-full'
               }`}
             >
@@ -3508,7 +3509,7 @@ export function TaskSuperPage({
                 compact
                 className={`flex flex-col px-0 py-3.5 sm:px-0 sm:py-4 [--card-bg:#12141A] ${
                   pageLayoutMode === 'columns'
-                    ? 'flex flex-col flex-1 min-h-0 min-w-0 ' + (collapsedStacks.directional ? 'self-start' : '')
+                    ? `flex flex-col flex-1 min-h-0 min-w-0 ${collapsedStacks.directional ? 'self-start' : ''}`
                     : 'w-full max-w-full'
                 }`}
               >
@@ -4069,22 +4070,26 @@ function CompactTaskRow({
       tabIndex={0}
       className={`group w-full text-left transition ${
         flat
-          ? 'border-none bg-transparent px-2 py-3 ' + (selected ? 'text-white' : 'hover:bg-white/[0.02]')
+          ? `border-none bg-transparent px-2 py-3 ${
+              selected ? 'text-white' : 'hover:bg-white/[0.02]'
+            }`
           : list
-            ? 'rounded-[12px] border-none bg-transparent px-1.5 pt-[11px] pb-[7px] ' +
-              (selected
-                ? 'bg-white/[0.04]'
-                : subdued
-                  ? 'hover:bg-white/[0.022]'
-                  : 'hover:bg-white/[0.028]')
-            : 'rounded-[16px] border px-3 py-2.5 ' +
-              (selected
+            ? `rounded-[12px] border-none bg-transparent px-1.5 pt-[11px] pb-[7px] ${
+                selected
+                  ? 'bg-white/[0.04]'
+                  : subdued
+                    ? 'hover:bg-white/[0.022]'
+                    : 'hover:bg-white/[0.028]'
+              }`
+          : `rounded-[16px] border px-3 py-2.5 ${
+              selected
                 ? 'border-[rgb(var(--theme-accent-rgb)/0.22)] bg-[rgb(var(--theme-accent-rgb)/0.08)]'
                 : prominent
                   ? 'border-white/[0.08] bg-white/[0.04]'
                   : subdued
                     ? 'border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04]'
-                    : 'border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.05]')
+                    : 'border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.05]'
+            }`
       }`}
       style={linkDescriptor.rowStyle}
     >

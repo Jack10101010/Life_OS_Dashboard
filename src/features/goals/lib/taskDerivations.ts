@@ -234,27 +234,12 @@ export function normalizeTaskTag(tag: string) {
   return collapsed
 }
 
-export function normalizeTaskTags(tags: string[]) {
-  const seen = new Set<string>()
-  const normalized: string[] = []
-
-  for (const tag of tags) {
-    const nextTag = normalizeTaskTag(tag)
-    if (!nextTag || seen.has(nextTag)) continue
-    seen.add(nextTag)
-    normalized.push(nextTag)
-  }
-
-  return normalized
-}
-
 export function getRoadmapTagGroups(tasks: LifeGoalTask[]) {
   const groups: Array<{ label: string; tasks: LifeGoalTask[] }> = []
   const groupMap = new Map<string, { label: string; tasks: LifeGoalTask[] }>()
 
   for (const task of tasks) {
-    const normalizedTags = normalizeTaskTags(task.tags)
-    const label = normalizedTags[0] ?? 'untagged'
+    const label = task.taskTag ? normalizeTaskTag(task.taskTag) : 'untagged'
     const existing = groupMap.get(label)
 
     if (existing) {

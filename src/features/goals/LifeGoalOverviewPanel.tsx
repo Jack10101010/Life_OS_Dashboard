@@ -1,9 +1,10 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type WheelEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Flag, Pin } from 'lucide-react'
+import { ChevronRight, Pin, Zap } from 'lucide-react'
 import type { FloatingPanelPosition } from '../../components/layout/OverlayPrimitives'
 import { GoalDatePicker } from './GoalDatePicker'
+import GoalRow from './components/GoalRow'
 import {
   LifeGoal,
   LifeGoalCategoryDefinition,
@@ -16,7 +17,6 @@ import {
 import { getLifeGoalTaskPriorityMeta, getPriorityScore } from './lib/taskDerivations'
 import {
   formatDate,
-  formatDateContextual,
   formatDateShortYear,
   formatGoalCardTitle,
   getLifeGoalAccentBarStyle,
@@ -29,10 +29,10 @@ import {
   getLifeGoalRuntimeTasks,
   getLifeGoalStatusMeta,
   getTodayIsoDate,
+  getVisibleGoalOverviewOrder,
   isLifeGoalScheduled,
   isValidIsoDate,
   shiftIsoDate,
-  sortLifeGoalsByDue,
   toTitleCase,
 } from './goalUtils'
 
@@ -125,6 +125,30 @@ function renderCalendarAddIcon(size = 18) {
       <path d="M12.45 9.9V14.25M10.25 12.075H14.65" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   )
+}
+
+function getGoalRowEmoji(goal: LifeGoal) {
+  if (goal.icon?.startsWith('emoji:')) {
+    return goal.icon.slice('emoji:'.length) || '🎯'
+  }
+
+  if ((goal.goalType ?? 'outcome') === 'directional') return '🧭'
+
+  const normalizedCategory = goal.category.trim().toLowerCase()
+  if (normalizedCategory.includes('health')) return '🌿'
+  if (normalizedCategory.includes('career') || normalizedCategory.includes('work')) return '💼'
+  if (normalizedCategory.includes('finance') || normalizedCategory.includes('money')) return '💰'
+  if (normalizedCategory.includes('home')) return '🏠'
+  if (normalizedCategory.includes('mind')) return '🧠'
+  if (normalizedCategory.includes('social') || normalizedCategory.includes('relationship')) return '🤝'
+  return '🎯'
+}
+
+function getGoalRowDueDays(goal: LifeGoal) {
+  if (!isValidIsoDate(goal.targetDate)) return undefined
+  const today = new Date(`${getTodayIsoDate()}T00:00:00Z`).getTime()
+  const target = new Date(`${goal.targetDate}T00:00:00Z`).getTime()
+  return Math.round((target - today) / 86400000)
 }
 
 export function LifeGoalOverviewPanel({
@@ -361,14 +385,9 @@ export function LifeGoalOverviewPanel({
   )
   const getGoalRuntimeTasks = (goal: LifeGoal) => runtimeTasksByGoalId.get(goal.id) ?? []
   const pinnedGoalIds = new Set(rowActions.pinnedGoalIds)
-  const pinnedGoalIndexById = new Map(rowActions.pinnedGoalIds.map((goalId, index) => [goalId, index]))
-  const importantGoalIds = new Set(rowActions.highlightedGoalIds)
   const baseManualOverviewGoals = useMemo(
     () => [...allOverviewGoals].sort((left, right) => (left.order !== right.order ? left.order - right.order : 0)),
     [allOverviewGoals],
-  )
-  const previewIndexByGoalId = new Map(
-    (goalOverviewDragPreviewOrder ?? baseManualOverviewGoals.map((goal) => goal.id)).map((goalId, index) => [goalId, index]),
   )
   const activeOverviewGoals = allOverviewGoals.filter((goal) => goal.status !== 'complete')
   const completedOverviewGoals = allOverviewGoals.filter((goal) => goal.status === 'complete')
@@ -627,41 +646,14 @@ export function LifeGoalOverviewPanel({
     }))
   }
 
-  const sortOverviewGoals = (goals: LifeGoal[]) => {
-    const applyPinnedPriority = (sortedGoals: LifeGoal[]) => {
-      if (viewControls.sortBy !== 'manual' || viewControls.groupBy !== 'none') return sortedGoals
-      return [...sortedGoals].sort((left, right) => {
-        const leftPinned = pinnedGoalIds.has(left.id) ? 1 : 0
-        const rightPinned = pinnedGoalIds.has(right.id) ? 1 : 0
-        if (leftPinned !== rightPinned) return rightPinned - leftPinned
-        if (leftPinned === 1 && rightPinned === 1) {
-          return (pinnedGoalIndexById.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (pinnedGoalIndexById.get(right.id) ?? Number.MAX_SAFE_INTEGER)
-        }
-        return (previewIndexByGoalId.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (previewIndexByGoalId.get(right.id) ?? Number.MAX_SAFE_INTEGER)
-      })
-    }
-    switch (viewControls.sortBy) {
-      case 'due':
-        return sortLifeGoalsByDue(goals)
-      case 'priority':
-        return [...goals].sort((left, right) => {
-          const priorityDiff = getGoalPriorityValue(right) - getGoalPriorityValue(left)
-          if (priorityDiff !== 0) return priorityDiff
-          return right.updatedAt.localeCompare(left.updatedAt)
-        })
-      case 'updated':
-        return [...goals].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
-      case 'manual':
-      default:
-        return applyPinnedPriority(
-          [...goals].sort(
-            (left, right) =>
-              (previewIndexByGoalId.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
-              (previewIndexByGoalId.get(right.id) ?? Number.MAX_SAFE_INTEGER),
-          ),
-        )
-    }
-  }
+  const sortOverviewGoals = (goals: LifeGoal[]) =>
+    getVisibleGoalOverviewOrder(goals, {
+      controls: viewControls,
+      rowActions,
+      baseManualGoals: allOverviewGoals,
+      manualGoalIds: goalOverviewDragPreviewOrder,
+      getPriorityValue: getGoalPriorityValue,
+    })
 
   const getGroupLabel = (goal: LifeGoal) => {
     switch (viewControls.groupBy) {
@@ -701,11 +693,10 @@ export function LifeGoalOverviewPanel({
     }))
 
   const toggleImportantGoal = (goalId: string) =>
-    onUpdateRowActions((current) => ({
-      ...current,
-      highlightedGoalIds: current.highlightedGoalIds.includes(goalId)
-        ? current.highlightedGoalIds.filter((id) => id !== goalId)
-        : [...current.highlightedGoalIds, goalId],
+    onUpdateLifeGoal(goalId, (goal) => ({
+      ...goal,
+      isPrimary: !goal.isPrimary,
+      updatedAt: new Date().toISOString(),
     }))
 
   const reorderColumnBefore = (sourceColumn: Exclude<GoalOverviewColumnKey, 'milestones'>, targetColumn: Exclude<GoalOverviewColumnKey, 'milestones'>) =>
@@ -777,14 +768,6 @@ export function LifeGoalOverviewPanel({
     )
   }
 
-  const getCompletedGoalTimelineLabel = (goal: LifeGoal) => {
-    if (goal.status !== 'complete') return null
-    const startedLabel = isValidIsoDate(goal.startDate) ? formatDateShortYear(goal.startDate) : 'No start set'
-    const completedSource = goal.updatedAt?.slice(0, 10)
-    const completedLabel = isValidIsoDate(completedSource ?? '') ? formatDateShortYear(completedSource!) : 'Completed date unavailable'
-    return `Started ${startedLabel} · Completed ${completedLabel}`
-  }
-
   const getGoalOverviewDueDisplay = (goal: LifeGoal) => {
     if (goal.status === 'complete' || !isValidIsoDate(goal.targetDate)) return null
     const daysUntilDue = Math.round(
@@ -803,15 +786,6 @@ export function LifeGoalOverviewPanel({
             : 'text-[rgba(255,255,255,0.56)]',
     }
   }
-
-  const orderedVisibleColumnKeys = viewControls.columnOrder.filter(
-    (column) =>
-      column !== 'milestones' &&
-      column !== 'due' &&
-      column !== 'startDate' &&
-      column !== 'targetDate' &&
-      viewControls.columns[column],
-  )
 
   const columnMeta: Record<GoalOverviewColumnKey, { label: string; width: string; render: (goal: LifeGoal) => ReactNode }> = {
     priority: { label: 'Priority', width: '112px', render: (goal) => renderPriorityIndicator(goal) },
@@ -929,62 +903,22 @@ export function LifeGoalOverviewPanel({
     completion: { label: 'Completion', width: '92px', render: (goal) => <div className="flex items-center gap-1.5 whitespace-nowrap">{renderCompletionIndicator(goal)}</div> },
   }
 
-  const visibleColumnDefs = orderedVisibleColumnKeys.map((column) => ({ key: column, ...columnMeta[column] }))
-  const listGridTemplateColumns = ['minmax(320px,1.9fr)', ...visibleColumnDefs.map((column) => column.width)].join(' ')
-  const goalOverviewFadeTruncateStyle = {
-    WebkitMaskImage: 'linear-gradient(90deg, #000 0%, #000 calc(100% - 14px), transparent 100%)',
-    maskImage: 'linear-gradient(90deg, #000 0%, #000 calc(100% - 14px), transparent 100%)',
-  } as const
-
-  const renderGoalListHeaders = () =>
-    viewControls.view === 'list' ? (
-      <div className="grid items-center gap-x-3 px-4 pb-2 [&>*]:min-w-0" style={{ gridTemplateColumns: listGridTemplateColumns }}>
-        <div className="text-[12px] font-medium uppercase" style={{ color: 'rgba(255,255,255,0.82)', letterSpacing: '0.06em' }}>
-          GOAL
-        </div>
-        {visibleColumnDefs.map((column) => (
-          <div key={`goal-header-${column.key}`} className="overflow-hidden truncate whitespace-nowrap text-[12px] font-medium uppercase" style={{ color: 'rgba(255,255,255,0.82)', letterSpacing: '0.06em' }}>
-            {column.key === 'priority' ? <span className="inline-flex items-center gap-1.5"><span>{column.label.toUpperCase()}</span><span aria-hidden="true" className="text-white/46">↑</span></span> : column.label.toUpperCase()}
-          </div>
-        ))}
-      </div>
-    ) : null
-
-  const renderListRow = (goal: LifeGoal, rowIndex: number) => {
+  const renderListRow = (goal: LifeGoal) => {
     const progress = getLifeGoalProgress(goal, getGoalRuntimeTasks(goal))
     const isPinned = pinnedGoalIds.has(goal.id)
-    const isImportant = importantGoalIds.has(goal.id)
+    const isImportant = Boolean(goal.isPrimary)
     const milestoneCount = getOrderedGoalMilestones(goal).length
-    const isDirectionalGoal = (goal.goalType ?? 'outcome') === 'directional'
-    const showMilestoneChip = viewControls.rowContent.milestones && milestoneCount > 0
-    const showDirectionalChip = viewControls.rowContent.directional && isDirectionalGoal
-    const completedTimelineLabel = getCompletedGoalTimelineLabel(goal)
-    const dueDisplay = getGoalOverviewDueDisplay(goal)
-    const hasStartDate = isValidIsoDate(goal.startDate)
-    const hasTargetDate = isValidIsoDate(goal.targetDate)
-    const startDateLabel = hasStartDate ? formatDateContextual(goal.startDate!) : ''
-    const targetDateLabel = hasTargetDate ? formatDateContextual(goal.targetDate!) : ''
-    const showWhy = viewControls.rowContent.why
-    const showIcons = viewControls.rowContent.icons
-    const showTimelineStart = viewControls.rowContent.startDate
-    const showTimelineTarget = viewControls.rowContent.targetDate
-    const showTimelineDue = viewControls.rowContent.dueAmount
     const renderedGoalTitle = GOAL_OVERVIEW_USE_TITLE_CASE ? toTitleCase(formatGoalCardTitle(goal.title)) : formatGoalCardTitle(goal.title)
-    const startOnlyLabel = hasStartDate && goal.startDate! < getTodayIsoDate() ? 'Started' : 'Start'
-    const titleContentOffsetClassName = goal.icon && showIcons ? 'ml-[23px]' : ''
-    const isCompletedGoal = goal.status === 'complete'
-    const showNextTaskCallout = viewControls.showNextTask && !isCompletedGoal
     const nextTaskText = progress.nextTask?.text?.trim() ?? ''
-    const hasNextTaskText = nextTaskText.length > 0
-    const targetDatePickerOpenForGoal = goalOverviewActiveDateField?.goalId === goal.id && goalOverviewActiveDateField.field === 'targetDate'
-    const timelineDueDisplay = showTimelineTarget && showTimelineDue ? dueDisplay : !showTimelineStart && !showTimelineTarget && showTimelineDue ? dueDisplay : null
-    const shouldShowTimelineRow = !isCompletedGoal && (
-      (showTimelineStart && hasStartDate) ||
-      (showTimelineTarget && hasTargetDate) ||
-      (showTimelineStart && !hasStartDate) ||
-      (showTimelineTarget && !hasTargetDate) ||
-      (!showTimelineStart && !showTimelineTarget && showTimelineDue && Boolean(dueDisplay))
-    )
+    const why = goal.whyItMatters.trim() || goal.minimumVersion.trim() || 'No context yet.'
+    const nextAction = nextTaskText || goal.minimumVersion.trim() || 'No next action yet'
+    const categoryLabel = goal.category.trim() || ((goal.goalType ?? 'outcome') === 'directional' ? 'Directional' : 'Outcome')
+    const progressLabel = milestoneCount > 0
+      ? `${progress.completedTasks}/${progress.totalTasks} tasks · ${milestoneCount} milestone${milestoneCount === 1 ? '' : 's'}`
+      : progress.totalTasks > 0
+        ? `${progress.completedTasks}/${progress.totalTasks} tasks`
+        : `${progress.percent}% complete`
+
     return (
       <div
         key={goal.id}
@@ -1026,90 +960,60 @@ export function LifeGoalOverviewPanel({
           onSelectGoal(goal.id)
           onCloseComposer()
         }}
-        className={`group relative grid w-full select-none items-center gap-x-3 border-b border-white/[0.04] px-4 py-2 text-left transition duration-150 last:border-b-0 [&>*]:min-w-0 ${
+        className={`group relative w-full select-none text-left ${
           draggedLifeGoalId === goal.id
-            ? 'z-10 border-white/[0.08] bg-white/[0.034] shadow-[0_10px_24px_rgba(0,0,0,0.18)]'
+            ? 'z-10 opacity-95'
             : dragOverLifeGoalId === goal.id && draggedLifeGoalId && draggedLifeGoalId !== goal.id
-              ? 'shadow-[inset_0_1px_0_rgba(255,255,255,0.12),inset_0_-1px_0_rgba(255,255,255,0.12)]'
-              : rowIndex % 2 === 1
-                ? 'bg-white/[0.012] hover:bg-white/[0.018]'
-                : 'bg-transparent hover:bg-white/[0.01]'
+              ? 'outline outline-1 outline-white/[0.14]'
+              : ''
         }`}
-        style={{ gridTemplateColumns: listGridTemplateColumns }}
       >
-        <div className="min-w-0 space-y-0">
-          <div className="flex min-w-0 items-start gap-2">
-            <div className="flex min-w-0 items-start gap-2">
-              {showIcons ? renderLifeGoalIcon(goal.icon, 'mt-[3px] shrink-0 text-white/48', 15) : null}
-              <p className="truncate text-[15px] font-medium leading-[1.08] text-white/84" style={{ letterSpacing: '0.012em' }}>{renderedGoalTitle}</p>
-              {showMilestoneChip ? <span className="shrink-0 rounded-full border border-white/[0.05] bg-white/[0.02] px-2 py-[3px] text-[10px] leading-none text-white/38">{milestoneCount} milestone{milestoneCount === 1 ? '' : 's'}</span> : null}
-              {!showMilestoneChip && showDirectionalChip ? <span className="shrink-0 rounded-full border border-white/[0.05] bg-white/[0.02] px-2 py-[3px] text-[10px] leading-none text-white/34">Directional</span> : null}
-              <div className="flex shrink-0 items-center gap-[3px] pl-2">
-                <button type="button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); togglePinnedGoal(goal.id) }} onMouseDown={(event) => { event.preventDefault(); event.stopPropagation() }} className={`inline-flex items-center justify-center rounded-[6px] p-[3px] transition ${isPinned ? 'bg-transparent text-white/60 opacity-0 group-hover:opacity-100 hover:bg-white/[0.06] hover:text-white/74' : 'bg-transparent text-[rgba(255,255,255,0.3)] opacity-0 group-hover:opacity-100 hover:bg-white/[0.06] hover:text-white/56'}`} aria-label={isPinned ? 'Unpin goal' : 'Pin goal'}><Pin size={13} strokeWidth={1.85} /></button>
-                <button type="button" onClick={(event) => { event.preventDefault(); event.stopPropagation(); toggleImportantGoal(goal.id) }} onMouseDown={(event) => { event.preventDefault(); event.stopPropagation() }} className={`inline-flex items-center justify-center rounded-[6px] p-[3px] transition ${isImportant ? 'bg-transparent text-white/54 opacity-0 group-hover:opacity-100 hover:bg-white/[0.06] hover:text-white/68' : 'bg-transparent text-[rgba(255,255,255,0.3)] opacity-0 group-hover:opacity-100 hover:bg-white/[0.06] hover:text-white/56'}`} aria-label={isImportant ? 'Unmark important' : 'Mark important'}><Flag size={13} strokeWidth={1.85} /></button>
-              </div>
-            </div>
-          </div>
-          {showWhy && goal.whyItMatters.trim().length > 0 ? <p className={`mt-[4px] pb-3 truncate text-[13px] leading-[1.08] text-white/18 ${titleContentOffsetClassName}`}>{goal.whyItMatters}</p> : null}
-          {showNextTaskCallout ? (
-            <div className={`pt-2 flex max-w-full items-stretch gap-2 ${titleContentOffsetClassName}`}>
-              <span className="w-px shrink-0 self-stretch bg-[rgb(var(--theme-info-rgb)/0.58)]" aria-hidden="true" />
-              <div className="min-w-0">
-                <p className="text-[10px] uppercase tracking-[0.12em] text-white/[0.44]">Next task</p>
-                {hasNextTaskText ? (
-                  <p className="mt-[2px] truncate text-[12px] text-white/[0.7]">{nextTaskText}</p>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.preventDefault()
-                      event.stopPropagation()
-                      onSelectGoal(goal.id)
-                      onCloseComposer()
-                    }}
-                    onMouseDown={(event) => {
-                      event.preventDefault()
-                      event.stopPropagation()
-                    }}
-                    className="mt-[2px] truncate text-left text-[12px] text-white/[0.46] transition hover:text-white/[0.66]"
-                  >
-                    No next task yet. Open goal to add one.
-                  </button>
-                )}
-              </div>
-            </div>
-          ) : null}
-          {shouldShowTimelineRow ? (
-            <div className={`inline-flex max-w-full flex-col items-start ${titleContentOffsetClassName}`}>
-              <span aria-hidden="true" className="h-px w-full bg-white/[0.06]" />
-              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-white/48">
-                {showTimelineStart && showTimelineTarget ? (
-                  hasStartDate && hasTargetDate ? (
-                    <>
-                      <button type="button" ref={(node) => { goalOverviewStartDateFieldRefs.current[goal.id] = node }} onClick={(event) => { event.preventDefault(); event.stopPropagation(); openGoalOverviewDatePicker(goal.id, 'startDate', event.currentTarget) }} onMouseDown={(event) => event.stopPropagation()} className="min-w-0 truncate rounded-[8px] px-1 py-0.5 text-left text-[rgba(255,255,255,0.62)] transition hover:bg-white/[0.025] hover:text-[rgba(255,255,255,0.74)]">{startDateLabel}</button>
-                      <span aria-hidden="true" className="shrink-0 text-white/44">→</span>
-                      <button type="button" ref={(node) => { goalOverviewTargetDateFieldRefs.current[goal.id] = node }} onClick={(event) => { event.preventDefault(); event.stopPropagation(); openGoalOverviewDatePicker(goal.id, 'targetDate', event.currentTarget) }} onMouseDown={(event) => event.stopPropagation()} className="min-w-0 truncate rounded-[8px] px-1 py-0.5 text-left text-[rgba(255,255,255,0.62)] transition hover:bg-white/[0.025] hover:text-[rgba(255,255,255,0.74)]">{targetDateLabel}</button>
-                    </>
-                  ) : hasStartDate ? (
-                    <button type="button" ref={(node) => { goalOverviewStartDateFieldRefs.current[goal.id] = node }} onClick={(event) => { event.preventDefault(); event.stopPropagation(); openGoalOverviewDatePicker(goal.id, 'startDate', event.currentTarget) }} onMouseDown={(event) => event.stopPropagation()} className="min-w-0 truncate rounded-[8px] px-1 py-0.5 text-left text-[rgba(255,255,255,0.62)] transition hover:bg-white/[0.025] hover:text-[rgba(255,255,255,0.74)]">{startDateLabel}</button>
-                  ) : hasTargetDate ? (
-                    <button type="button" ref={(node) => { goalOverviewTargetDateFieldRefs.current[goal.id] = node }} onClick={(event) => { event.preventDefault(); event.stopPropagation(); openGoalOverviewDatePicker(goal.id, 'targetDate', event.currentTarget) }} onMouseDown={(event) => event.stopPropagation()} className="min-w-0 truncate rounded-[8px] px-1 py-0.5 text-left text-[rgba(255,255,255,0.62)] transition hover:bg-white/[0.025] hover:text-[rgba(255,255,255,0.74)]">{targetDateLabel}</button>
-                  ) : null
-                ) : null}
-                {timelineDueDisplay ? <span className={`shrink-0 ${timelineDueDisplay.className}`}>{timelineDueDisplay.label}</span> : null}
-              </div>
-            </div>
-          ) : null}
-          {completedTimelineLabel ? <div className="inline-flex max-w-full flex-col items-start"><span aria-hidden="true" className="mb-1 h-px w-full max-w-[220px] bg-white/[0.06]" /><p className="truncate text-[11px] text-white/34">{completedTimelineLabel}</p></div> : null}
+        <GoalRow
+          emoji={getGoalRowEmoji(goal)}
+          title={renderedGoalTitle}
+          category={categoryLabel}
+          why={why}
+          nextAction={nextAction}
+          progress={progress.percent}
+          progressLabel={progressLabel}
+          dueDays={getGoalRowDueDays(goal)}
+          pinned={isPinned}
+          highImpact={Boolean(goal.isPrimary)}
+        />
+        <div className="pointer-events-none absolute right-4 top-2 flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              togglePinnedGoal(goal.id)
+            }}
+            onMouseDown={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+            }}
+            className={`pointer-events-auto inline-flex items-center justify-center p-1.5 transition ${isPinned ? 'text-amber-400/80' : 'text-white/48 hover:text-white/70'}`}
+            aria-label={isPinned ? 'Unpin goal' : 'Pin goal'}
+          >
+            <Pin size={13} strokeWidth={1.85} />
+          </button>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              toggleImportantGoal(goal.id)
+            }}
+            onMouseDown={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+            }}
+            className={`pointer-events-auto inline-flex items-center justify-center p-1.5 transition ${isImportant ? 'text-amber-400/80' : 'text-white/48 hover:text-white/70'}`}
+            aria-label={isImportant ? 'Unmark important' : 'Mark important'}
+          >
+            <Zap size={13} strokeWidth={1.85} fill={isImportant ? 'currentColor' : 'none'} />
+          </button>
         </div>
-        {visibleColumnDefs.map((column) => (
-          <div key={`${goal.id}-${column.key}`} className={`min-w-0 whitespace-nowrap ${column.key === 'status' ? 'relative overflow-visible flex items-center' : 'overflow-hidden'}`}>
-            <div className={`min-w-0 ${column.key === 'status' ? 'overflow-visible flex items-center' : 'overflow-hidden'}`} style={column.key === 'belongsTo' ? goalOverviewFadeTruncateStyle : undefined}>
-              {column.render(goal)}
-            </div>
-          </div>
-        ))}
-        <span aria-hidden="true" className={`pointer-events-none absolute left-[2px] top-3 bottom-3 rounded-full transition-all ${isImportant ? 'z-[3] w-[2px] bg-[rgb(var(--theme-accent-rgb)/0.84)] shadow-[0_0_0_1px_rgb(var(--theme-accent-rgb)/0.08),0_0_8px_rgb(var(--theme-accent-rgb)/0.08)]' : 'z-[1] w-[2px] bg-transparent group-hover:bg-white/[0.14]'}`} />
       </div>
     )
   }
@@ -1119,7 +1023,7 @@ export function LifeGoalOverviewPanel({
       {groups.map((group) => (
         <section key={group.label ?? 'default'} className="space-y-2">
           {group.label ? <p className="px-4 text-[12px] font-medium tracking-[-0.01em] text-mist/48">{group.label}</p> : null}
-          <div>{group.goals.map((goal, rowIndex) => renderListRow(goal, rowIndex))}</div>
+          <div className="space-y-3">{group.goals.map((goal) => renderListRow(goal))}</div>
         </section>
       ))}
     </div>
@@ -1189,7 +1093,7 @@ export function LifeGoalOverviewPanel({
   const renderOverviewContent = () => {
     if (viewControls.view === 'board') return renderBoardView()
     if (viewControls.view === 'timeline') return renderTimelinePlaceholder()
-    return <div className="space-y-4"><div className="border-b border-[rgba(255,255,255,0.08)] pb-2">{renderGoalListHeaders()}</div>{renderGroupedList(activeGroupedGoals)}</div>
+    return <div className="space-y-3">{renderGroupedList(activeGroupedGoals)}</div>
   }
 
   const renderControlsPanel = () => (
@@ -1226,7 +1130,9 @@ export function LifeGoalOverviewPanel({
                     <select value={viewControls[key]} onChange={(event) => onUpdateViewControls((current) => ({ ...current, [key]: event.target.value }))} className={GOALS_UTILITY_PANEL_SELECT_CLASSNAME}>
                       {options.map((option) => <option key={option} value={option}>{option === 'manual' ? 'Manual (drag to reorder)' : option === 'life-direction' ? 'Life Direction' : option === 'due' ? 'Due date' : option === 'updated' ? 'Recently updated' : option[0].toUpperCase() + option.slice(1)}</option>)}
                     </select>
-                    <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center justify-center text-white/26"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4.5 6.5L8 10L11.5 6.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg></span>
+                    <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center justify-center">
+                      <ChevronRight className="h-3.5 w-3.5 rotate-90 text-white/26" aria-hidden="true" />
+                    </span>
                   </div>
                 </div>
               ))}
@@ -1300,7 +1206,7 @@ export function LifeGoalOverviewPanel({
   )
 
   const goalsHeaderControlsSlot = typeof document !== 'undefined' ? document.getElementById('goals-header-controls-slot') : null
-  const headerButtonClass = 'border-white/[0.045] bg-[rgb(var(--theme-surface-elevated-rgb)/0.44)] hover:bg-[rgb(var(--theme-surface-elevated-rgb)/0.56)]'
+  const headerButtonClass = 'inline-flex items-center justify-center p-1 text-zinc-600 transition-colors hover:text-zinc-400'
   const floatingButtonClass = 'border-white/[0.06] bg-[rgb(var(--theme-surface-elevated-rgb)/0.96)] hover:bg-[rgb(var(--theme-surface-elevated-rgb)/0.98)]'
 
   return (
@@ -1318,7 +1224,7 @@ export function LifeGoalOverviewPanel({
                   onResetComposerDraft()
                   onOpenComposer(event.currentTarget)
                 }}
-                className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border text-[18px] text-white/48 transition hover:border-white/[0.07] hover:text-white/74 ${headerButtonClass}`}
+                className={`${headerButtonClass} text-[22px] font-semibold leading-none`}
                 aria-label="Create goal"
               >
                 +
@@ -1327,7 +1233,7 @@ export function LifeGoalOverviewPanel({
                 ref={goalOverviewControlsTriggerRef}
                 type="button"
                 onClick={() => setGoalOverviewControlsPanelOpen((current) => !current)}
-                className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border text-white/50 transition hover:border-white/[0.07] hover:text-white/76 ${headerButtonClass}`}
+                className={headerButtonClass}
                 aria-label="Open view controls"
                 aria-expanded={goalOverviewControlsPanelOpen}
               >
@@ -1407,7 +1313,7 @@ export function LifeGoalOverviewPanel({
       ) : null}
 
       {hasPrimaryContent ? (
-        <div className="rounded-[24px] border border-white/[0.05] bg-[rgb(var(--theme-surface-elevated-rgb)/0.54)] px-0 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]">
+        <div className={viewControls.view === 'list' ? 'space-y-3' : 'rounded-[24px] border border-white/[0.05] bg-[rgb(var(--theme-surface-elevated-rgb)/0.54)] px-0 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]'}>
           {renderOverviewContent()}
           {renderCompletedSection()}
         </div>
