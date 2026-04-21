@@ -9,6 +9,7 @@ import {
   PanelRowLabel,
   PanelSection,
   PanelSectionTitle,
+  PanelSubToggleRow,
   ResponsiveGrid,
   SectionCard,
 } from '../../../components/layout/LayoutPrimitives'
@@ -22,6 +23,7 @@ import { LifeGoalRoadmapPanel } from './LifeGoalRoadmapPanel'
 import { LifeGoalVisionCard } from './LifeGoalVisionCard'
 import GoalHero from '../../../components/goals/GoalHero'
 import GoalInsights from '../../../components/goals/GoalInsights'
+import GoalMilestonePanel from '../../../components/goals/GoalMilestonePanel'
 import GoalRoadmap from '../../../components/goals/GoalRoadmap'
 import GoalVision from '../../../components/goals/GoalVision'
 import { GoalDatePicker } from '../GoalDatePicker'
@@ -37,6 +39,7 @@ import {
   getLifeGoalProgress,
   getLifeGoalStatusMeta,
   getMilestoneTaskProgress,
+  getSubtaskProgressSummary,
   getTodayIsoDate,
   isLifeGoalScheduled,
   isValidIsoDate,
@@ -83,6 +86,12 @@ function formatAtomsTaskTagLabel(tag) {
   return normalized.charAt(0).toUpperCase() + normalized.slice(1).toLowerCase()
 }
 
+function getAtomsTaskTagLabel(task) {
+  const normalized = task?.taskTag ? normalizeTaskTag(task.taskTag) : ''
+  if (!normalized) return undefined
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1).toLowerCase()
+}
+
 function getAtomsTaskEstimate(task) {
   if (task?.dueDate) return formatTaskDueDate(task.dueDate)
   return 'Next action'
@@ -116,10 +125,17 @@ function getAtomsRoadmapDueSubtitle(dueDate) {
     }
   }
 
-  if (dayDiff <= 3) {
+  if (dayDiff <= 2) {
     return {
       text: `Due in ${dayDiff}d`,
       tone: 'upcoming',
+    }
+  }
+
+  if (dayDiff <= 3) {
+    return {
+      text: `Due in ${dayDiff}d`,
+      tone: 'default',
     }
   }
 
@@ -145,14 +161,220 @@ function getAtomsVisionText(goal) {
   return goal?.visionStatement?.trim() || goal?.whyItMatters?.trim() || 'A clear picture of what this goal is moving toward.'
 }
 
+function createAtomsMilestoneId() {
+  return `life-goal-milestone-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
+}
+
+function createAtomsMilestoneDraft(title = '') {
+  return {
+    title,
+    description: '',
+    targetDate: null,
+    showTargetDateInRoadmap: false,
+    completed: false,
+  }
+}
+
+function normalizeAtomsMilestoneDraft(draft) {
+  return {
+    title: draft.title.trim(),
+    description: draft.description.trim(),
+    targetDate: draft.targetDate && isValidIsoDate(draft.targetDate) ? draft.targetDate : null,
+    showTargetDateInRoadmap: Boolean(draft.targetDate && draft.showTargetDateInRoadmap),
+    completed: Boolean(draft.completed),
+  }
+}
+
+function reindexAtomsMilestones(milestones) {
+  return milestones.map((milestone, index) => ({
+    ...milestone,
+    targetDate: milestone.targetDate && isValidIsoDate(milestone.targetDate) ? milestone.targetDate : null,
+    completedAt: milestone.completed ? milestone.completedAt ?? new Date().toISOString() : null,
+    order: index,
+  }))
+}
+
+function useAtomsMilestonePanel({ selectedLifeGoal, onUpdateLifeGoal }) {
+  const [panelState, setPanelState] = React.useState({
+    mode: null,
+    milestoneId: null,
+    draft: createAtomsMilestoneDraft(),
+  })
+
+  const close = React.useCallback(() => {
+    setPanelState((current) => ({
+      ...current,
+      mode: null,
+      milestoneId: null,
+    }))
+  }, [])
+
+  const openCreate = React.useCallback(() => {
+    const nextIndex = (selectedLifeGoal?.milestones ?? []).length + 1
+    setPanelState({
+      mode: 'create',
+      milestoneId: null,
+      draft: createAtomsMilestoneDraft(`Milestone ${nextIndex}`),
+    })
+  }, [selectedLifeGoal?.milestones])
+
+  const openEdit = React.useCallback((milestoneId) => {
+    const milestone = (selectedLifeGoal?.milestones ?? []).find((item) => item.id === milestoneId)
+    if (!milestone) return
+    setPanelState({
+      mode: 'edit',
+      milestoneId,
+      draft: {
+        title: milestone.title,
+        description: milestone.description ?? '',
+        targetDate: milestone.targetDate ?? null,
+        showTargetDateInRoadmap: Boolean(milestone.showTargetDateInRoadmap),
+        completed: Boolean(milestone.completed),
+      },
+    })
+  }, [selectedLifeGoal?.milestones])
+
+  const setDraft = React.useCallback((draft) => {
+    setPanelState((current) => ({
+      ...current,
+      draft,
+    }))
+  }, [])
+
+  const submit = React.useCallback(() => {
+    if (!selectedLifeGoal || selectedLifeGoal.goalType !== 'outcome' || !panelState.mode) return
+    const draft = normalizeAtomsMilestoneDraft(panelState.draft)
+    if (!draft.title) return
+
+    onUpdateLifeGoal(selectedLifeGoal.id, (goal) => {
+      const currentMilestones = (goal.milestones ?? []).slice().sort((left, right) => left.order - right.order)
+      const nextMilestones =
+        panelState.mode === 'create'
+          ? [
+              ...currentMilestones,
+              {
+                id: createAtomsMilestoneId(),
+                ...draft,
+                completedAt: draft.completed ? new Date().toISOString() : null,
+                order: currentMilestones.length,
+              },
+            ]
+          : currentMilestones.map((milestone) =>
+              milestone.id === panelState.milestoneId
+                ? {
+                    ...milestone,
+                    ...draft,
+                    completedAt: draft.completed
+                      ? milestone.completedAt ?? new Date().toISOString()
+                      : null,
+                  }
+                : milestone,
+            )
+
+      return {
+        ...goal,
+        milestones: reindexAtomsMilestones(nextMilestones),
+        updatedAt: new Date().toISOString(),
+      }
+    })
+    close()
+  }, [close, onUpdateLifeGoal, panelState.draft, panelState.milestoneId, panelState.mode, selectedLifeGoal])
+
+  const remove = React.useCallback(() => {
+    if (!selectedLifeGoal || !panelState.milestoneId) return
+    if (!window.confirm('Delete this milestone? Tasks assigned to it will move to Unassigned tasks.')) return
+
+    onUpdateLifeGoal(selectedLifeGoal.id, (goal) => ({
+      ...goal,
+      milestones: reindexAtomsMilestones((goal.milestones ?? []).filter((milestone) => milestone.id !== panelState.milestoneId)),
+      updatedAt: new Date().toISOString(),
+    }))
+    close()
+  }, [close, onUpdateLifeGoal, panelState.milestoneId, selectedLifeGoal])
+
+  const move = React.useCallback((direction: 'up' | 'down') => {
+    if (!selectedLifeGoal || !panelState.milestoneId) return
+
+    onUpdateLifeGoal(selectedLifeGoal.id, (goal) => {
+      const currentMilestones = (goal.milestones ?? []).slice().sort((left, right) => left.order - right.order)
+      const currentIndex = currentMilestones.findIndex((milestone) => milestone.id === panelState.milestoneId)
+      const nextIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1
+      if (currentIndex < 0 || nextIndex < 0 || nextIndex >= currentMilestones.length) return goal
+
+      const nextMilestones = currentMilestones.slice()
+      const currentMilestone = nextMilestones[currentIndex]
+      nextMilestones[currentIndex] = nextMilestones[nextIndex]
+      nextMilestones[nextIndex] = currentMilestone
+
+      return {
+        ...goal,
+        milestones: reindexAtomsMilestones(nextMilestones),
+        updatedAt: new Date().toISOString(),
+      }
+    })
+  }, [onUpdateLifeGoal, panelState.milestoneId, selectedLifeGoal])
+
+  const setCompleted = React.useCallback((completed: boolean) => {
+    if (!selectedLifeGoal || !panelState.milestoneId) return
+
+    onUpdateLifeGoal(selectedLifeGoal.id, (goal) => ({
+      ...goal,
+      milestones: reindexAtomsMilestones((goal.milestones ?? []).map((milestone) =>
+        milestone.id === panelState.milestoneId
+          ? {
+              ...milestone,
+              completed,
+              completedAt: completed ? milestone.completedAt ?? new Date().toISOString() : null,
+            }
+          : milestone,
+      )),
+      updatedAt: new Date().toISOString(),
+    }))
+    setPanelState((current) => ({
+      ...current,
+      draft: {
+        ...current.draft,
+        completed,
+      },
+    }))
+  }, [onUpdateLifeGoal, panelState.milestoneId, selectedLifeGoal])
+
+  const milestone = panelState.milestoneId
+    ? (selectedLifeGoal?.milestones ?? []).find((item) => item.id === panelState.milestoneId) ?? null
+    : null
+
+  return {
+    mode: panelState.mode,
+    milestoneId: panelState.milestoneId,
+    draft: panelState.draft,
+    milestone,
+    openCreate,
+    openEdit,
+    close,
+    setDraft,
+    submit,
+    remove,
+    moveUp: () => move('up'),
+    moveDown: () => move('down'),
+    complete: () => setCompleted(true),
+    restore: () => setCompleted(false),
+  }
+}
+
 function getAtomsRoadmapMilestones(goal, milestones, tasks, nextTask) {
   const nextTaskId = nextTask?.id ?? null
   const toRoadmapStep = (task) => {
     const subtitle = getAtomsRoadmapTaskSubtitle(task)
+    const subtaskSummary = getSubtaskProgressSummary(task.subtasks ?? [])
     return {
       id: task.id,
       taskId: task.id,
       title: task.text?.trim() || 'Untitled task',
+      tagLabel: getAtomsTaskTagLabel(task),
+      highPriority: task.priority === 'high',
+      subtaskTotalCount: subtaskSummary.total,
+      subtaskCompletedCount: subtaskSummary.completed,
+      subtaskRingStates: (task.subtasks ?? []).slice(0, 3).map((subtask) => Boolean(subtask.completed)),
       status: task.completed ? 'completed' : task.id === nextTaskId ? 'current' : 'upcoming',
       subtitle: subtitle?.text,
       subtitleTone: subtitle?.tone,
@@ -166,6 +388,7 @@ function getAtomsRoadmapMilestones(goal, milestones, tasks, nextTask) {
       {
         id: 'goal-tasks',
         label: 'Execution',
+        editable: false,
         steps: tasks.map(toRoadmapStep),
       },
     ]
@@ -178,7 +401,9 @@ function getAtomsRoadmapMilestones(goal, milestones, tasks, nextTask) {
     return {
       id: milestone.id,
       label: milestone.title?.trim() || `Milestone ${index + 1}`,
-      metadata: milestone.targetDate ? formatDate(milestone.targetDate) : undefined,
+      editable: true,
+      completed: Boolean(milestone.completed),
+      metadata: milestone.targetDate && milestone.showTargetDateInRoadmap ? formatDate(milestone.targetDate) : undefined,
       steps: milestoneTasks.map(toRoadmapStep),
     }
   })
@@ -191,6 +416,7 @@ function getAtomsRoadmapMilestones(goal, milestones, tasks, nextTask) {
     {
       id: 'goal-tasks-unassigned',
       label: 'Unassigned tasks',
+      editable: false,
       steps: unassignedTasks.map(toRoadmapStep),
     },
   ]
@@ -261,6 +487,7 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
     selectedGoalRuntimeTasks,
     goalRuntimeTaskMap,
     goalDetailOrigin,
+    taskPeekRightOffset = 0,
     year,
     selectedRoadmapPanelActions,
     selectedRoadmapPanelUiState,
@@ -377,7 +604,8 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
   const [goalDetailRoadmapControlsPanelOpen, setGoalDetailRoadmapControlsPanelOpen] = React.useState(false)
   const [goalDetailRoadmapViewSelection, setGoalDetailRoadmapViewSelection] = React.useState<'roadmap' | 'milestones' | 'notes' | 'tasks'>('roadmap')
   const [goalDetailRoadmapShowMilestones, setGoalDetailRoadmapShowMilestones] = React.useState(true)
-  const [goalDetailRoadmapCompletedExpanded, setGoalDetailRoadmapCompletedExpanded] = React.useState(false)
+  const [goalDetailRoadmapShowTags, setGoalDetailRoadmapShowTags] = React.useState(false)
+  const [goalDetailRoadmapSubtaskDisplayMode, setGoalDetailRoadmapSubtaskDisplayMode] = React.useState<'chip' | 'rings'>('chip')
   const [isHeroExpanded, setIsHeroExpanded] = React.useState(true)
   const [goalDetailFooterMenuOpen, setGoalDetailFooterMenuOpen] = React.useState(false)
   const [goalDetailDatePickerField, setGoalDetailDatePickerField] = React.useState<'startDate' | 'targetDate' | null>(null)
@@ -393,6 +621,7 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
   const goalDetailDatePanelRef = React.useRef<HTMLDivElement | null>(null)
   const goalDetailStartDateButtonRef = React.useRef<HTMLButtonElement | null>(null)
   const goalDetailTargetDateButtonRef = React.useRef<HTMLButtonElement | null>(null)
+  const atomsMilestonePanel = useAtomsMilestonePanel({ selectedLifeGoal, onUpdateLifeGoal })
   const getRuntimeTasksForGoal = React.useCallback(
     (goal) => goalRuntimeTaskMap?.get(goal.id) ?? [],
     [goalRuntimeTaskMap],
@@ -1959,7 +2188,7 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
         <button
           type="button"
           onClick={(event) => openTaskPeek(selectedLifeGoalProgress.nextTask!.id, event.currentTarget)}
-          className="mt-4 flex w-full items-stretch gap-3 rounded-[20px] border border-[rgb(var(--theme-accent-rgb)/0.12)] bg-[rgb(var(--theme-accent-rgb)/0.04)] px-4 py-5 text-left transition hover:border-[rgb(var(--theme-accent-rgb)/0.18)] hover:bg-[rgb(var(--theme-accent-rgb)/0.06)]"
+          className="mt-4 flex w-full items-stretch gap-3 rounded-[20px] border border-[rgb(var(--theme-accent-rgb)/0.12)] px-4 py-5 text-left transition hover:border-[rgb(var(--theme-accent-rgb)/0.18)]"
         >
           <span aria-hidden="true" className="w-[3px] shrink-0 rounded-full bg-[rgb(var(--theme-accent-rgb)/0.72)]" />
           <div className="min-w-0 flex-1">
@@ -3740,35 +3969,33 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
         ) : null}
       </>
     )
-    const activeAtomsRoadmapMilestones = atomsRoadmapMilestones.map((milestone) => ({
-      ...milestone,
-      steps: milestone.steps.filter((step) => step.status !== 'completed'),
-    }))
-    const completedAtomsRoadmapMilestones = atomsRoadmapMilestones
-      .map((milestone) => ({
-        ...milestone,
-        steps: milestone.steps.filter((step) => step.status === 'completed'),
-      }))
-      .filter((milestone) => milestone.steps.length > 0)
     const highPriorityTaskIds = new Set(
       selectedGoalRuntimeTasks
         .filter((task) => getPriorityScore(task) === 3)
         .map((task) => task.id),
     )
     const displayAtomsRoadmapMilestones = roadmapHighPriorityFocus
-      ? activeAtomsRoadmapMilestones.map((milestone) => ({
+      ? atomsRoadmapMilestones.map((milestone) => ({
           ...milestone,
           steps: milestone.steps.filter((step) => step.taskId && highPriorityTaskIds.has(step.taskId)),
         }))
-      : activeAtomsRoadmapMilestones
-    const displayCompletedAtomsRoadmapMilestones = roadmapHighPriorityFocus
-      ? completedAtomsRoadmapMilestones
-          .map((milestone) => ({
-            ...milestone,
-            steps: milestone.steps.filter((step) => step.taskId && highPriorityTaskIds.has(step.taskId)),
-          }))
-          .filter((milestone) => milestone.steps.length > 0)
-      : completedAtomsRoadmapMilestones
+      : atomsRoadmapMilestones
+    const atomsPanelMilestone = atomsMilestonePanel.milestone
+    const atomsPanelMilestones = (selectedLifeGoal.milestones ?? []).slice().sort((left, right) => left.order - right.order)
+    const atomsPanelMilestoneIndex = atomsMilestonePanel.milestoneId
+      ? atomsPanelMilestones.findIndex((milestone) => milestone.id === atomsMilestonePanel.milestoneId)
+      : -1
+    const atomsPanelMilestoneTasks = atomsMilestonePanel.milestoneId
+      ? selectedGoalRuntimeTasks.filter((task) => task.milestoneId === atomsMilestonePanel.milestoneId)
+      : []
+    const atomsPanelTaskCounts = {
+      total: atomsPanelMilestoneTasks.length,
+      completed: atomsPanelMilestoneTasks.filter((task) => Boolean(task.completed || task.completedAt)).length,
+      active: atomsPanelMilestoneTasks.filter((task) => !task.completed && !task.completedAt).length,
+    }
+    const atomsPanelEffectiveCompleted =
+      Boolean(atomsPanelMilestone?.completed) ||
+      (atomsPanelTaskCounts.total > 0 && atomsPanelTaskCounts.active === 0)
     const handleRoadmapViewChange = (value: 'roadmap' | 'milestones' | 'notes' | 'tasks') => {
       setGoalDetailRoadmapViewSelection(value)
       selectedRoadmapPanelActions?.onSetProgressView?.(
@@ -3779,7 +4006,8 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
       setRoadmapCompletedOpen(false)
       setRoadmapHighPriorityFocus(false)
       setGoalDetailRoadmapShowMilestones(true)
-      setGoalDetailRoadmapCompletedExpanded(false)
+      setGoalDetailRoadmapShowTags(false)
+      setGoalDetailRoadmapSubtaskDisplayMode('chip')
       setGoalDetailRoadmapViewSelection('roadmap')
       selectedRoadmapPanelActions?.onSetProgressView?.('tasks')
     }
@@ -3821,14 +4049,7 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
                     <PanelRowLabel>Show completed tasks</PanelRowLabel>
                     <Toggle
                       checked={roadmapCompletedOpen}
-                      onChange={() => {
-                        setRoadmapCompletedOpen((current) => {
-                          if (current) {
-                            setGoalDetailRoadmapCompletedExpanded(false)
-                          }
-                          return !current
-                        })
-                      }}
+                      onChange={() => setRoadmapCompletedOpen((current) => !current)}
                       role="switch"
                       aria-checked={roadmapCompletedOpen}
                     />
@@ -3857,14 +4078,58 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
                       type="button"
                       variant="panel-link"
                       className="-mx-1 justify-start px-1 text-left"
-                      onClick={(event) => {
-                        addSelectedLifeGoalMilestone(event)
+                      onClick={() => {
+                        atomsMilestonePanel.openCreate()
                         setGoalDetailRoadmapControlsPanelOpen(false)
                       }}
                     >
                       Add milestone
                     </Button>
                   </PanelActionRow>
+                </PanelSection>
+                <PanelSection>
+                  <PanelSectionTitle>
+                    Sub-toggles
+                  </PanelSectionTitle>
+                  <PanelSubToggleRow>
+                    <PanelRowLabel className="text-[12px] text-[rgba(255,255,255,0.68)]">Show task tags</PanelRowLabel>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={goalDetailRoadmapShowTags}
+                      onClick={() => setGoalDetailRoadmapShowTags((current) => !current)}
+                      className={`relative inline-flex h-4 w-7 shrink-0 items-center rounded-full border transition ${
+                        goalDetailRoadmapShowTags
+                          ? 'border-[rgb(var(--theme-accent-rgb)/0.2)] bg-[rgb(var(--theme-accent-rgb)/0.14)]'
+                          : 'border-white/[0.08] bg-white/[0.025]'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-2.5 w-2.5 rounded-full bg-white/70 transition ${
+                          goalDetailRoadmapShowTags ? 'translate-x-[14px]' : 'translate-x-[3px]'
+                        }`}
+                      />
+                    </button>
+                  </PanelSubToggleRow>
+                  <PanelSubToggleRow>
+                    <PanelRowLabel className="text-[12px] text-[rgba(255,255,255,0.68)]">Subtask display</PanelRowLabel>
+                    <div className="inline-flex rounded-full border border-white/[0.07] bg-white/[0.025] p-0.5">
+                      {(['chip', 'rings'] as const).map((mode) => (
+                        <button
+                          key={`subtask-display-${mode}`}
+                          type="button"
+                          onClick={() => setGoalDetailRoadmapSubtaskDisplayMode(mode)}
+                          className={`rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] transition ${
+                            goalDetailRoadmapSubtaskDisplayMode === mode
+                              ? 'bg-white/[0.08] text-white/78'
+                              : 'text-white/42 hover:text-white/64'
+                          }`}
+                        >
+                          {mode === 'chip' ? 'Chip' : 'Rings'}
+                        </button>
+                      ))}
+                    </div>
+                  </PanelSubToggleRow>
                 </PanelSection>
                 <PanelSection>
                   <PanelSectionTitle>
@@ -4205,11 +4470,6 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
 	                  aria-expanded={isHeroExpanded}
 	                  icon={<ChevronDown className={`h-4 w-4 text-white/64 transition-transform duration-200 ${isHeroExpanded ? 'rotate-180' : ''}`} />}
 	                />
-	                {!isHeroExpanded ? (
-	                  <span className="text-xs font-semibold text-indigo-400 tabular-nums">
-	                    {selectedLifeGoalProgress.percent}%
-	                  </span>
-	                ) : null}
 	              </>
 	            }
             onNextTaskClick={
@@ -4224,13 +4484,13 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
           <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[28px] border border-[#1E2028] bg-[#12141A] p-6 shadow-[0_1px_14px_rgba(0,0,0,0.24)]">
             <GoalRoadmap
               milestones={displayAtomsRoadmapMilestones}
-              completedMilestones={displayCompletedAtomsRoadmapMilestones}
               completedCount={selectedLifeGoalProgress.completedTasks}
               totalCount={selectedLifeGoalProgress.totalTasks}
               lastActivity={atomsLastActivity}
               showMilestones={goalDetailRoadmapShowMilestones}
-              showCompletedFooter={roadmapCompletedOpen}
-              completedExpanded={goalDetailRoadmapCompletedExpanded}
+              showTaskTags={goalDetailRoadmapShowTags}
+              subtaskDisplayMode={goalDetailRoadmapSubtaskDisplayMode}
+              showCompletedTasks={roadmapCompletedOpen}
               onAddTask={(event) => openNewTaskPeek(event.currentTarget)}
               onAddTaskToMilestone={(milestone, event) =>
                 openNewTaskPeek(event.currentTarget, {
@@ -4239,7 +4499,7 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
                 })
               }
               onStepClick={(taskId, event) => openTaskPeek(taskId, event.currentTarget)}
-              onToggleCompletedExpanded={() => setGoalDetailRoadmapCompletedExpanded((current) => !current)}
+              onMilestoneClick={atomsMilestonePanel.openEdit}
               headerActions={roadmapControlsPanel}
             />
           </div>
@@ -4295,6 +4555,40 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
           </div>
         </div>
         {goalDetailDatePicker}
+        <GoalMilestonePanel
+          open={Boolean(atomsMilestonePanel.mode)}
+          mode={atomsMilestonePanel.mode}
+          draft={atomsMilestonePanel.draft}
+          milestone={atomsPanelMilestone}
+          goalTitle={selectedLifeGoal.title}
+          taskCounts={atomsPanelTaskCounts}
+          isEffectivelyCompleted={atomsPanelEffectiveCompleted}
+          onDraftChange={atomsMilestonePanel.setDraft}
+          onSubmit={atomsMilestonePanel.submit}
+          onDelete={atomsMilestonePanel.mode === 'edit' ? atomsMilestonePanel.remove : undefined}
+          onComplete={atomsMilestonePanel.mode === 'edit' ? atomsMilestonePanel.complete : undefined}
+          onRestore={atomsMilestonePanel.mode === 'edit' ? atomsMilestonePanel.restore : undefined}
+          onAddTask={
+            atomsPanelMilestone
+              ? (event) => {
+                  openNewTaskPeek(event.currentTarget, {
+                    milestoneId: atomsPanelMilestone.id,
+                    milestoneTitle:
+                      atomsMilestonePanel.draft.title.trim() ||
+                      atomsPanelMilestone.title?.trim() ||
+                      'Milestone',
+                  })
+                  atomsMilestonePanel.close()
+                }
+              : undefined
+          }
+          onMoveUp={atomsMilestonePanel.moveUp}
+          onMoveDown={atomsMilestonePanel.moveDown}
+          onClose={atomsMilestonePanel.close}
+          canMoveUp={atomsPanelMilestoneIndex > 0}
+          canMoveDown={atomsPanelMilestoneIndex >= 0 && atomsPanelMilestoneIndex < atomsPanelMilestones.length - 1}
+          rightOffset={taskPeekRightOffset}
+        />
       </motion.div>
     )
   }

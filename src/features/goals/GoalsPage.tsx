@@ -5431,6 +5431,7 @@ const renderLifeGoalOverviewPage = () => {
       selectedGoalRuntimeTasks={selectedGoalTaskSource}
       goalRuntimeTaskMap={goalRuntimeTaskMap}
       goalDetailOrigin={goalDetailOrigin}
+      taskPeekRightOffset={taskPeekRightOffset}
       year={year}
       selectedRoadmapPanelActions={selectedRoadmapPanelActions}
       selectedRoadmapPanelUiState={selectedRoadmapPanelUiState}

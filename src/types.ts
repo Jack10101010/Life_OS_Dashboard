@@ -363,6 +363,7 @@ export interface LifeGoalMilestone {
   title: string
   description: string
   targetDate: string | null
+  showTargetDateInRoadmap?: boolean
   completed: boolean
   completedAt: string | null
   order: number

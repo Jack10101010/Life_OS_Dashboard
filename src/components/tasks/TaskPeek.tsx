@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   X,
@@ -824,7 +825,7 @@ export default function TaskPeek({
 
   if (!open) return null;
 
-  return (
+  return createPortal(
     <>
       {/* Backdrop */}
       <div
@@ -1791,6 +1792,7 @@ export default function TaskPeek({
           </button>
         </div>
       </div>
-    </>
+    </>,
+    document.body
   );
 }

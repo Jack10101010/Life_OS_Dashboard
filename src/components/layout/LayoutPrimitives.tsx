@@ -181,6 +181,18 @@ export function PanelActionRow({
   )
 }
 
+export function PanelSubToggleRow({
+  className = '',
+  ...props
+}: HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div
+      className={`flex min-h-7 items-center justify-between gap-3 px-1 py-1 ${className}`}
+      {...props}
+    />
+  )
+}
+
 export function PanelRowLabel({
   as = 'p',
   className = '',

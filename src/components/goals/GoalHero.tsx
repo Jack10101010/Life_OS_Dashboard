@@ -115,6 +115,11 @@ export default function HeroSection({
         </div>
 
         <div className="flex items-center gap-2.5 flex-shrink-0 pt-1">
+          {!isExpanded && showStatus ? (
+            <span className="text-xs font-semibold text-indigo-400 tabular-nums">
+              {progress}%
+            </span>
+          ) : null}
           {showStatus ? <StatusPill status={status} onToggleStatus={onToggleStatus} /> : null}
           <button
             type="button"

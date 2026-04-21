@@ -4,11 +4,17 @@ import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 
 type StepStatus = "completed" | "current" | "upcoming";
 type StepSubtitleTone = "default" | "today" | "upcoming" | "overdue";
+type SubtaskDisplayMode = "chip" | "rings";
 
 interface Step {
   id: string;
   taskId?: string;
   title: string;
+  tagLabel?: string;
+  highPriority?: boolean;
+  subtaskTotalCount?: number;
+  subtaskCompletedCount?: number;
+  subtaskRingStates?: boolean[];
   status: StepStatus;
   subtitle?: string;
   subtitleTone?: StepSubtitleTone;
@@ -22,22 +28,24 @@ interface Milestone {
   labelType?: string;
   steps: Step[];
   metadata?: string;
+  editable?: boolean;
+  completed?: boolean;
 }
 
 interface RoadmapTimelineProps {
   milestones: Milestone[];
-  completedMilestones?: Milestone[];
   completedCount: number;
   totalCount: number;
   lastActivity: string;
   showMilestones?: boolean;
-  showCompletedFooter?: boolean;
-  completedExpanded?: boolean;
+  showTaskTags?: boolean;
+  subtaskDisplayMode?: SubtaskDisplayMode;
+  showCompletedTasks?: boolean;
   onAddTask?: (event: MouseEvent<HTMLButtonElement>) => void;
   onAddTaskToMilestone?: (milestone: Milestone, event: MouseEvent<HTMLButtonElement>) => void;
   onAddMilestone?: (event: MouseEvent<HTMLButtonElement>) => void;
+  onMilestoneClick?: (milestoneId: string) => void;
   onStepClick?: (taskId: string, event: MouseEvent<HTMLDivElement> | KeyboardEvent<HTMLDivElement>) => void;
-  onToggleCompletedExpanded?: () => void;
   headerActions?: ReactNode;
 }
 
@@ -55,16 +63,24 @@ type RailRoute = {
 
 function StepNode({
   step,
+  showTaskTag,
+  subtaskDisplayMode,
   onStepClick,
   markerRef,
 }: {
   step: Step;
+  showTaskTag?: boolean;
+  subtaskDisplayMode: SubtaskDisplayMode;
   onStepClick?: RoadmapTimelineProps["onStepClick"];
   markerRef?: (node: HTMLDivElement | null) => void;
 }) {
   const isCompleted = step.status === "completed";
   const isCurrent = step.status === "current";
   const isClickable = Boolean(step.taskId && onStepClick);
+  const subtaskTotalCount = step.subtaskTotalCount ?? 0;
+  const subtaskCompletedCount = step.subtaskCompletedCount ?? 0;
+  const hasSubtasks = subtaskTotalCount > 0;
+  const visibleSubtaskRings = step.subtaskRingStates?.slice(0, 3) ?? [];
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!step.taskId || !onStepClick) return;
@@ -105,11 +121,11 @@ function StepNode({
       </div>
 
       <div
-        className={`min-w-0 flex-1 rounded-lg px-4 py-2.5 transition-all duration-200 ${
+        className={`relative min-w-0 flex-1 rounded-lg px-4 py-2.5 transition-all duration-200 ${
           isCurrent
-            ? "border border-[rgba(16,185,129,0.34)] bg-emerald-500/[0.035]"
+            ? "border border-[rgba(16,185,129,0.34)]"
             : "hover:bg-white/[0.02]"
-        }`}
+        } ${hasSubtasks ? "pr-20" : ""}`}
       >
         <p
           className={`text-sm font-medium leading-snug ${
@@ -147,9 +163,7 @@ function StepNode({
                 ? "text-orange-400/85"
                 : step.subtitleTone === "today"
                         ? "text-emerald-400/80"
-                        : isCurrent
-                          ? "text-emerald-400/60"
-                          : "text-slate-500"
+                        : "text-slate-500"
                 }
               >
                 {step.subtitle}
@@ -168,10 +182,57 @@ function StepNode({
                 </>
               ) : null}
             </>
-          ) : (
+          ) : showTaskTag && step.tagLabel ? null : (
             "\u00A0"
           )}
+          {showTaskTag && step.tagLabel ? (
+            <span className="inline-flex w-fit rounded-full border border-white/[0.05] bg-white/[0.018] px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.08em] text-slate-500">
+              {step.tagLabel}
+            </span>
+          ) : null}
+          {step.highPriority ? (
+            <span
+              className="inline-flex shrink-0 rounded-[5px] border border-[rgb(var(--theme-negative-rgb)/0.5)] px-1 py-[1px] text-[8px] uppercase tracking-[0.06em] text-[rgb(var(--theme-negative-rgb)/0.9)]"
+              aria-label="High priority"
+              title="High priority"
+            >
+              High
+            </span>
+          ) : null}
         </p>
+        {hasSubtasks ? (
+          <div className="pointer-events-none absolute right-4 top-1/2 flex -translate-y-1/2 items-center justify-end">
+            {subtaskDisplayMode === "chip" ? (
+              <span
+                className="inline-flex min-w-[34px] justify-center rounded-full border border-white/[0.06] bg-white/[0.018] px-2 py-0.5 text-[10px] font-medium tabular-nums text-slate-500"
+                aria-label={`${subtaskCompletedCount} of ${subtaskTotalCount} subtasks complete`}
+              >
+                {subtaskCompletedCount}/{subtaskTotalCount}
+              </span>
+            ) : (
+              <span
+                className="inline-flex items-center gap-1"
+                aria-label={`${subtaskCompletedCount} of ${subtaskTotalCount} subtasks complete`}
+              >
+                {visibleSubtaskRings.map((completed, index) => (
+                  <span
+                    key={`subtask-ring-${step.id}-${index}`}
+                    className={`h-2.5 w-2.5 rounded-full border ${
+                      completed
+                        ? "border-emerald-400/55 bg-emerald-400/60"
+                        : "border-white/[0.18] bg-transparent"
+                    }`}
+                  />
+                ))}
+                {subtaskTotalCount > 3 ? (
+                  <span className="pl-0.5 text-[10px] font-medium tabular-nums text-slate-500">
+                    +{subtaskTotalCount - 3}
+                  </span>
+                ) : null}
+              </span>
+            )}
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -182,16 +243,32 @@ function MilestoneDivider({
   anchorRef,
   markerRef,
   isOpen,
+  isCompletedMilestone,
+  completedExpanded,
   onAddTask,
+  onMilestoneClick,
+  onToggleCompleted,
 }: {
   milestone: Milestone;
   anchorRef?: (node: HTMLSpanElement | null) => void;
   markerRef?: (node: HTMLDivElement | null) => void;
   isOpen?: boolean;
+  isCompletedMilestone?: boolean;
+  completedExpanded?: boolean;
   onAddTask?: RoadmapTimelineProps["onAddTaskToMilestone"];
+  onMilestoneClick?: RoadmapTimelineProps["onMilestoneClick"];
+  onToggleCompleted?: () => void;
 }) {
   const completedInGroup = milestone.steps.filter((step) => step.status === "completed").length;
   const totalInGroup = milestone.steps.length;
+  const isClickable = Boolean(onMilestoneClick && milestone.editable !== false);
+
+  const handleMilestoneKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (!isClickable) return;
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    onMilestoneClick?.(milestone.id);
+  };
 
   return (
     <div className="relative flex items-center gap-3 py-3 pl-1">
@@ -202,11 +279,23 @@ function MilestoneDivider({
       />
       <div
         ref={anchorRef}
+        role={isClickable ? "button" : undefined}
+        tabIndex={isClickable ? 0 : undefined}
+        onClick={
+          isClickable
+            ? () => {
+                onMilestoneClick?.(milestone.id);
+              }
+            : undefined
+        }
+        onKeyDown={handleMilestoneKeyDown}
         className={`group/milestone ml-8 min-w-0 flex-1 px-3 py-2 transition-[background-color,border-color,color] duration-150 ease-out ${
-          isOpen
+          isCompletedMilestone
+            ? "rounded-xl border border-white/[0.045] bg-white/[0.01] py-1.5 hover:border-white/[0.08] hover:bg-white/[0.018]"
+            : isOpen
             ? "border-b border-[rgba(16,185,129,0.10)] bg-transparent hover:border-[rgba(16,185,129,0.16)]"
             : "rounded-xl border border-emerald-500/[0.12] bg-[#151820] hover:border-emerald-500/[0.18] hover:bg-[#181B24]"
-        }`}
+        } ${isClickable ? "cursor-pointer focus:outline-none focus:ring-1 focus:ring-emerald-400/24" : ""}`}
       >
         <div className="flex items-center justify-between gap-3">
           <span className="flex min-w-0 items-center gap-1.5">
@@ -223,23 +312,40 @@ function MilestoneDivider({
             ) : null}
             <span
               className={`truncate text-[10px] font-semibold uppercase tracking-widest ${
-                isOpen ? "text-emerald-400/70" : "text-slate-400"
+                isCompletedMilestone
+                  ? "text-slate-500"
+                  : isOpen
+                    ? "text-emerald-400/70"
+                    : "text-slate-400"
               }`}
             >
               {milestone.label}
             </span>
             <span className="text-[13px] leading-none text-slate-600">·</span>
-            <span className="shrink-0 text-[10px] font-medium tabular-nums text-emerald-400/55">
+            <span className={`shrink-0 text-[10px] font-medium tabular-nums ${isCompletedMilestone ? "text-slate-600" : "text-emerald-400/55"}`}>
               {completedInGroup}/{totalInGroup}
             </span>
           </span>
           <div className="flex flex-shrink-0 items-center gap-2">
+            {isCompletedMilestone && onToggleCompleted ? (
+              <button
+                type="button"
+                aria-label={completedExpanded ? `Hide completed tasks in ${milestone.label}` : `Show completed tasks in ${milestone.label}`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onToggleCompleted();
+                }}
+                className="inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px] text-slate-600 transition hover:bg-white/[0.04] hover:text-slate-400 focus:outline-none focus:ring-1 focus:ring-emerald-400/24"
+              >
+                {completedExpanded ? "−" : "+"}
+              </button>
+            ) : null}
             {milestone.metadata ? (
               <span className="text-[10px] tabular-nums text-slate-600">
                 {milestone.metadata}
               </span>
             ) : null}
-            {onAddTask ? (
+            {onAddTask && !isCompletedMilestone ? (
               <button
                 type="button"
                 aria-label={`Add task to ${milestone.label}`}
@@ -261,18 +367,18 @@ function MilestoneDivider({
 
 export default function RoadmapTimeline({
   milestones,
-  completedMilestones = [],
   completedCount,
   totalCount,
   lastActivity,
   showMilestones = true,
-  showCompletedFooter = false,
-  completedExpanded = false,
+  showTaskTags = false,
+  subtaskDisplayMode = "chip",
+  showCompletedTasks = false,
   onAddTask,
   onAddTaskToMilestone,
   onAddMilestone,
+  onMilestoneClick,
   onStepClick,
-  onToggleCompletedExpanded,
   headerActions,
 }: RoadmapTimelineProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -280,15 +386,37 @@ export default function RoadmapTimeline({
   const milestoneAnchorRefs = useRef(new Map<string, HTMLSpanElement>());
   const milestoneMarkerRefs = useRef(new Map<string, HTMLDivElement>());
   const stepMarkerRefs = useRef(new Map<string, HTMLDivElement>());
-  const completedFooterCount = completedMilestones.reduce(
-    (total, milestone) => total + milestone.steps.length,
-    0
-  );
+  const [expandedCompletedMilestoneIds, setExpandedCompletedMilestoneIds] = useState<Set<string>>(new Set());
   const [railGeometry, setRailGeometry] = useState({
     path: "",
     width: 0,
     height: 0,
   });
+
+  const toggleCompletedMilestone = useCallback((milestoneId: string) => {
+    setExpandedCompletedMilestoneIds((current) => {
+      const next = new Set(current);
+      if (next.has(milestoneId)) {
+        next.delete(milestoneId);
+      } else {
+        next.add(milestoneId);
+      }
+      return next;
+    });
+  }, []);
+
+  const getVisibleSteps = useCallback((milestone: Milestone) => {
+    const activeSteps = milestone.steps.filter((step) => step.status !== "completed");
+    const completedSteps = milestone.steps.filter((step) => step.status === "completed");
+    if (!showMilestones) return showCompletedTasks ? milestone.steps : activeSteps;
+    if (milestone.completed) {
+      if (!showCompletedTasks || !expandedCompletedMilestoneIds.has(milestone.id)) return [];
+      return milestone.steps;
+    }
+    if (!showCompletedTasks || completedSteps.length === 0) return activeSteps;
+    if (!expandedCompletedMilestoneIds.has(milestone.id)) return activeSteps;
+    return [...activeSteps, ...completedSteps];
+  }, [expandedCompletedMilestoneIds, showCompletedTasks, showMilestones]);
 
   const setMilestoneAnchorRef = useCallback((id: string) => (node: HTMLSpanElement | null) => {
     if (node) {
@@ -319,8 +447,7 @@ export default function RoadmapTimeline({
     if (!container) return;
 
     const containerRect = container.getBoundingClientRect();
-    const renderedMilestones = completedExpanded ? [...milestones, ...completedMilestones] : milestones;
-    const railRoutes: RailRoute[] = renderedMilestones.map((milestone) => {
+    const railRoutes: RailRoute[] = milestones.map((milestone) => {
       const anchor = milestoneAnchorRefs.current.get(milestone.id);
       const anchorRect = anchor?.getBoundingClientRect();
       const marker = milestoneMarkerRefs.current.get(milestone.id);
@@ -340,7 +467,7 @@ export default function RoadmapTimeline({
           }
         : undefined;
 
-      const stepPoints: RailPoint[] = milestone.steps.flatMap((step) => {
+      const stepPoints: RailPoint[] = getVisibleSteps(milestone).flatMap((step) => {
         const marker = stepMarkerRefs.current.get(step.id);
         if (!marker) return [];
         const markerRect = marker.getBoundingClientRect();
@@ -412,7 +539,7 @@ export default function RoadmapTimeline({
       width: containerRect.width,
       height: containerRect.height,
     });
-  }, [completedExpanded, completedMilestones, milestones, showMilestones]);
+  }, [getVisibleSteps, milestones, showMilestones]);
 
   useLayoutEffect(() => {
     updateRailGeometry();
@@ -450,7 +577,7 @@ export default function RoadmapTimeline({
             {completedCount} of {totalCount} tasks
           </span>
           {headerActions ? (
-            <div className="[&>div>button]:h-7 [&>div>button]:w-7 [&>div>button]:rounded-full [&>div>button]:border [&>div>button]:border-white/[0.08] [&>div>button]:bg-white/[0.035] [&>div>button]:text-white/64 [&>div>button:hover]:border-white/[0.12] [&>div>button:hover]:bg-white/[0.055] [&>div>button:hover]:text-white/86">
+            <div className="[&>div>button]:h-7 [&>div>button]:w-7 [&>div>button]:rounded-full [&>div>button]:border-0 [&>div>button]:bg-transparent [&>div>button]:text-white/64 [&>div>button:hover]:bg-transparent [&>div>button:hover]:text-white/86">
               {headerActions}
             </div>
           ) : null}
@@ -484,83 +611,78 @@ export default function RoadmapTimeline({
             ) : null}
 
             {showMilestones ? (
-              milestones.map((milestone, index) => (
-                <div key={milestone.id}>
-                  <div className={index === 0 ? "" : "mt-1"}>
-                    <MilestoneDivider
-                      milestone={milestone}
-                      anchorRef={setMilestoneAnchorRef(milestone.id)}
-                      markerRef={setMilestoneMarkerRef(milestone.id)}
-                      isOpen={index === 0}
-                      onAddTask={onAddTaskToMilestone}
-                    />
-                  </div>
+              milestones.map((milestone, index) => {
+                const activeSteps = milestone.steps.filter((step) => step.status !== "completed");
+                const completedSteps = milestone.steps.filter((step) => step.status === "completed");
+                const completedExpanded = expandedCompletedMilestoneIds.has(milestone.id);
+                const taskDerivedCompleted = milestone.steps.length > 0 && activeSteps.length === 0;
+                const isCompletedMilestone = Boolean(milestone.completed) || taskDerivedCompleted;
+                const visibleSteps = getVisibleSteps(milestone);
 
-                  {milestone.steps.length > 0 ? (
-                    milestone.steps.map((step) => (
-                      <StepNode
-                        key={step.id}
-                        step={step}
-                        onStepClick={onStepClick}
-                        markerRef={setStepMarkerRef(step.id)}
+                return (
+                  <div key={milestone.id}>
+                    <div className={index === 0 ? "" : "mt-1"}>
+                      <MilestoneDivider
+                        milestone={milestone}
+                        anchorRef={setMilestoneAnchorRef(milestone.id)}
+                        markerRef={setMilestoneMarkerRef(milestone.id)}
+                        isOpen={index === 0 && !isCompletedMilestone}
+                        isCompletedMilestone={isCompletedMilestone}
+                        completedExpanded={completedExpanded}
+                        onAddTask={onAddTaskToMilestone}
+                        onMilestoneClick={onMilestoneClick}
+                        onToggleCompleted={
+                          showCompletedTasks && (completedSteps.length > 0 || (milestone.completed && milestone.steps.length > 0))
+                            ? () => toggleCompletedMilestone(milestone.id)
+                            : undefined
+                        }
                       />
-                    ))
-                  ) : (
-                    <div className="py-2.5 pl-11 pr-4 text-xs text-slate-600">
-                      No tasks in this milestone yet
                     </div>
-                  )}
-                </div>
-              ))
+
+                    {visibleSteps.length > 0 ? (
+                      visibleSteps.map((step) => (
+                        <StepNode
+                          key={step.id}
+                          step={step}
+                          showTaskTag={showTaskTags}
+                          subtaskDisplayMode={subtaskDisplayMode}
+                          onStepClick={onStepClick}
+                          markerRef={setStepMarkerRef(step.id)}
+                        />
+                      ))
+                    ) : milestone.steps.length === 0 ? (
+                      <div className="py-2.5 pl-11 pr-4 text-xs text-slate-600">
+                        No tasks in this milestone yet
+                      </div>
+                    ) : null}
+
+                    {showCompletedTasks && completedSteps.length > 0 ? (
+                      <div className="py-1.5 pl-11 pr-4">
+                        <button
+                          type="button"
+                          onClick={() => toggleCompletedMilestone(milestone.id)}
+                          className="flex w-full items-center justify-between rounded-lg border border-white/[0.04] bg-white/[0.012] px-3 py-1.5 text-left text-[11px] text-slate-600 transition hover:border-white/[0.07] hover:bg-white/[0.02] hover:text-slate-400"
+                        >
+                          <span>{completedExpanded ? "Hide" : "Show"} {completedSteps.length} completed {completedSteps.length === 1 ? "task" : "tasks"}</span>
+                          <span aria-hidden="true">{completedExpanded ? "−" : "+"}</span>
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })
             ) : (
-              milestones.flatMap((milestone) => milestone.steps).map((step) => (
+              milestones.flatMap((milestone) => getVisibleSteps(milestone)).map((step) => (
                 <StepNode
                   key={step.id}
                   step={step}
+                  showTaskTag={showTaskTags}
+                  subtaskDisplayMode={subtaskDisplayMode}
                   onStepClick={onStepClick}
                   markerRef={setStepMarkerRef(step.id)}
                 />
               ))
             )}
-
-            {showCompletedFooter && completedFooterCount > 0 ? (
-              <div className="mt-3 pl-11 pr-4">
-                <button
-                  type="button"
-                  onClick={onToggleCompletedExpanded}
-                  className="flex w-full items-center justify-between rounded-lg border border-white/[0.045] bg-white/[0.014] px-3 py-2 text-left text-xs text-slate-500 transition hover:border-white/[0.075] hover:bg-white/[0.024] hover:text-slate-300"
-                >
-                  <span>{completedExpanded ? "Hide completed tasks" : `Show ${completedFooterCount} completed ${completedFooterCount === 1 ? "task" : "tasks"}`}</span>
-                  <span aria-hidden="true">{completedExpanded ? "−" : "+"}</span>
-                </button>
-              </div>
-            ) : null}
-
-            {showCompletedFooter && completedExpanded ? (
-              showMilestones ? (
-                completedMilestones.map((milestone) => (
-                  <div key={`completed-${milestone.id}`}>
-                    {milestone.steps.map((step) => (
-                      <StepNode
-                        key={step.id}
-                        step={step}
-                        onStepClick={onStepClick}
-                        markerRef={setStepMarkerRef(step.id)}
-                      />
-                    ))}
-                  </div>
-                ))
-              ) : (
-                completedMilestones.flatMap((milestone) => milestone.steps).map((step) => (
-                  <StepNode
-                    key={step.id}
-                    step={step}
-                    onStepClick={onStepClick}
-                    markerRef={setStepMarkerRef(step.id)}
-                  />
-                ))
-              )
-            ) : null}
 
             <div className="h-2" />
           </div>
