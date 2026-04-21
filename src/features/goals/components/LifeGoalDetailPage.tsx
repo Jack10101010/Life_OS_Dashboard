@@ -49,7 +49,6 @@ import { getLifeGoalTaskPriorityMeta, getPriorityScore, getRelativeDueMeta, getR
 
 type LifeGoalDetailPageProps = Record<string, any>
 
-const ATOMS_GOAL_DETAIL_TEST_GOAL_TITLE = 'Create Mind Map App'
 const ATOMS_GOAL_DETAIL_FALLBACK_IMAGE =
   'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540"%3E%3Cdefs%3E%3CradialGradient id="a" cx="50%25" cy="40%25" r="75%25"%3E%3Cstop offset="0%25" stop-color="%236366F1" stop-opacity=".32"/%3E%3Cstop offset="45%25" stop-color="%231A1D26" stop-opacity=".9"/%3E%3Cstop offset="100%25" stop-color="%230A0B0F"/%3E%3C/radialGradient%3E%3C/defs%3E%3Crect width="960" height="540" fill="url(%23a)"/%3E%3C/svg%3E'
 
@@ -3831,7 +3830,7 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
   const [atomsShowIcon, setAtomsShowIcon] = React.useState(Boolean(selectedGoalDetailContentVisibility.icon))
   const [atomsShowCategory, setAtomsShowCategory] = React.useState(Boolean(selectedGoalDetailContentVisibility.category))
   const [atomsShowStatus, setAtomsShowStatus] = React.useState(Boolean(selectedGoalDetailContentVisibility.status))
-  const useAtomsGoalDetail = selectedLifeGoal.title === ATOMS_GOAL_DETAIL_TEST_GOAL_TITLE
+  const useAtomsGoalDetail = isOutcomeGoal
 
   if (useAtomsGoalDetail) {
     const atomsNextTask = getAtomsRoadmapNextTask(selectedLifeGoalMilestones, selectedGoalRuntimeTasks)
