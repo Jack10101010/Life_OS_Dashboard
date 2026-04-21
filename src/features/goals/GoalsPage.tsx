@@ -45,24 +45,12 @@ import {
 import {
   LIFE_GOAL_PHASE_OPTIONS,
   getDaysFromToday,
-  getLifeGoalTaskPriorityMeta,
-  getPriorityScore,
   getRelativeDueMeta,
-  getRoadmapTagGroups,
-  getRoadmapTaskSections,
-  getRoadmapTaskVisualState,
   normalizeTaskTag,
   normalizeLifeGoalPhaseValue,
-  sortTasksForDisplay,
   suggestPhase,
 } from './lib/taskDerivations'
-import { useRoadmapSections } from './hooks/useGoalTaskDerivations'
 import { HabitGoalsTab } from './components/HabitGoalsTab'
-import { LifeGoalFocusCard } from './components/LifeGoalFocusCard'
-import { GoalProgressTimelineChart } from './components/GoalProgressTimelineChart'
-import { LifeGoalNotesEditor } from './components/LifeGoalNotesEditor'
-import { LifeGoalRoadmapPanel } from './components/LifeGoalRoadmapPanel'
-import { LifeGoalVisionCard } from './components/LifeGoalVisionCard'
 import { LifeGoalDetailPage } from './components/LifeGoalDetailPage'
 import { LifeGoalOverviewPanel } from './LifeGoalOverviewPanel'
 import { GoalDatePicker } from './GoalDatePicker'
@@ -129,7 +117,6 @@ type GoalDetailItem =
     }
 
 type GoalsView = 'life-overview' | 'directional-overview' | 'life-detail' | 'habit-goals'
-type LifeGoalDetailTab = 'focus' | 'tasks' | 'roadmap' | 'why' | 'progress'
 type GoalOverviewViewMode = 'list' | 'board' | 'timeline'
 type GoalOverviewGroupBy = 'none' | 'status' | 'category' | 'life-direction'
 type GoalOverviewSortBy = 'manual' | 'due' | 'priority' | 'updated'
@@ -168,10 +155,7 @@ type LifeGoalOverviewMode = 'manual' | 'grouped'
 type LifeGoalOverviewDensity = 'compact' | 'expanded'
 type LifeGoalOverviewSort = 'due' | 'recent' | 'name' | 'status'
 type LifeGoalCreateStep = 'define' | 'path'
-type LifeGoalRoadmapOrganization = 'default' | 'tag'
-type LifeGoalTaskListSort = 'default' | 'due' | 'priority'
 type GoalMilestone = NonNullable<LifeGoal['milestones']>[number]
-type LifeGoalRoadmapPanelView = 'tasks' | 'milestones' | 'notes'
 
 const LIFE_GOAL_TYPE_OPTIONS: Array<{
   value: LifeGoalType
@@ -208,39 +192,6 @@ const GOALS_UTILITY_PANEL_SELECT_CLASSNAME =
 
 function getOrderedGoalMilestones(goal: LifeGoal): GoalMilestone[] {
   return (goal.milestones ?? []).slice().sort((left, right) => left.order - right.order)
-}
-
-function getCurrentGoalMilestone(milestones: GoalMilestone[]) {
-  return milestones.find((milestone) => !milestone.completed) ?? (milestones.length > 0 ? milestones[milestones.length - 1] : null)
-}
-
-function getMilestoneSelectOptions(milestones: GoalMilestone[], currentMilestoneId: string | null) {
-  return [
-    { value: '', label: 'No milestone' },
-    ...milestones.map((milestone, index) => ({
-      value: milestone.id,
-      label: `${index + 1}. ${milestone.title.trim() || `Milestone ${index + 1}`}${
-        currentMilestoneId === milestone.id ? ' — Current' : ''
-      }`,
-    })),
-  ]
-}
-
-function getRoadmapTasksGroupedByMilestone(
-  milestones: GoalMilestone[],
-  sortedPlannedTasks: LifeGoalTask[],
-  currentMilestoneId: string | null,
-) {
-  if (!currentMilestoneId) return []
-
-  const milestoneIds = new Set(milestones.map((milestone) => milestone.id))
-
-  return milestones
-    .map((milestone) => {
-      const tasks = sortedPlannedTasks.filter((task) => task.milestoneId && milestoneIds.has(task.milestoneId) && task.milestoneId === milestone.id)
-      return tasks.length > 0 ? { milestone, tasks } : null
-    })
-    .filter((group): group is { milestone: GoalMilestone; tasks: LifeGoalTask[] } => Boolean(group))
 }
 
 function getStartOfWeek(date: Date) {
@@ -1273,14 +1224,10 @@ export function GoalsPage({
   const [visionDropActive, setVisionDropActive] = useState(false)
   const [draggedVisionImageIndex, setDraggedVisionImageIndex] = useState<number | null>(null)
   const [dragOverVisionImageIndex, setDragOverVisionImageIndex] = useState<number | null>(null)
-  const [roadmapPanelViewByGoal, setRoadmapPanelViewByGoal] = useState<Record<string, LifeGoalRoadmapPanelView>>({})
   const [selectedMilestoneIdByGoal, setSelectedMilestoneIdByGoal] = useState<Record<string, string | null>>({})
   const [linkHabitPickerOpen, setLinkHabitPickerOpen] = useState(false)
   const [habitDraftByTaskId, setHabitDraftByTaskId] = useState<Record<string, string>>({})
-  const [lifeGoalDetailTab, setLifeGoalDetailTab] = useState<LifeGoalDetailTab>('focus')
   const [roadmapHighPriorityFocus, setRoadmapHighPriorityFocus] = useState(false)
-  const [roadmapOrganizationMode, setRoadmapOrganizationMode] = useState<LifeGoalRoadmapOrganization>('default')
-  const [taskListSortMode, setTaskListSortMode] = useState<LifeGoalTaskListSort>('default')
   const [roadmapCompletedOpen, setRoadmapCompletedOpen] = useState(false)
   const [selectedRoadmapTaskId, setSelectedRoadmapTaskId] = useState<string | null>(null)
   const [selectedTaskPeekId, setSelectedTaskPeekId] = useState<string | null>(null)
@@ -1637,7 +1584,6 @@ export function GoalsPage({
   )
 
   useEffect(() => {
-    setLifeGoalDetailTab('focus')
     setLinkHabitPickerOpen(false)
   }, [selectedLifeGoalId])
 
@@ -2091,7 +2037,6 @@ export function GoalsPage({
   useFocusTrap(Boolean(visionPreviewImage), visionPreviewSurfaceRef, {
     onEscape: () => setVisionPreviewImage(null),
   })
-  const selectedRoadmapSections = useRoadmapSections(selectedGoalTaskSource)
   const selectedTaskPeek = useMemo(
     () => (selectedLifeGoal && selectedTaskPeekId ? selectedGoalTaskSource.find((task) => task.id === selectedTaskPeekId) ?? null : null),
     [selectedGoalTaskSource, selectedLifeGoal, selectedTaskPeekId],
@@ -2136,29 +2081,7 @@ export function GoalsPage({
   const selectedGoalType = selectedLifeGoal?.goalType ?? 'outcome'
   const selectedGoalIsOutcome = selectedGoalType === 'outcome'
   const selectedGoalIsDirectional = selectedGoalType === 'directional'
-  const selectedGoalMilestonesEnabled = selectedGoalIsOutcome && Boolean(selectedLifeGoal?.milestonesEnabled)
-  const selectedCurrentMilestone = useMemo(
-    () => getCurrentGoalMilestone(selectedLifeGoalMilestones),
-    [selectedLifeGoalMilestones],
-  )
-  const selectedCompletedMilestoneCount = useMemo(
-    () => selectedLifeGoalMilestones.filter((milestone) => milestone.completed).length,
-    [selectedLifeGoalMilestones],
-  )
-  const selectedMilestoneOptions = useMemo(
-    () =>
-      selectedGoalMilestonesEnabled
-        ? getMilestoneSelectOptions(selectedLifeGoalMilestones, selectedCurrentMilestone?.id ?? null)
-        : [],
-    [selectedCurrentMilestone?.id, selectedGoalMilestonesEnabled, selectedLifeGoalMilestones],
-  )
-  const selectedMilestoneDateTarget = useMemo(
-    () =>
-      milestoneDatePickerMilestoneId
-        ? selectedLifeGoalMilestones.find((milestone) => milestone.id === milestoneDatePickerMilestoneId) ?? null
-        : null,
-    [milestoneDatePickerMilestoneId, selectedLifeGoalMilestones],
-  )
+  const selectedShowMilestoneProgressView = selectedGoalIsOutcome && Boolean(selectedLifeGoal?.milestonesEnabled)
   const selectedGoalRelatedGoals = useMemo(() => {
     if (!selectedLifeGoal) return []
     const seen = new Set<string>()
@@ -2238,71 +2161,6 @@ export function GoalsPage({
       hiddenSupportingHabitsCount,
     }
   }, [selectedGoalLinkedDirectionalTasks, selectedGoalParentGoals, selectedGoalRelatedGoals, selectedGoalSupportingHabits])
-  const selectedGoalRoadmapDerived = useMemo(() => {
-    const currentMilestone = selectedCurrentMilestone
-    const roadmapSections = selectedRoadmapSections
-    const sortedUpcomingTasks = sortTasksForDisplay(roadmapSections.upcoming, taskListSortMode)
-    const sortedCompletedTasks = sortTasksForDisplay(roadmapSections.completed, taskListSortMode)
-    const sortedPlannedTasks = roadmapSections.current ? [roadmapSections.current, ...sortedUpcomingTasks] : sortedUpcomingTasks
-    const milestoneIds = new Set(selectedLifeGoalMilestones.map((milestone) => milestone.id))
-    const explicitlyAssignedTasksByMilestone = new Map(
-      selectedLifeGoalMilestones.map((milestone) => [
-        milestone.id,
-        selectedGoalTaskSource.filter((task) => task.milestoneId === milestone.id),
-      ]),
-    )
-    const roadmapTasksGroupedByMilestone =
-      selectedGoalIsOutcome && selectedGoalMilestonesEnabled
-        ? getRoadmapTasksGroupedByMilestone(selectedLifeGoalMilestones, sortedPlannedTasks, currentMilestone?.id ?? null)
-        : []
-    const roadmapTasksWithoutMilestone =
-      selectedGoalIsOutcome && selectedGoalMilestonesEnabled
-        ? sortedPlannedTasks.filter((task) => !task.milestoneId || !milestoneIds.has(task.milestoneId))
-        : []
-    const roadmapRemainingCount = roadmapSections.current ? roadmapSections.upcoming.length + 1 : 0
-    const roadmapHasHighPriorityTasks =
-      (roadmapSections.current ? getPriorityScore(roadmapSections.current) === 3 : false) ||
-      roadmapSections.upcoming.some((task) => getPriorityScore(task) === 3)
-    const roadmapHasTaggedTasks = selectedGoalTaskSource.some((task) => Boolean(task.taskTag && normalizeTaskTag(task.taskTag)))
-    const goalProgress = selectedLifeGoalProgress
-    const goalReadyToComplete = goalProgress
-      ? goalProgress.totalTasks > 0 &&
-        goalProgress.completedTasks === goalProgress.totalTasks &&
-        selectedLifeGoal?.status !== 'complete'
-      : false
-    return {
-      currentMilestone,
-      sortedUpcomingTasks,
-      sortedCompletedTasks,
-      sortedPlannedTasks,
-      explicitlyAssignedTasksByMilestone,
-      roadmapTasksGroupedByMilestone,
-      roadmapTasksWithoutMilestone,
-      roadmapRemainingCount,
-      roadmapHasHighPriorityTasks,
-      roadmapHasTaggedTasks,
-      goalReadyToComplete,
-    }
-  }, [
-    selectedCurrentMilestone,
-    selectedGoalIsOutcome,
-    selectedGoalMilestonesEnabled,
-    selectedGoalTaskSource,
-    selectedLifeGoal?.status,
-    selectedLifeGoalMilestones,
-    selectedLifeGoalProgress,
-    selectedRoadmapSections,
-    taskListSortMode,
-  ])
-  const selectedRoadmapPanelView = selectedLifeGoal ? roadmapPanelViewByGoal[selectedLifeGoal.id] ?? 'tasks' : 'tasks'
-  const selectedShowMilestoneProgressView = selectedGoalIsOutcome && selectedGoalMilestonesEnabled
-  const selectedRoadmapProgressView =
-    selectedShowMilestoneProgressView
-      ? selectedRoadmapPanelView
-      : selectedRoadmapPanelView === 'notes'
-        ? 'notes'
-        : 'tasks'
-
   useEffect(() => {
     if (selectedLifeGoalShowVisionEditUI && selectedLifeGoalVisionEditShowsImages) return
     setVisionDropActive(false)
@@ -3542,82 +3400,6 @@ export function GoalsPage({
       title: creatingTaskPeekId === selectedTaskPeek.id ? '' : selectedTaskPeek.text,
     })
   }, [creatingTaskPeekId, selectedTaskPeek, useSharedGoalTaskPeek])
-  const toggleRoadmapHighPriorityFocus = useCallback(() => {
-    setRoadmapHighPriorityFocus((current) => !current)
-  }, [])
-  const toggleRoadmapOrganizationMode = useCallback(() => {
-    setRoadmapOrganizationMode((current) => (current === 'default' ? 'tag' : 'default'))
-  }, [])
-  const setSelectedRoadmapProgressView = useCallback(
-    (view: LifeGoalRoadmapPanelView) => {
-      if (!selectedLifeGoal) return
-      setRoadmapPanelViewByGoal((current) => ({
-        ...current,
-        [selectedLifeGoal.id]: view,
-      }))
-    },
-    [selectedLifeGoal],
-  )
-  const openSelectedGoalRoadmapTab = useCallback(() => {
-    setLifeGoalDetailTab('roadmap')
-  }, [])
-  const handleRoadmapPanelKeyDown = useCallback(
-    (event: React.KeyboardEvent<HTMLDivElement>) => {
-      if (event.key === 'Enter' && event.shiftKey) {
-        event.preventDefault()
-        openNewTaskPeek(event.currentTarget)
-      }
-    },
-    [openNewTaskPeek],
-  )
-  const handleRoadmapPanelAddTask = useCallback((trigger?: HTMLElement | null) => {
-    openNewTaskPeek(trigger)
-  }, [openNewTaskPeek])
-  const toggleRoadmapCompleted = useCallback(() => {
-    setRoadmapCompletedOpen((current) => !current)
-  }, [])
-  const selectedRoadmapPanelUiState = useMemo(
-    () => ({
-      roadmapHighPriorityFocus,
-      completedOpen: roadmapCompletedOpen,
-      showHighPriorityFocus: selectedGoalRoadmapDerived.roadmapHasHighPriorityTasks,
-      progressView: selectedRoadmapProgressView,
-      showMilestonesView: selectedShowMilestoneProgressView,
-      showNotesView: true,
-      organizationMode: roadmapOrganizationMode,
-      showTagGrouping: selectedGoalRoadmapDerived.roadmapHasTaggedTasks,
-    }),
-    [
-      roadmapCompletedOpen,
-      roadmapHighPriorityFocus,
-      roadmapOrganizationMode,
-      selectedGoalRoadmapDerived.roadmapHasHighPriorityTasks,
-      selectedGoalRoadmapDerived.roadmapHasTaggedTasks,
-      selectedRoadmapProgressView,
-      selectedShowMilestoneProgressView,
-    ],
-  )
-  const selectedRoadmapPanelActions = useMemo(
-    () => ({
-      onToggleHighPriorityFocus: toggleRoadmapHighPriorityFocus,
-      onToggleOrganizationMode: toggleRoadmapOrganizationMode,
-      onSetProgressView: setSelectedRoadmapProgressView,
-      onOpenRoadmap: openSelectedGoalRoadmapTab,
-      onRoadmapKeyDown: handleRoadmapPanelKeyDown,
-      onAddTask: handleRoadmapPanelAddTask,
-      onToggleCompleted: toggleRoadmapCompleted,
-    }),
-    [
-      handleRoadmapPanelAddTask,
-      handleRoadmapPanelKeyDown,
-      openSelectedGoalRoadmapTab,
-      setSelectedRoadmapProgressView,
-      toggleRoadmapCompleted,
-      toggleRoadmapHighPriorityFocus,
-      toggleRoadmapOrganizationMode,
-    ],
-  )
-
   const openMilestoneDatePicker = (milestoneId: string, date?: string | null) => {
     setMilestoneDatePickerMilestoneId((current) => (current === milestoneId ? null : milestoneId))
   }
@@ -5399,16 +5181,8 @@ const renderLifeGoalOverviewPage = () => {
       selectedGoalDetailContentVisibility={selectedGoalDetailContentVisibility}
       selectedGoalIsOutcome={selectedGoalIsOutcome}
       selectedGoalIsDirectional={selectedGoalIsDirectional}
-      selectedGoalMilestonesEnabled={selectedGoalMilestonesEnabled}
       selectedLifeGoalMilestones={selectedLifeGoalMilestones}
-      selectedCurrentMilestone={selectedCurrentMilestone}
-      selectedCompletedMilestoneCount={selectedCompletedMilestoneCount}
-      selectedRoadmapPanelView={selectedRoadmapPanelView}
       selectedShowMilestoneProgressView={selectedShowMilestoneProgressView}
-      selectedMilestoneOptions={selectedMilestoneOptions}
-      selectedMilestoneDateTarget={selectedMilestoneDateTarget}
-      selectedRoadmapSections={selectedRoadmapSections}
-      selectedGoalRoadmapDerived={selectedGoalRoadmapDerived}
       selectedGoalRelatedGoals={selectedGoalRelatedGoals}
       selectedGoalLinkedDirectionalTasks={selectedGoalLinkedDirectionalTasks}
       selectedGoalSupportingHabits={selectedGoalSupportingHabits}
@@ -5421,35 +5195,19 @@ const renderLifeGoalOverviewPage = () => {
       goalDetailOrigin={goalDetailOrigin}
       taskPeekRightOffset={taskPeekRightOffset}
       year={year}
-      selectedRoadmapPanelActions={selectedRoadmapPanelActions}
-      selectedRoadmapPanelUiState={selectedRoadmapPanelUiState}
-      selectedRoadmapTaskId={selectedRoadmapTaskId}
       inlineLifeGoalEditingField={inlineLifeGoalEditingField}
-      lifeGoalDetailTab={lifeGoalDetailTab}
       lifeGoalDraft={lifeGoalDraft}
       lifeGoalIconFieldRef={lifeGoalIconFieldRef}
       lifeGoalTitleInputRef={lifeGoalTitleInputRef}
       lifeGoalWhyTextareaRef={lifeGoalWhyTextareaRef}
-      milestoneDatePanelPosition={milestoneDatePanelPosition}
-      milestoneDatePanelRef={milestoneDatePanelRef}
-      milestoneDatePickerMilestoneId={milestoneDatePickerMilestoneId}
-      completeNextVisualState={completeNextVisualState}
-      dragOverTaskId={dragOverTaskId}
-      draggedTaskId={draggedTaskId}
       dragOverVisionImageIndex={dragOverVisionImageIndex}
       draggedVisionImageIndex={draggedVisionImageIndex}
       editGoalActionsButtonRef={editGoalActionsButtonRef}
       editGoalActionsMenuOpen={editGoalActionsMenuOpen}
       editGoalActionsMenuRef={editGoalActionsMenuRef}
-      habitDraftByTaskId={habitDraftByTaskId}
-      lifeGoalActionFeedback={lifeGoalActionFeedback}
-      nextTaskVisualState={nextTaskVisualState}
       prefersReducedMotion={prefersReducedMotion}
-      roadmapArrivalCueActive={roadmapArrivalCueActive}
       roadmapCompletedOpen={roadmapCompletedOpen}
       roadmapHighPriorityFocus={roadmapHighPriorityFocus}
-      roadmapOrganizationMode={roadmapOrganizationMode}
-      roadmapTaskRowRefs={roadmapTaskRowRefs}
       selectedLifeGoalCanUploadVisionImages={selectedLifeGoalCanUploadVisionImages}
       selectedLifeGoalShowVisionEditUI={selectedLifeGoalShowVisionEditUI}
       selectedLifeGoalVisionCollapsed={selectedLifeGoalVisionCollapsed}
@@ -5460,9 +5218,6 @@ const renderLifeGoalOverviewPage = () => {
       selectedLifeGoalVisionMode={selectedLifeGoalVisionMode}
       selectedLifeGoalVisionShowsImagesInDisplay={selectedLifeGoalVisionShowsImagesInDisplay}
       selectedLifeGoalVisionShowsStatementInDisplay={selectedLifeGoalVisionShowsStatementInDisplay}
-      taskListSortMode={taskListSortMode}
-      taskMomentumTransition={taskMomentumTransition}
-      visibleGoalStartCueTaskId={visibleGoalStartCueTaskId}
       visionDropActive={visionDropActive}
       visionImageInteractiveOptions={visionImageInteractiveOptions}
       visionUploadInputRef={visionUploadInputRef}
@@ -5475,56 +5230,34 @@ const renderLifeGoalOverviewPage = () => {
       onSelectLifeGoal={onSelectLifeGoal}
       onOpenDashboard={onOpenDashboard}
       onOpenTasks={onOpenTasks}
-      onSetLifeGoalAsTodayTask={onSetLifeGoalAsTodayTask}
       openEditLifeGoalComposer={openEditLifeGoalComposer}
-      openMilestonePeek={openMilestonePeek}
       openNewTaskPeek={openNewTaskPeek}
       openSelectedLifeGoalVisionEditor={openSelectedLifeGoalVisionEditor}
       openTaskPeek={openTaskPeek}
       requestDeleteLifeGoal={requestDeleteLifeGoal}
-      restoreTask={restoreTask}
-      updateSelectedLifeGoalNotes={updateSelectedLifeGoalNotes}
       updateSelectedLifeGoalVisionStatement={updateSelectedLifeGoalVisionStatement}
       commitInlineLifeGoalField={commitInlineLifeGoalField}
       cancelInlineLifeGoalField={cancelInlineLifeGoalField}
       primeInlineLifeGoalDraft={primeInlineLifeGoalDraft}
-      handleCompleteNextWithFeedback={handleCompleteNextWithFeedback}
       handleTaskRowKeyDown={handleTaskRowKeyDown}
-      completeLifeGoal={completeLifeGoal}
-      createHabitFromTask={createHabitFromTask}
-      onOpenGlobalTasks={onOpenGlobalTasks}
       onOpenHabitTracker={onOpenHabitTracker}
-      addSelectedLifeGoalMilestone={addSelectedLifeGoalMilestone}
       applySelectedLifeGoalVisionEditMode={applySelectedLifeGoalVisionEditMode}
-      applySelectedMilestoneDate={applySelectedMilestoneDate}
       appendSelectedLifeGoalVisionImages={appendSelectedLifeGoalVisionImages}
       removeSelectedLifeGoalVisionImage={removeSelectedLifeGoalVisionImage}
-      renderSubtaskProgressDots={renderSubtaskProgressDots}
       renderVisionImageLayout={renderVisionImageLayout}
-      reorderGoalTask={reorderGoalTask}
       reorderSelectedLifeGoalVisionImages={reorderSelectedLifeGoalVisionImages}
-      setDragOverTaskId={setDragOverTaskId}
-      setDraggedTaskId={setDraggedTaskId}
       setDragOverVisionImageIndex={setDragOverVisionImageIndex}
       setDraggedVisionImageIndex={setDraggedVisionImageIndex}
       setEditGoalActionsMenuOpen={setEditGoalActionsMenuOpen}
-      setHabitDraftByTaskId={setHabitDraftByTaskId}
       setInlineLifeGoalEditingField={setInlineLifeGoalEditingField}
       setInlineLifeGoalIconGoalId={setInlineLifeGoalIconGoalId}
-      setLifeGoalActionFeedback={setLifeGoalActionFeedback}
-      setLifeGoalDetailTab={setLifeGoalDetailTab}
       setLifeGoalDraft={setLifeGoalDraft}
       setLifeGoalIconPickerOpen={setLifeGoalIconPickerOpen}
       setLifeGoalIconPickerQuery={setLifeGoalIconPickerQuery}
       setLifeGoalIconPickerTab={setLifeGoalIconPickerTab}
-      setMilestoneDatePanelPosition={setMilestoneDatePanelPosition}
-      setMilestoneDatePickerMilestoneId={setMilestoneDatePickerMilestoneId}
       setRoadmapCompletedOpen={setRoadmapCompletedOpen}
       setRoadmapHighPriorityFocus={setRoadmapHighPriorityFocus}
-      setRoadmapOrganizationMode={setRoadmapOrganizationMode}
       setSelectedLifeGoalVisionEditMode={setSelectedLifeGoalVisionEditMode}
-      setSelectedRoadmapTaskId={setSelectedRoadmapTaskId}
-      setTaskListSortMode={setTaskListSortMode}
       setVisionDropActive={setVisionDropActive}
       setVisionPreviewImage={setVisionPreviewImage}
     />

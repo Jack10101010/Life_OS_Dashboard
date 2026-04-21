@@ -473,7 +473,6 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
     goalDetailOrigin,
     taskPeekRightOffset = 0,
     year,
-    selectedRoadmapPanelActions,
     inlineLifeGoalEditingField,
     lifeGoalDraft,
     lifeGoalIconFieldRef,
@@ -536,7 +535,6 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
     setLifeGoalIconPickerTab,
     setRoadmapCompletedOpen,
     setRoadmapHighPriorityFocus,
-    setRoadmapOrganizationMode,
     setSelectedLifeGoalVisionEditMode,
     setVisionDropActive,
     setVisionPreviewImage,
@@ -2134,9 +2132,6 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
       (atomsPanelTaskCounts.total > 0 && atomsPanelTaskCounts.active === 0)
     const handleRoadmapViewChange = (value: 'roadmap' | 'milestones' | 'notes' | 'tasks') => {
       setGoalDetailRoadmapViewSelection(value)
-      selectedRoadmapPanelActions?.onSetProgressView?.(
-        value === 'roadmap' ? 'tasks' : value,
-      )
     }
     const resetGoalDetailRoadmapControls = () => {
       setRoadmapCompletedOpen(false)
@@ -2145,7 +2140,6 @@ export const LifeGoalDetailPage = React.memo(function LifeGoalDetailPage(props: 
       setGoalDetailRoadmapShowTags(false)
       setGoalDetailRoadmapSubtaskDisplayMode('chip')
       setGoalDetailRoadmapViewSelection('roadmap')
-      selectedRoadmapPanelActions?.onSetProgressView?.('tasks')
     }
     const roadmapControlsPanel = (
       <div className="relative inline-flex items-center">
