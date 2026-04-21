@@ -270,15 +270,7 @@ type LifeGoalDraftTask = {
   completedAt: string | null
 }
 
-type LifeGoalDraftMilestone = {
-  id: string
-  title: string
-  description: string
-  targetDate: string | null
-  completed: boolean
-  completedAt: string | null
-  order: number
-}
+type LifeGoalDraftMilestone = GoalMilestone
 
 type LifeGoalDraft = {
   title: string
@@ -744,12 +736,10 @@ function createLifeGoalDraftFromGoal(goal: LifeGoal, runtimeTasks: LifeGoalTask[
     ifThenPlan: goal.ifThenPlan,
     status: goal.status,
     milestones: (goal.milestones ?? []).map((milestone, index) => ({
-      id: milestone.id,
+      ...milestone,
       title: milestone.title,
       description: milestone.description ?? '',
       targetDate: milestone.targetDate ?? null,
-      completed: milestone.completed,
-      completedAt: milestone.completedAt,
       order: typeof milestone.order === 'number' ? milestone.order : index,
     })),
     tasks:
@@ -2419,12 +2409,10 @@ export function GoalsPage({
       const nextMilestones = reindexLifeGoalMilestones(
         updater(
           (goal.milestones ?? []).map((milestone, index) => ({
-            id: milestone.id,
+            ...milestone,
             title: milestone.title,
             description: milestone.description ?? '',
             targetDate: milestone.targetDate ?? null,
-            completed: milestone.completed,
-            completedAt: milestone.completedAt,
             order: typeof milestone.order === 'number' ? milestone.order : index,
           })),
         ),
