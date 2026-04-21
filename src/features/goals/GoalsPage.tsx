@@ -82,7 +82,6 @@ import {
   getLifeGoalRuntimeTasks,
   getLifeGoalStatusMeta,
   getLifeSignalBucket,
-  getMilestoneTaskProgress,
   normalizeTaskRecordToLifeGoalTask,
   getSubtaskProgressDots,
   getSubtaskProgressSummary,
@@ -449,18 +448,6 @@ function createLifeGoalDraftTask(text = ''): LifeGoalDraftTask {
   }
 }
 
-function createLifeGoalDraftMilestone(title = ''): LifeGoalDraftMilestone {
-  return {
-    id: `life-goal-milestone-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
-    title,
-    description: '',
-    targetDate: null,
-    completed: false,
-    completedAt: null,
-    order: 0,
-  }
-}
-
 function normalizeLifeGoalDraftMilestones(milestones: LifeGoalDraftMilestone[]): LifeGoalDraftMilestone[] {
   return milestones
     .map((milestone, index) => {
@@ -476,15 +463,6 @@ function normalizeLifeGoalDraftMilestones(milestones: LifeGoalDraftMilestone[]):
       }
     })
     .filter((milestone): milestone is LifeGoalDraftMilestone => Boolean(milestone))
-}
-
-function reindexLifeGoalMilestones(milestones: LifeGoalDraftMilestone[]): LifeGoalDraftMilestone[] {
-  return milestones.map((milestone, index) => ({
-    ...milestone,
-    targetDate: milestone.targetDate && isValidIsoDate(milestone.targetDate) ? milestone.targetDate : null,
-    completedAt: milestone.completed ? milestone.completedAt ?? new Date().toISOString() : null,
-    order: index,
-  }))
 }
 
 function createEmptyLifeGoalTask(): LifeGoalTask {
@@ -1224,7 +1202,6 @@ export function GoalsPage({
   const [visionDropActive, setVisionDropActive] = useState(false)
   const [draggedVisionImageIndex, setDraggedVisionImageIndex] = useState<number | null>(null)
   const [dragOverVisionImageIndex, setDragOverVisionImageIndex] = useState<number | null>(null)
-  const [selectedMilestoneIdByGoal, setSelectedMilestoneIdByGoal] = useState<Record<string, string | null>>({})
   const [linkHabitPickerOpen, setLinkHabitPickerOpen] = useState(false)
   const [habitDraftByTaskId, setHabitDraftByTaskId] = useState<Record<string, string>>({})
   const [roadmapHighPriorityFocus, setRoadmapHighPriorityFocus] = useState(false)
@@ -1232,8 +1209,6 @@ export function GoalsPage({
   const [selectedRoadmapTaskId, setSelectedRoadmapTaskId] = useState<string | null>(null)
   const [selectedTaskPeekId, setSelectedTaskPeekId] = useState<string | null>(null)
   const [taskPeekLockedMilestoneContext, setTaskPeekLockedMilestoneContext] = useState<{ id: string; title: string } | null>(null)
-  const [milestoneDatePickerMilestoneId, setMilestoneDatePickerMilestoneId] = useState<string | null>(null)
-  const [milestoneDatePanelPosition, setMilestoneDatePanelPosition] = useState<FloatingPanelPosition | null>(null)
   const [completionUndo, setCompletionUndo] = useState<CompletionUndoState | null>(null)
   const [completionPulse, setCompletionPulse] = useState<CompletionPulseState | null>(null)
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null)
@@ -1255,8 +1230,6 @@ export function GoalsPage({
   useEffect(() => {
     setRoadmapCompletedOpen(false)
     setVisionDropActive(false)
-    setMilestoneDatePickerMilestoneId(null)
-    setMilestoneDatePanelPosition(null)
   }, [selectedLifeGoalId])
 
   useEffect(() => {
@@ -1392,8 +1365,6 @@ export function GoalsPage({
   const visionUploadInputRef = useRef<HTMLInputElement | null>(null)
   const taskPeekTriggerRef = useRef<HTMLElement | null>(null)
   const latestTaskPeekDraftRef = useRef<TaskPeekTaskData | null>(null)
-  const milestoneDateFieldRefs = useRef<Record<string, HTMLDivElement | null>>({})
-  const milestoneDatePanelRef = useRef<HTMLDivElement | null>(null)
   const roadmapTaskRowRefs = useRef<Record<string, HTMLElement | null>>({})
   const completionUndoTimeoutRef = useRef<number | null>(null)
   const completionPulseTimeoutRef = useRef<number | null>(null)
@@ -1941,11 +1912,6 @@ export function GoalsPage({
     () => (selectedLifeGoal ? getOrderedGoalMilestones(selectedLifeGoal) : []),
     [selectedLifeGoal],
   )
-  const selectedMilestoneId = selectedLifeGoal ? selectedMilestoneIdByGoal[selectedLifeGoal.id] ?? null : null
-  const selectedMilestone = useMemo(
-    () => (selectedMilestoneId ? selectedLifeGoalMilestones.find((milestone) => milestone.id === selectedMilestoneId) ?? null : null),
-    [selectedLifeGoalMilestones, selectedMilestoneId],
-  )
 
   useEffect(() => {
     setInlineLifeGoalEditingField(null)
@@ -1975,15 +1941,6 @@ export function GoalsPage({
       })
     }
   }, [inlineLifeGoalEditingField])
-  const selectedMilestoneIndex = selectedMilestone ? selectedLifeGoalMilestones.findIndex((milestone) => milestone.id === selectedMilestone.id) : -1
-  const selectedMilestoneTasks = useMemo(
-    () => (selectedLifeGoal && selectedMilestone ? selectedGoalTaskSource.filter((task) => task.milestoneId === selectedMilestone.id) : []),
-    [selectedGoalTaskSource, selectedLifeGoal, selectedMilestone],
-  )
-  const selectedMilestoneTaskProgress = useMemo(
-    () => (selectedMilestone ? getMilestoneTaskProgress(selectedMilestoneTasks) : null),
-    [selectedMilestone, selectedMilestoneTasks],
-  )
   const nextTaskVisualState =
     taskMomentumTransition?.nextTaskId &&
     selectedLifeGoalProgress?.nextTask &&
@@ -2259,93 +2216,6 @@ export function GoalsPage({
     }))
   }, [onUpdateLifeGoal, selectedLifeGoal])
 
-  const updateSelectedLifeGoalMilestones = (
-    updater: (milestones: LifeGoalDraftMilestone[]) => LifeGoalDraftMilestone[],
-  ) => {
-    if (!selectedLifeGoal || selectedLifeGoal.goalType !== 'outcome') return
-    onUpdateLifeGoal(selectedLifeGoal.id, (goal) => {
-      const nextMilestones = reindexLifeGoalMilestones(
-        updater(
-          (goal.milestones ?? []).map((milestone, index) => ({
-            ...milestone,
-            title: milestone.title,
-            description: milestone.description ?? '',
-            targetDate: milestone.targetDate ?? null,
-            order: typeof milestone.order === 'number' ? milestone.order : index,
-          })),
-        ),
-      )
-      return {
-        ...goal,
-        milestones: nextMilestones,
-        updatedAt: new Date().toISOString(),
-      }
-    })
-  }
-
-  const addSelectedLifeGoalMilestone = () => {
-    if (!selectedLifeGoal) return
-    const nextMilestone = {
-      ...createLifeGoalDraftMilestone(),
-      title: `Milestone ${((selectedLifeGoal.milestones ?? []).length || 0) + 1}`,
-      order: (selectedLifeGoal.milestones ?? []).length,
-    }
-    updateSelectedLifeGoalMilestones((milestones) => [
-      ...milestones,
-      nextMilestone,
-    ])
-    setSelectedMilestoneIdByGoal((current) => ({
-      ...current,
-      [selectedLifeGoal.id]: nextMilestone.id,
-    }))
-  }
-
-  const updateSelectedLifeGoalMilestone = (
-    milestoneId: string,
-    updater: (milestone: LifeGoalDraftMilestone) => LifeGoalDraftMilestone,
-  ) => {
-    updateSelectedLifeGoalMilestones((milestones) =>
-      milestones.map((milestone) => (milestone.id === milestoneId ? updater(milestone) : milestone)),
-    )
-  }
-
-  const reorderSelectedLifeGoalMilestone = (milestoneId: string, direction: 'up' | 'down') => {
-    updateSelectedLifeGoalMilestones((milestones) => {
-      const index = milestones.findIndex((milestone) => milestone.id === milestoneId)
-      if (index === -1) return milestones
-      const targetIndex = direction === 'up' ? index - 1 : index + 1
-      if (targetIndex < 0 || targetIndex >= milestones.length) return milestones
-      const nextMilestones = [...milestones]
-      const [movedMilestone] = nextMilestones.splice(index, 1)
-      nextMilestones.splice(targetIndex, 0, movedMilestone)
-      return nextMilestones.map((milestone, milestoneIndex) => ({
-        ...milestone,
-        order: milestoneIndex,
-      }))
-    })
-  }
-
-  const deleteSelectedLifeGoalMilestone = (milestoneId: string) => {
-    if (milestoneDatePickerMilestoneId === milestoneId) {
-      setMilestoneDatePickerMilestoneId(null)
-      setMilestoneDatePanelPosition(null)
-    }
-    if (selectedLifeGoal) {
-      setSelectedMilestoneIdByGoal((current) => ({
-        ...current,
-        [selectedLifeGoal.id]: current[selectedLifeGoal.id] === milestoneId ? null : current[selectedLifeGoal.id] ?? null,
-      }))
-    }
-    updateSelectedLifeGoalMilestones((milestones) =>
-      milestones
-        .filter((milestone) => milestone.id !== milestoneId)
-        .map((milestone, milestoneIndex) => ({
-          ...milestone,
-          order: milestoneIndex,
-        })),
-    )
-  }
-
   const setSelectedLifeGoalVisionCollapsed = (value: boolean | ((current: boolean) => boolean)) => {
     if (!selectedLifeGoal) return
     const nextValue =
@@ -2542,47 +2412,6 @@ export function GoalsPage({
       setSelectedTaskPeekId(null)
     }
   }, [selectedGoalTaskSource, selectedLifeGoal, selectedTaskPeekId])
-
-  useEffect(() => {
-    if (!milestoneDatePickerMilestoneId) return
-
-    const handlePointerDown = (event: MouseEvent) => {
-      const target = event.target as Node
-      const activeFieldRef = milestoneDateFieldRefs.current[milestoneDatePickerMilestoneId]
-      if (!activeFieldRef?.contains(target) && !milestoneDatePanelRef.current?.contains(target)) {
-        setMilestoneDatePickerMilestoneId(null)
-        setMilestoneDatePanelPosition(null)
-      }
-    }
-
-    document.addEventListener('mousedown', handlePointerDown)
-    return () => document.removeEventListener('mousedown', handlePointerDown)
-  }, [milestoneDatePickerMilestoneId])
-
-
-  useEffect(() => {
-    if (!milestoneDatePickerMilestoneId) return
-
-    const updatePosition = () => {
-      const activeFieldRef = milestoneDateFieldRefs.current[milestoneDatePickerMilestoneId]
-      if (!activeFieldRef) return
-      setMilestoneDatePanelPosition(
-        getFloatingPanelPosition(activeFieldRef, {
-          minWidth: 320,
-          preferredWidth: 348,
-          estimatedHeight: 360,
-        }),
-      )
-    }
-
-    updatePosition()
-    window.addEventListener('resize', updatePosition)
-    window.addEventListener('scroll', updatePosition, true)
-    return () => {
-      window.removeEventListener('resize', updatePosition)
-      window.removeEventListener('scroll', updatePosition, true)
-    }
-  }, [milestoneDatePickerMilestoneId])
 
   useEffect(() => {
     return () => {
@@ -3137,22 +2966,6 @@ export function GoalsPage({
     setSelectedRoadmapTaskId(nextTask.id)
   }, [createDirectionalGoalTask, createOutcomeGoalTask, selectedLifeGoal])
 
-  const openMilestonePeek = (milestoneId: string) => {
-    if (!selectedLifeGoal) return
-    setSelectedMilestoneIdByGoal((current) => ({
-      ...current,
-      [selectedLifeGoal.id]: milestoneId,
-    }))
-  }
-
-  const closeMilestonePeek = () => {
-    if (!selectedLifeGoal) return
-    setSelectedMilestoneIdByGoal((current) => ({
-      ...current,
-      [selectedLifeGoal.id]: null,
-    }))
-  }
-
   const closeTaskPeek = useCallback(() => {
     const latestTaskPeekDraft = latestTaskPeekDraftRef.current
     const latestDraftIsEmpty =
@@ -3400,20 +3213,6 @@ export function GoalsPage({
       title: creatingTaskPeekId === selectedTaskPeek.id ? '' : selectedTaskPeek.text,
     })
   }, [creatingTaskPeekId, selectedTaskPeek, useSharedGoalTaskPeek])
-  const openMilestoneDatePicker = (milestoneId: string, date?: string | null) => {
-    setMilestoneDatePickerMilestoneId((current) => (current === milestoneId ? null : milestoneId))
-  }
-
-  const applySelectedMilestoneDate = (date: string) => {
-    if (!milestoneDatePickerMilestoneId) return
-    updateSelectedLifeGoalMilestone(milestoneDatePickerMilestoneId, (milestone) => ({
-      ...milestone,
-      targetDate: date || null,
-    }))
-    setMilestoneDatePickerMilestoneId(null)
-    setMilestoneDatePanelPosition(null)
-  }
-
   const updateLifeGoalStatus = (goalId: string, status: LifeGoalStatus) => {
     onUpdateLifeGoal(goalId, (goal) => ({
       ...goal,
@@ -5396,146 +5195,6 @@ const renderLifeGoalOverviewPage = () => {
             </Button>
           </div>
         </div>
-      </DetailDrawer>
-
-      <DetailDrawer
-        open={Boolean(selectedLifeGoal && selectedMilestone)}
-        onClose={() => {
-          if (!selectedLifeGoal) return
-          setSelectedMilestoneIdByGoal((current) => ({
-            ...current,
-            [selectedLifeGoal.id]: null,
-          }))
-        }}
-        size="md"
-        subtitle="Milestone"
-        title={selectedMilestone?.title.trim() || (selectedMilestoneIndex >= 0 ? `Milestone ${selectedMilestoneIndex + 1}` : 'Milestone')}
-        description="Refine one checkpoint at a time without losing the roadmap context."
-      >
-        {selectedLifeGoal && selectedMilestone && selectedMilestoneIndex >= 0 ? (
-          <div className="space-y-4">
-            <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px]">
-              <label className="space-y-1">
-                <span className="text-[10px] uppercase tracking-[0.14em] text-mist/50">Title</span>
-                <input
-                  value={selectedMilestone.title}
-                  onChange={(event) =>
-                    updateSelectedLifeGoalMilestone(selectedMilestone.id, (current) => ({
-                      ...current,
-                      title: event.target.value,
-                    }))
-                  }
-                  autoFocus
-                  placeholder={`Milestone ${selectedMilestoneIndex + 1}`}
-                  spellCheck={true}
-                  className="theme-input w-full rounded-xl border px-3 py-2 text-sm outline-none"
-                />
-              </label>
-              <label className="space-y-1">
-                <span className="text-[10px] uppercase tracking-[0.14em] text-mist/50">Target date</span>
-                <div
-                  ref={(element) => {
-                    milestoneDateFieldRefs.current[selectedMilestone.id] = element
-                  }}
-                  className="relative"
-                >
-                  <button
-                    type="button"
-                    onClick={() => openMilestoneDatePicker(selectedMilestone.id, selectedMilestone.targetDate)}
-                    className="theme-input flex w-full items-center justify-between gap-3 rounded-xl border px-3 py-2 text-left text-sm transition"
-                  >
-                    <span className={selectedMilestone.targetDate ? 'theme-text-primary' : 'theme-text-muted'}>
-                      {selectedMilestone.targetDate ? formatDate(selectedMilestone.targetDate) : 'Optional date'}
-                    </span>
-                    <ChevronRight className="h-3.5 w-3.5 rotate-90 theme-text-faint" />
-                  </button>
-                </div>
-              </label>
-            </div>
-
-            <label className="space-y-1">
-              <span className="text-[10px] uppercase tracking-[0.14em] text-mist/50">Description</span>
-              <textarea
-                value={selectedMilestone.description}
-                onChange={(event) =>
-                  updateSelectedLifeGoalMilestone(selectedMilestone.id, (current) => ({
-                    ...current,
-                    description: event.target.value,
-                  }))
-                }
-                rows={3}
-                placeholder="Why this checkpoint matters or what it represents"
-                spellCheck={true}
-                className="theme-input min-h-[88px] w-full resize-none rounded-xl border px-3 py-2 text-sm outline-none"
-              />
-            </label>
-
-            <button
-              type="button"
-              onClick={(event) =>
-                openNewTaskPeek(event.currentTarget, {
-                  milestoneId: selectedMilestone.id,
-                  milestoneTitle: selectedMilestone.title.trim() || `Milestone ${selectedMilestoneIndex + 1}`,
-                })
-              }
-              className="inline-flex items-center text-[13px] text-mist/58 transition hover:text-white/78"
-            >
-              + Add task to this milestone
-            </button>
-
-            {selectedMilestoneTaskProgress ? (
-              <p className="text-[12px] text-mist/56">
-                {selectedMilestoneTaskProgress.completed}/{selectedMilestoneTaskProgress.total} tasks complete
-              </p>
-            ) : null}
-
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() =>
-                  updateSelectedLifeGoalMilestone(selectedMilestone.id, (current) => ({
-                    ...current,
-                    completed: !current.completed,
-                    completedAt: !current.completed ? new Date().toISOString() : null,
-                  }))
-                }
-                className={`inline-flex items-center rounded-full border px-3 py-1.5 text-[11px] uppercase tracking-[0.14em] transition ${
-                  selectedMilestone.completed
-                    ? 'border-[rgb(var(--theme-accent-rgb)/0.16)] bg-[rgb(var(--theme-accent-rgb)/0.08)] text-[rgb(var(--theme-accent-rgb)/0.76)]'
-                    : 'border-white/[0.06] bg-white/[0.018] text-white/54 hover:border-white/[0.1] hover:text-white/74'
-                }`}
-              >
-                {selectedMilestone.completed ? 'Mark incomplete' : 'Mark complete'}
-              </button>
-              <button
-                type="button"
-                onClick={() => reorderSelectedLifeGoalMilestone(selectedMilestone.id, 'up')}
-                disabled={selectedMilestoneIndex === 0}
-                className="inline-flex items-center rounded-full border border-white/[0.06] bg-white/[0.018] px-3 py-1.5 text-[11px] uppercase tracking-[0.14em] text-white/54 transition hover:border-white/[0.1] hover:text-white/74 disabled:opacity-30"
-              >
-                Move up
-              </button>
-              <button
-                type="button"
-                onClick={() => reorderSelectedLifeGoalMilestone(selectedMilestone.id, 'down')}
-                disabled={selectedMilestoneIndex === selectedLifeGoalMilestones.length - 1}
-                className="inline-flex items-center rounded-full border border-white/[0.06] bg-white/[0.018] px-3 py-1.5 text-[11px] uppercase tracking-[0.14em] text-white/54 transition hover:border-white/[0.1] hover:text-white/74 disabled:opacity-30"
-              >
-                Move down
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  deleteSelectedLifeGoalMilestone(selectedMilestone.id)
-                  closeMilestonePeek()
-                }}
-                className="inline-flex items-center rounded-full border border-[rgb(var(--theme-negative-rgb)/0.18)] bg-[rgb(var(--theme-negative-rgb)/0.06)] px-3 py-1.5 text-[11px] uppercase tracking-[0.14em] text-[rgb(var(--theme-negative-rgb)/0.76)] transition hover:border-[rgb(var(--theme-negative-rgb)/0.24)] hover:text-[rgb(var(--theme-negative-rgb)/0.86)]"
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        ) : null}
       </DetailDrawer>
 
       {useSharedGoalTaskPeek && selectedTaskPeekData && selectedLifeGoal ? (
