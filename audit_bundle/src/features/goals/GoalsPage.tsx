@@ -270,7 +270,15 @@ type LifeGoalDraftTask = {
   completedAt: string | null
 }
 
-type LifeGoalDraftMilestone = GoalMilestone
+type LifeGoalDraftMilestone = {
+  id: string
+  title: string
+  description: string
+  targetDate: string | null
+  completed: boolean
+  completedAt: string | null
+  order: number
+}
 
 type LifeGoalDraft = {
   title: string
@@ -736,10 +744,12 @@ function createLifeGoalDraftFromGoal(goal: LifeGoal, runtimeTasks: LifeGoalTask[
     ifThenPlan: goal.ifThenPlan,
     status: goal.status,
     milestones: (goal.milestones ?? []).map((milestone, index) => ({
-      ...milestone,
+      id: milestone.id,
       title: milestone.title,
       description: milestone.description ?? '',
       targetDate: milestone.targetDate ?? null,
+      completed: milestone.completed,
+      completedAt: milestone.completedAt,
       order: typeof milestone.order === 'number' ? milestone.order : index,
     })),
     tasks:
@@ -1701,7 +1711,7 @@ export function GoalsPage({
             })),
             milestoneId: task.milestoneId ?? null,
             phase: normalizeLifeGoalPhaseValue(task.phase),
-            createdAt: existing?.createdAt ?? task.completedAt ?? new Date().toISOString(),
+            createdAt: existing?.createdAt ?? task.completedAt ?? new Date(0).toISOString(),
             updatedAt: timestamp,
           } as Task
         })
@@ -1746,7 +1756,7 @@ export function GoalsPage({
             })),
             milestoneId: task.milestoneId ?? null,
             phase: normalizeLifeGoalPhaseValue(task.phase),
-            createdAt: existing?.createdAt ?? task.completedAt ?? new Date().toISOString(),
+            createdAt: existing?.createdAt ?? task.completedAt ?? new Date(0).toISOString(),
             updatedAt: timestamp,
           } as Task
         })
@@ -2409,10 +2419,12 @@ export function GoalsPage({
       const nextMilestones = reindexLifeGoalMilestones(
         updater(
           (goal.milestones ?? []).map((milestone, index) => ({
-            ...milestone,
+            id: milestone.id,
             title: milestone.title,
             description: milestone.description ?? '',
             targetDate: milestone.targetDate ?? null,
+            completed: milestone.completed,
+            completedAt: milestone.completedAt,
             order: typeof milestone.order === 'number' ? milestone.order : index,
           })),
         ),

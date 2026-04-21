@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Sidebar, type SidebarBadHabitStreak, type SidebarFocusTask, type SidebarTodayTask } from './components/layout/Sidebar'
 import { TopBar } from './components/layout/TopBar'
@@ -118,15 +118,6 @@ function getInitialGoalUrlState(defaultSelectedLifeGoalId: string | null): {
   }
 }
 
-function omitLifeGoalNotes(goal: LifeGoal): LifeGoal {
-  const { notes, ...rest } = goal
-  return rest as LifeGoal
-}
-
-function omitLifeGoalsNotes(goals: LifeGoal[]): LifeGoal[] {
-  return goals.map(omitLifeGoalNotes)
-}
-
 export default function App() {
   const currentYear = new Date().getUTCFullYear()
   const persisted = useMemo(() => getDefaultPersistedAppState(currentYear), [currentYear])
@@ -148,10 +139,7 @@ export default function App() {
   const trackerState = useTrackerState(persisted, currentYear, settingsState.settings.enableBadHabitTracking)
   const habitTrackerState = useHabitTrackerState(persisted)
   const [tasks, setTasks] = useState(persisted.tasks)
-  const [lifeGoals, setRawLifeGoals] = useState<LifeGoal[]>(() => omitLifeGoalsNotes(persisted.lifeGoals))
-  const setLifeGoals = useCallback<Dispatch<SetStateAction<LifeGoal[]>>>((value) => {
-    setRawLifeGoals((current) => omitLifeGoalsNotes(typeof value === 'function' ? value(current) : value))
-  }, [])
+  const [lifeGoals, setLifeGoals] = useState<LifeGoal[]>(persisted.lifeGoals)
   const [lifeGoalCategories, setLifeGoalCategories] = useState<LifeGoalCategoryDefinition[]>(persisted.lifeGoalCategories)
   const [snapshots, setSnapshots] = useState<PersistedAppStateSnapshotSummary[]>([])
   const [snapshotsLoading, setSnapshotsLoading] = useState(true)

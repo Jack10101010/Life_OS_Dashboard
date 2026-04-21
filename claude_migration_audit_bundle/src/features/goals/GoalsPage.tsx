@@ -1701,7 +1701,7 @@ export function GoalsPage({
             })),
             milestoneId: task.milestoneId ?? null,
             phase: normalizeLifeGoalPhaseValue(task.phase),
-            createdAt: existing?.createdAt ?? task.completedAt ?? new Date().toISOString(),
+            createdAt: existing?.createdAt ?? task.completedAt ?? new Date(0).toISOString(),
             updatedAt: timestamp,
           } as Task
         })
@@ -1746,7 +1746,7 @@ export function GoalsPage({
             })),
             milestoneId: task.milestoneId ?? null,
             phase: normalizeLifeGoalPhaseValue(task.phase),
-            createdAt: existing?.createdAt ?? task.completedAt ?? new Date().toISOString(),
+            createdAt: existing?.createdAt ?? task.completedAt ?? new Date(0).toISOString(),
             updatedAt: timestamp,
           } as Task
         })
